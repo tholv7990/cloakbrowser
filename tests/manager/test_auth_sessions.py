@@ -5,13 +5,12 @@ from datetime import timedelta
 import pytest
 
 from manager_backend.auth.sessions import (
-    SessionPolicy,
     issue_session,
     revoke_all_sessions,
     validate_session,
 )
 from manager_backend.errors import ManagerError
-from manager_backend.models import Owner, utc_now
+from manager_backend.models import AuthSession, Owner, utc_now
 
 
 def test_issue_session_stores_only_hashes(db_session_factory):
@@ -76,35 +75,18 @@ def test_validate_session_rejects_bad_csrf(db_session_factory):
         session.close()
 
 
-def test_validate_session_enforces_idle_expiry(db_session_factory):
+def test_session_remains_valid_regardless_of_age(db_session_factory):
     session = db_session_factory()
     try:
         owner = Owner(email="owner@example.com", password_hash="hash")
         session.add(owner)
         session.commit()
         issued = issue_session(session, owner)
-        issued.record.last_seen_at = utc_now() - timedelta(minutes=31)
+        issued.record.created_at = utc_now() - timedelta(days=3650)
         session.commit()
-        with pytest.raises(ManagerError) as error:
-            validate_session(session, issued.token)
-        assert error.value.code == "session_expired"
-        assert issued.record.revoked_at is not None
-    finally:
-        session.close()
-
-
-def test_validate_session_enforces_absolute_expiry(db_session_factory):
-    session = db_session_factory()
-    try:
-        owner = Owner(email="owner@example.com", password_hash="hash")
-        session.add(owner)
-        session.commit()
-        issued = issue_session(session, owner)
-        issued.record.absolute_expires_at = utc_now() - timedelta(seconds=1)
-        session.commit()
-        with pytest.raises(ManagerError) as error:
-            validate_session(session, issued.token)
-        assert error.value.code == "session_expired"
+        assert not hasattr(AuthSession, "last_seen_at")
+        assert not hasattr(AuthSession, "absolute_expires_at")
+        assert validate_session(session, issued.token).owner.id == owner.id
     finally:
         session.close()
 
@@ -122,9 +104,3 @@ def test_revoke_all_sessions(db_session_factory):
         assert second.record.revoked_at is not None
     finally:
         session.close()
-
-
-def test_session_policy_defaults():
-    policy = SessionPolicy()
-    assert policy.idle_timeout == timedelta(minutes=30)
-    assert policy.absolute_timeout == timedelta(hours=12)
