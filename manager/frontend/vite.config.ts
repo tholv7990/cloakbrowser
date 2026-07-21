@@ -13,6 +13,16 @@ export default defineConfig({
   server: {
     port: 5273,
     strictPort: false,
+    // Same-origin dev proxy to the local manager backend. Keeps Origin as the
+    // dev-server origin (matches the backend's allowed_origin) and forwards the
+    // /events WebSocket. Only used in real API mode.
+    proxy: {
+      '/api': {
+        target: process.env.VITE_BACKEND_TARGET ?? 'http://127.0.0.1:8765',
+        changeOrigin: false,
+        ws: true,
+      },
+    },
   },
   test: {
     globals: true,

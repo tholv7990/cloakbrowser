@@ -51,6 +51,10 @@ export const vi: Record<keyof typeof en, string> = {
     'Không có hồ sơ nào khớp với tìm kiếm và bộ lọc hiện tại. Hãy điều chỉnh hoặc đặt lại.',
 
   'auth.appName': 'CloakBrowser Trình quản lý hồ sơ',
+  'auth.brandTagline': 'Quản lý hồ sơ trình duyệt ẩn danh, ngay trên máy.',
+  'auth.brandSubtext':
+    'Tạo, khởi chạy và chẩn đoán các hồ sơ Windows độc lập — mọi dấu vân tay nhất quán, mọi bí mật chỉ nằm trên máy này.',
+  'auth.brandFooter': 'Cục bộ · một người dùng · Windows',
   'auth.setupTitle': 'Tạo tài khoản chủ sở hữu',
   'auth.setupSubtitle':
     'Trình quản lý cục bộ này được bảo vệ bằng một tài khoản chủ sở hữu duy nhất. Dữ liệu chỉ nằm trên máy này và không gửi đi đâu.',

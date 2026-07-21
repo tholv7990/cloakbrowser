@@ -49,6 +49,10 @@ export const en = {
     'No profiles fit the current search and filters. Adjust or reset them to see more.',
 
   'auth.appName': 'CloakBrowser Profile Manager',
+  'auth.brandTagline': 'Stealth browser profiles, managed locally.',
+  'auth.brandSubtext':
+    'Create, launch, and diagnose isolated Windows profiles — every fingerprint coherent, every secret on this machine only.',
+  'auth.brandFooter': 'Local · single-user · Windows',
   'auth.setupTitle': 'Create your owner account',
   'auth.setupSubtitle':
     'This local manager is protected by a single owner login. It stays on this machine and is never sent anywhere.',

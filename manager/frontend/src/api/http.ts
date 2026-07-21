@@ -4,7 +4,7 @@
  * envelope (§13) into a thrown ApiError the UI can render safely.
  */
 import type { ApiErrorBody } from '@/types/api';
-import { API_BASE_URL, getCsrfToken } from './config';
+import { absoluteApiBase, getCsrfToken } from './config';
 
 export class ApiError extends Error {
   readonly code: string;
@@ -38,7 +38,7 @@ interface RequestOptions {
 }
 
 function buildUrl(path: string, query?: RequestOptions['query']): string {
-  const url = new URL(`${API_BASE_URL}${path}`);
+  const url = new URL(`${absoluteApiBase()}${path}`);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value !== undefined && value !== null && value !== '') {

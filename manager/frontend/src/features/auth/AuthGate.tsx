@@ -9,6 +9,7 @@ import { LoadingBlock } from '@/components/ui/states';
 import { ApiError } from '@/api';
 import { useT } from '@/i18n';
 import { LanguageToggle } from '@/components/LanguageToggle';
+import { AuthBackground } from './AuthBackground';
 import { useAuthSession, useAuthStatus, useLogin, useSetup } from './api';
 
 /**
@@ -27,17 +28,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (status.isLoading || (!setupRequired && session.isLoading)) {
     return (
-      <Centered>
+      <div className="grid h-screen place-items-center bg-canvas text-ink">
         <LoadingBlock label={t('auth.checking')} />
-      </Centered>
+      </div>
     );
   }
 
   return <AuthScreen mode={setupRequired ? 'setup' : 'login'} />;
-}
-
-function Centered({ children }: { children: ReactNode }) {
-  return <div className="grid h-screen place-items-center bg-canvas text-ink">{children}</div>;
 }
 
 interface FormValues {
@@ -52,6 +49,7 @@ function AuthScreen({ mode }: { mode: 'setup' | 'login' }) {
   const setup = useSetup();
   const isSetup = mode === 'setup';
   const pending = login.isPending || setup.isPending;
+  const backgroundUrl = import.meta.env.VITE_AUTH_BG_URL;
   const {
     register,
     handleSubmit,
@@ -62,73 +60,101 @@ function AuthScreen({ mode }: { mode: 'setup' | 'login' }) {
   const serverError = (login.error ?? setup.error) as ApiError | null;
 
   const onSubmit = handleSubmit((values) => {
-    const payload = { email: values.email, password: values.password };
-    (isSetup ? setup : login).mutate(payload);
+    (isSetup ? setup : login).mutate({ email: values.email, password: values.password });
   });
 
   return (
-    <div className="grid h-screen place-items-center bg-canvas px-4 text-ink">
-      <div className="w-full max-w-sm">
-        <div className="mb-6 flex items-center justify-between">
+    <div className="grid h-screen w-full lg:grid-cols-[1.1fr_1fr]">
+      {/* Brand + image hero (desktop) */}
+      <div className="relative hidden overflow-hidden lg:block">
+        <AuthBackground imageUrl={backgroundUrl} />
+        <div className="relative z-10 flex h-full flex-col justify-between p-10 text-white">
           <div className="flex items-center gap-2.5">
-            <LogoMark size={30} />
-            <span className="font-display text-[15px] font-semibold">{t('auth.appName')}</span>
+            <LogoMark size={32} />
+            <span className="font-display text-[15px] font-semibold">CloakBrowser</span>
           </div>
-          <LanguageToggle />
-        </div>
-
-        <div className="rounded-xl border border-line bg-surface p-6 shadow-panel">
-          <div className="mb-4 flex items-center gap-2">
-            {isSetup ? (
-              <ShieldCheck className="h-5 w-5 text-accent" />
-            ) : (
-              <LogIn className="h-5 w-5 text-accent" />
-            )}
-            <h1 className="font-display text-lg font-semibold">
-              {t(isSetup ? 'auth.setupTitle' : 'auth.loginTitle')}
-            </h1>
+          <div className="max-w-md">
+            <h2 className="font-display text-[32px] font-semibold leading-[1.15]">
+              {t('auth.brandTagline')}
+            </h2>
+            <p className="mt-4 text-[15px] leading-relaxed text-white/70">
+              {t('auth.brandSubtext')}
+            </p>
           </div>
-          <p className="mb-5 text-[13px] text-ink-muted">
-            {t(isSetup ? 'auth.setupSubtitle' : 'auth.loginSubtitle')}
+          <p className="text-2xs uppercase tracking-[0.14em] text-white/45">
+            {t('auth.brandFooter')}
           </p>
+        </div>
+      </div>
 
-          <form onSubmit={onSubmit} className="space-y-3">
-            <Field label={t('auth.email')} error={errors.email && 'Required'}>
-              <Input
-                type="email"
-                autoComplete="username"
-                autoFocus
-                {...register('email', { required: true })}
-                invalid={Boolean(errors.email)}
-              />
-            </Field>
-            <Field
-              label={t('auth.password')}
-              hint={isSetup ? t('auth.passwordHint') : undefined}
-              error={errors.password && t('auth.passwordHint')}
-            >
-              <Input
-                type="password"
-                autoComplete={isSetup ? 'new-password' : 'current-password'}
-                {...register('password', { required: true, minLength: isSetup ? 12 : 1 })}
-                invalid={Boolean(errors.password)}
-              />
-            </Field>
-            {isSetup && (
-              <Field label={t('auth.confirmPassword')} error={errors.confirm && t('auth.mismatch')}>
+      {/* Form panel */}
+      <div className="relative flex items-center justify-center bg-canvas px-6 py-10">
+        <div className="w-full max-w-sm">
+          <div className="mb-5 flex items-center justify-between">
+            <div className="flex items-center gap-2.5 lg:hidden">
+              <LogoMark size={26} />
+              <span className="font-display text-[14px] font-semibold text-ink">CloakBrowser</span>
+            </div>
+            <div className="hidden lg:block" />
+            <LanguageToggle />
+          </div>
+
+          <div className="rounded-xl border border-line bg-surface p-6 shadow-panel">
+            <div className="mb-4 flex items-center gap-2">
+              {isSetup ? (
+                <ShieldCheck className="h-5 w-5 text-accent" />
+              ) : (
+                <LogIn className="h-5 w-5 text-accent" />
+              )}
+              <h1 className="font-display text-lg font-semibold text-ink">
+                {t(isSetup ? 'auth.setupTitle' : 'auth.loginTitle')}
+              </h1>
+            </div>
+            <p className="mb-5 text-[13px] text-ink-muted">
+              {t(isSetup ? 'auth.setupSubtitle' : 'auth.loginSubtitle')}
+            </p>
+
+            <form onSubmit={onSubmit} className="space-y-3">
+              <Field label={t('auth.email')} error={errors.email && 'Required'}>
                 <Input
-                  type="password"
-                  autoComplete="new-password"
-                  {...register('confirm', { validate: (value) => value === watch('password') })}
-                  invalid={Boolean(errors.confirm)}
+                  type="email"
+                  autoComplete="username"
+                  autoFocus
+                  {...register('email', { required: true })}
+                  invalid={Boolean(errors.email)}
                 />
               </Field>
-            )}
-            {serverError && <p className="text-2xs text-danger">{serverError.message}</p>}
-            <Button type="submit" variant="primary" className="w-full" loading={pending}>
-              {t(isSetup ? 'auth.createAccount' : 'auth.signIn')}
-            </Button>
-          </form>
+              <Field
+                label={t('auth.password')}
+                hint={isSetup ? t('auth.passwordHint') : undefined}
+                error={errors.password && t('auth.passwordHint')}
+              >
+                <Input
+                  type="password"
+                  autoComplete={isSetup ? 'new-password' : 'current-password'}
+                  {...register('password', { required: true, minLength: isSetup ? 12 : 1 })}
+                  invalid={Boolean(errors.password)}
+                />
+              </Field>
+              {isSetup && (
+                <Field
+                  label={t('auth.confirmPassword')}
+                  error={errors.confirm && t('auth.mismatch')}
+                >
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    {...register('confirm', { validate: (value) => value === watch('password') })}
+                    invalid={Boolean(errors.confirm)}
+                  />
+                </Field>
+              )}
+              {serverError && <p className="text-2xs text-danger">{serverError.message}</p>}
+              <Button type="submit" variant="primary" className="w-full" loading={pending}>
+                {t(isSetup ? 'auth.createAccount' : 'auth.signIn')}
+              </Button>
+            </form>
+          </div>
         </div>
       </div>
     </div>

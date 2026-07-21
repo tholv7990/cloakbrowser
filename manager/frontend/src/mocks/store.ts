@@ -51,7 +51,7 @@ class MockStore {
   diagnostics: DiagnosticRun[] = [];
   reports: ProxyQualityReport[] = [];
   settings: Settings = clone(fixtures.settings);
-  owner: Owner = { setupRequired: false, email: fixtures.ownerEmail, loggedOut: false };
+  owner: Owner = { setupRequired: false, email: fixtures.ownerEmail, loggedOut: true };
 
   private listeners = new Set<Listener>();
   private sequence = 0;
@@ -70,7 +70,7 @@ class MockStore {
     this.diagnostics = clone(fixtures.diagnostics);
     this.reports = clone(fixtures.qualityReports);
     this.settings = clone(fixtures.settings);
-    this.owner = { setupRequired: false, email: fixtures.ownerEmail, loggedOut: false };
+    this.owner = { setupRequired: false, email: fixtures.ownerEmail, loggedOut: true };
     this.sequence = 0;
   }
 

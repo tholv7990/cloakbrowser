@@ -18,11 +18,18 @@ export const API_BASE_URL: string = (
   'http://127.0.0.1:8799/api/v1'
 ).replace(/\/$/, '');
 
+/** Resolve a relative base (e.g. "/api/v1") against the page origin so a
+ * same-origin dev proxy — and production static serving — both work. */
+export function absoluteApiBase(): string {
+  if (API_BASE_URL.startsWith('http')) return API_BASE_URL;
+  if (typeof window !== 'undefined') return `${window.location.origin}${API_BASE_URL}`;
+  return API_BASE_URL;
+}
+
 function deriveWsUrl(): string {
   if (injected?.wsUrl) return injected.wsUrl;
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
-  const httpBase = API_BASE_URL.replace(/^http/, 'ws');
-  return `${httpBase}/events`;
+  return `${absoluteApiBase().replace(/^http/, 'ws')}/events`;
 }
 
 export const WS_URL: string = deriveWsUrl();

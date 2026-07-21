@@ -110,12 +110,13 @@ describe('mock auth contract', () => {
     expect(session.csrf_token).toBeTruthy();
   });
 
-  it('fails the session after logout until the owner signs in again', async () => {
-    await expect(mockApi.authSession()).resolves.toBeTruthy();
-    await mockApi.authLogout();
+  it('starts logged out, authenticates on login, and fails the session after logout', async () => {
+    // Mock starts signed out so the login page is the entry point.
     await expect(mockApi.authSession()).rejects.toMatchObject({ status: 401 });
     await mockApi.authLogin({ email: 'owner@localhost', password: 'a-very-long-password' });
     await expect(mockApi.authSession()).resolves.toBeTruthy();
+    await mockApi.authLogout();
+    await expect(mockApi.authSession()).rejects.toMatchObject({ status: 401 });
   });
 });
 
