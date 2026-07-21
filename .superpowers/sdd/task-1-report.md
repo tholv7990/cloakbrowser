@@ -76,3 +76,68 @@ All three commands exited `0`; Alembic ran revision `0008_runtime_observability`
 ## Concerns
 
 None. The suite still reports the pre-existing FastAPI/TestClient deprecation warning noted above.
+
+## Review fixes
+
+### Security changes
+
+- `append_profile_log` now accepts trusted `ManagerSettings` and derives the sole allowed directory from `settings.data_root / "profiles" / profile_id`; no caller can supply an alternate profile root.
+- Events must be lowercase, dotted stable identifiers (`runtime.ready`, `runtime.crashed`, and so on), with a maximum of 80 characters. Invalid events are rejected before persistence.
+- The single compiled message sanitizer now redacts generic credential assignments (`password`, `api_key`, secrets, credentials), URL credentials, licenses, cookie/session tokens, complete process-environment representations (`environment`, `env`, and `os.environ`), labelled and unlabelled command lines, and paths outside the derived profile directory.
+- Tests now cover invalid events, generic credentials, environment representations, labelled and relative command lines, untrusted-root and UNC paths, and `page_size=201` rejection.
+
+### RED
+
+Command:
+
+```powershell
+python -m pytest tests/manager/test_runtime_logs.py -q
+```
+
+Observed exit code: `1`.
+
+```text
+7 failed, 1 passed, 1 warning in 0.50s
+TypeError: append_profile_log() got an unexpected keyword argument 'settings'
+```
+
+The tests switched to the trusted settings boundary before the service implemented it. Subsequent focused RED runs also demonstrated the missing relative-command protection and Python-style process-environment protection:
+
+```text
+1 failed, 8 passed, 1 warning in 6.15s
+AssertionError: 'browser.exe' is contained here: browser.exe [REDACTED_COMMAND]
+
+1 failed, 8 passed, 1 warning in 6.53s
+assert '[REDACTED_COMMAND]' in ...
+
+1 failed, 9 passed, 1 warning in 6.39s
+AssertionError: assert '\\\\untrusted-server\\profiles\\secret\\Preferences' not in ...
+```
+
+### GREEN
+
+Command:
+
+```powershell
+python -m pytest tests/manager/test_runtime_logs.py -q
+```
+
+Observed exit code: `0`.
+
+```text
+10 passed, 1 warning in 15.25s
+```
+
+Full regression command:
+
+```powershell
+python -m pytest tests/manager -q
+```
+
+Observed exit code: `0`.
+
+```text
+157 passed, 1 skipped, 1 warning in 24.61s
+```
+
+The single warning remains FastAPI/TestClient's existing Starlette deprecation warning for `httpx`.

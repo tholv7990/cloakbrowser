@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from sqlalchemy import func, select
 
 from manager_backend.features.runtime.logs import append_profile_log, list_profile_logs
@@ -30,7 +31,7 @@ def test_append_profile_log_keeps_the_newest_2000_entries(db_session_factory, se
                 "info",
                 "runtime.ready",
                 f"entry-{number}",
-                profile_root=settings.profile_root,
+                settings=settings,
             )
 
         total = session.scalar(
@@ -59,7 +60,7 @@ def test_list_profile_logs_paginates_newest_first(db_session_factory, settings):
                 "info",
                 "runtime.ready",
                 f"entry-{number}",
-                profile_root=settings.profile_root,
+                settings=settings,
             )
 
         page = list_profile_logs(session, profile_id, page=2, page_size=2)
@@ -84,7 +85,7 @@ def test_append_profile_log_allows_paths_inside_its_profile_directory(
             "info",
             "runtime.ready",
             f"Using {allowed_path}",
-            profile_root=settings.profile_root,
+            settings=settings,
         )
 
     assert str(allowed_path) in entry.message
@@ -109,7 +110,7 @@ def test_append_profile_log_redacts_secrets_and_unrelated_absolute_paths(
             "error",
             "runtime.crashed",
             message,
-            profile_root=settings.profile_root,
+            settings=settings,
         )
 
     for secret in (
@@ -124,3 +125,122 @@ def test_append_profile_log_redacts_secrets_and_unrelated_absolute_paths(
     assert "[REDACTED_LICENSE]" in entry.message
     assert "[REDACTED_TOKEN]" in entry.message
     assert "[REDACTED_PATH]" in entry.message
+
+
+def test_append_profile_log_rejects_non_event_identifiers(db_session_factory, settings):
+    profile_id = _profile(db_session_factory)
+
+    with db_session_factory() as session, pytest.raises(ValueError, match="event"):
+        append_profile_log(
+            session,
+            profile_id,
+            "error",
+            "runtime.crashed password=event-secret",
+            "browser crashed",
+            settings=settings,
+        )
+
+    with db_session_factory() as session:
+        assert session.scalar(
+            select(func.count(ProfileLogEntry.id)).where(ProfileLogEntry.profile_id == profile_id)
+        ) == 0
+
+
+def test_append_profile_log_redacts_credentials_environment_and_command_lines(
+    db_session_factory, settings
+):
+    profile_id = _profile(db_session_factory)
+    message = (
+        "password=generic-password api_key: generic-api-key "
+        "environment={'CUSTOM_VALUE': 'environment-secret', 'PATH': 'C:/private/bin'} "
+        "os.environ={'CUSTOM_VALUE': 'process-environment-secret'} "
+        "command line: C:/private/browser.exe --proxy-server=socks5://user:pass@proxy.test"
+    )
+
+    with db_session_factory() as session:
+        entry = append_profile_log(
+            session,
+            profile_id,
+            "error",
+            "runtime.crashed",
+            message,
+            settings=settings,
+        )
+
+    for secret in (
+        "generic-password",
+        "generic-api-key",
+        "environment-secret",
+        "process-environment-secret",
+        "C:/private/bin",
+        "C:/private/browser.exe",
+        "proxy.test",
+    ):
+        assert secret not in entry.message
+    assert "[REDACTED_CREDENTIAL]" in entry.message
+    assert "[REDACTED_ENVIRONMENT]" in entry.message
+    assert "[REDACTED_COMMAND]" in entry.message
+
+
+def test_append_profile_log_redacts_unlabelled_relative_command_lines(
+    db_session_factory, settings
+):
+    profile_id = _profile(db_session_factory)
+
+    with db_session_factory() as session:
+        entry = append_profile_log(
+            session,
+            profile_id,
+            "error",
+            "runtime.crashed",
+            "browser.exe --remote-debugging-port=9222 --proxy-server=socks5://user:pass@proxy.test",
+            settings=settings,
+        )
+
+    assert "browser.exe" not in entry.message
+    assert "9222" not in entry.message
+    assert "proxy.test" not in entry.message
+    assert entry.message == "[REDACTED_COMMAND]"
+
+
+def test_append_profile_log_redacts_paths_under_an_untrusted_root(db_session_factory, settings):
+    profile_id = _profile(db_session_factory)
+    untrusted_root = settings.data_root.parent / "untrusted-manager" / "profiles"
+    supplied_path = untrusted_root / profile_id / "user-data" / "Preferences"
+
+    with db_session_factory() as session:
+        entry = append_profile_log(
+            session,
+            profile_id,
+            "info",
+            "runtime.ready",
+            f"Using {supplied_path}",
+            settings=settings,
+        )
+
+    assert str(supplied_path) not in entry.message
+    assert "[REDACTED_PATH]" in entry.message
+
+
+def test_append_profile_log_redacts_unc_paths(db_session_factory, settings):
+    profile_id = _profile(db_session_factory)
+    unc_path = r"\\untrusted-server\profiles\secret\Preferences"
+
+    with db_session_factory() as session:
+        entry = append_profile_log(
+            session,
+            profile_id,
+            "info",
+            "runtime.ready",
+            f"Using {unc_path}",
+            settings=settings,
+        )
+
+    assert unc_path not in entry.message
+    assert "[REDACTED_PATH]" in entry.message
+
+
+def test_list_profile_logs_rejects_page_size_above_200(db_session_factory, settings):
+    profile_id = _profile(db_session_factory)
+    with db_session_factory() as session, pytest.raises(ValueError, match="200"):
+        list_profile_logs(session, profile_id, page_size=201)
