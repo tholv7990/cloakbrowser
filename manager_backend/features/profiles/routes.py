@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
 from ...dependencies import get_session
 from ...errors import ManagerError
+from ..runtime.routes import runtime_to_dict
 from .schemas import (
     BulkProfileRequest,
     BulkProfileResult,
@@ -111,25 +112,25 @@ def restore(profile_id: str, session: SessionDependency):
     return profile_to_dict(set_trash_state(session, profile_id, False))
 
 
-def _runtime_not_available(session: Session, profile_id: str) -> None:
+@router.post("/profiles/{profile_id}/start", status_code=status.HTTP_202_ACCEPTED)
+def start(profile_id: str, request: Request):
+    return runtime_to_dict(request.app.state.runtime_manager.start(profile_id))
+
+
+@router.post("/profiles/{profile_id}/stop", status_code=status.HTTP_202_ACCEPTED)
+def stop(profile_id: str, request: Request, session: SessionDependency):
     get_profile(session, profile_id)
-    raise ManagerError(
-        "runtime_not_available",
-        "The browser runtime service is not installed yet.",
-        501,
-    )
-
-
-@router.post("/profiles/{profile_id}/start")
-def start(profile_id: str, session: SessionDependency):
-    _runtime_not_available(session, profile_id)
-
-
-@router.post("/profiles/{profile_id}/stop")
-def stop(profile_id: str, session: SessionDependency):
-    _runtime_not_available(session, profile_id)
+    runtime = request.app.state.runtime_manager.stop(profile_id)
+    if runtime is None:
+        return {"profile_id": profile_id, "state": "stopped", "last_message": "stopped"}
+    return runtime_to_dict(runtime)
 
 
 @router.post("/profiles/{profile_id}/focus-window")
 def focus_window(profile_id: str, session: SessionDependency):
-    _runtime_not_available(session, profile_id)
+    get_profile(session, profile_id)
+    raise ManagerError(
+        "runtime_command_not_supported",
+        "This runtime command is not supported yet.",
+        501,
+    )
