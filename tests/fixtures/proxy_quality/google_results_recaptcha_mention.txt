@@ -1,0 +1,3 @@
+CloakBrowser search results
+
+Result: A search result discussing reCAPTCHA performance and accessibility.

@@ -1,0 +1,19 @@
+{
+  "ip": "203.0.113.80",
+  "asn": "AS64502",
+  "as_name": "Example Mobile Network",
+  "as_domain": "example.invalid",
+  "type": "isp",
+  "is_mobile": true,
+  "is_hosting": false,
+  "privacy": {
+    "vpn": false,
+    "proxy": false,
+    "tor": false
+  },
+  "carrier": {
+    "name": "Example Carrier",
+    "mcc": "001",
+    "mnc": "01"
+  }
+}

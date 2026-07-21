@@ -1,0 +1,6 @@
+# Sanitized IPsum-style fixture using documentation ranges only.
+
+192.0.2.0/24	2
+198.51.100.0/24	3
+203.0.113.0/24	4
+2001:db8:1234::/48	5

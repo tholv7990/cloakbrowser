@@ -1,0 +1,4 @@
+192.0.2.0,192.0.2.255,64500,Example Documentation Network
+203.0.113.0,203.0.113.255,64501,Example Broad Documentation Network
+203.0.113.64,203.0.113.127,64502,Example Specific Documentation Network
+2001:db8::,2001:db8:ffff:ffff:ffff:ffff:ffff:ffff,64503,Example IPv6 Documentation Network

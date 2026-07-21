@@ -1,0 +1,29 @@
+name: Attest Release Binary
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. chromium-v145.0.7632.159.2)'
+        required: true
+
+jobs:
+  attest:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write      # Sigstore OIDC
+      attestations: write  # GitHub attestation API
+      contents: write      # Download release assets
+    steps:
+      - name: Download release binaries
+        run: gh release download "$RELEASE_TAG" --repo CloakHQ/cloakbrowser --pattern "cloakbrowser-*.tar.gz" --pattern "cloakbrowser-*.zip"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.tag }}
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
+        with:
+          subject-path: |
+            cloakbrowser-*.tar.gz
+            cloakbrowser-*.zip

@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/modernist-3c0ac25b-228c-4a34-90c8-59b1b34198ea/styles.css">
+<script src="_ds/modernist-3c0ac25b-228c-4a34-90c8-59b1b34198ea/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:var(--color-bg);color:var(--color-text);}
+a{color:var(--color-accent-700);text-decoration:none;}
+a:hover{color:var(--color-accent);text-decoration:underline;}
+::selection{background:var(--color-accent-200);}
+</style>
+</helmet>
+<div style="font-family:var(--font-body); max-width:1280px; margin:0 auto; padding:56px 40px 96px;">
+
+  <div data-screen-label="Header" style="border-bottom:2px solid var(--color-divider); padding-bottom:32px;">
+    <div style="font-size:12px; letter-spacing:0.12em; text-transform:uppercase; color:var(--color-accent); font-weight:600;">Velas · component color redesign — 07 / 2026</div>
+    <h1 style="font-family:var(--font-heading); font-size:48px; line-height:1.05; margin:16px 0 0; font-weight:700; letter-spacing:-0.02em;">Component colors only.<br>Neutrals stay.</h1>
+    <p style="font-size:16px; line-height:1.55; max-width:760px; margin:20px 0 0; color:var(--color-neutral-700);">Scope from your code: body/surface/text inherit theme-neutral unchanged (they're good). This replaces only the tokens components consume — status tones (StatusChip · Badge · trip/dispatch/tender cells), solid fills (destructive button, warning chip), progress fills, and per-app buttons. Written as a drop-in <span style="font-family:ui-monospace,monospace; font-size:14px;">VELAS_PALETTE</span> update for <span style="font-family:ui-monospace,monospace; font-size:14px;">packages/ui/src/theme.tsx</span> — one theme for all three consoles, so the TMS-only <span style="font-family:ui-monospace,monospace; font-size:14px;">SAAS_TMS_PALETTE</span> fork retires.</p>
+  </div>
+
+  <div data-screen-label="01 Diagnosis" style="padding:40px 0; border-bottom:2px solid var(--color-divider);">
+    <div style="font-size:12px; letter-spacing:0.12em; text-transform:uppercase; color:var(--color-accent); font-weight:600;">01 — Why the current values read legacy</div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:2px; background:var(--color-divider); border:2px solid var(--color-divider); margin-top:20px;">
+      <div style="background:var(--color-bg); padding:18px;"><div style="font-family:var(--font-heading); font-weight:700; font-size:15px;">Muddy tone text</div><p style="font-size:13px; line-height:1.5; color:var(--color-neutral-700); margin:8px 0 0;">Current fg values (<span style="font-family:ui-monospace,monospace;">#046B4C · #B61F1F · #974608</span>) are dark and desaturated — 2015 enterprise. Modern tones are one step brighter and cleaner in hue.</p></div>
+      <div style="background:var(--color-bg); padding:18px;"><div style="font-family:var(--font-heading); font-weight:700; font-size:15px;">Gray-tinged tints</div><p style="font-size:13px; line-height:1.5; color:var(--color-neutral-700); margin:8px 0 0;">The 07-20 tints (<span style="font-family:ui-monospace,monospace;">#ECF5F0 · #FBF3E6</span>) went near-neutral — safe but lifeless. The modern register is a clean, cold wash with visible hue.</p></div>
+      <div style="background:var(--color-bg); padding:18px;"><div style="font-family:var(--font-heading); font-weight:700; font-size:15px;">Hand-mixed dark solids</div><p style="font-size:13px; line-height:1.5; color:var(--color-neutral-700); margin:8px 0 0;">Dark tints as opaque swatches (<span style="font-family:ui-monospace,monospace;">#1E2F27</span>) only work on one surface. Alpha tints (~14%) sit correctly on card, body, and popover alike — your TMS trial already proved this.</p></div>
+      <div style="background:var(--color-bg); padding:18px;"><div style="font-family:var(--font-heading); font-weight:700; font-size:15px;">Three palettes, one product</div><p style="font-size:13px; line-height:1.5; color:var(--color-neutral-700); margin:8px 0 0;">WMS/OMS run old VELAS_PALETTE, TMS runs the SaaS trial. Same StatusChip, different greens. This sheet unifies them; accents stay per-app (§3.7 cobalt/violet/cyan).</p></div>
+    </div>
+  </div>
+
+  <div data-screen-label="02 Token map" style="padding:40px 0; border-bottom:2px solid var(--color-divider);">
+    <div style="font-size:12px; letter-spacing:0.12em; text-transform:uppercase; color:var(--color-accent); font-weight:600;">02 — Token map: current → proposed</div>
+    <p style="font-size:14px; color:var(--color-neutral-700); margin:12px 0 18px; max-width:760px;">Exact token names your components consume — <span style="font-family:ui-monospace,monospace; font-size:13px;">STATUS_TONES</span> reads text/background/border per family; Badge, Banner icons, and the required-field star ride the same vars. Gray family moves to zinc (pure-neutral) so it doesn't clash with your warm neutral surfaces.</p>
+    <div style="border:2px solid var(--color-divider);">
+      <div style="display:grid; grid-template-columns:230px 1fr 1fr 1fr; gap:10px; padding:10px 14px; border-bottom:2px solid var(--color-divider); font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:var(--color-neutral-600); font-weight:600;">
+        <div>Token</div><div>Current (light / dark)</div><div>Proposed light</div><div>Proposed dark</div>
+      </div>
+      <sc-for list="{{tokenRows}}" as="tk" hint-placeholder-count="18">
+        <div style="display:grid; grid-template-columns:230px 1fr 1fr 1fr; gap:10px; padding:8px 14px; border-bottom:1px solid var(--color-neutral-300); align-items:center; font-size:12px;">
+          <div style="font-family:ui-monospace,monospace; font-size:11.5px; font-weight:600;">{{tk.t}}</div>
+          <div style="display:flex; align-items:center; gap:6px; opacity:0.65;"><span style="width:16px; height:16px; background:{{tk.curL}}; border:1px solid var(--color-neutral-400); flex:none;"></span><span style="width:16px; height:16px; background:{{tk.curD}}; border:1px solid var(--color-neutral-400); flex:none; box-shadow:inset 0 0 0 3px #262626;"></span><span style="font-family:ui-monospace,monospace; font-size:10.5px;">{{tk.cur}}</span></div>
+          <div style="display:flex; align-items:center; gap:6px;"><span style="width:16px; height:16px; background:{{tk.newL}}; border:1px solid var(--color-neutral-400); flex:none;"></span><span style="font-family:ui-monospace,monospace; font-size:10.5px;">{{tk.newLs}}</span></div>
+          <div style="display:flex; align-items:center; gap:6px;"><span style="width:16px; height:16px; background:{{tk.newDsw}}; border:1px solid var(--color-neutral-500); flex:none; box-shadow:inset 0 0 0 3px #262626;"></span><span style="font-family:ui-monospace,monospace; font-size:10.5px;">{{tk.newDs}}</span></div>
+        </div>
+      </sc-for>
+    </div>
+    <p style="font-size:13px; color:var(--color-neutral-700); margin:14px 0 0; max-width:760px;">Accents untouched: WMS cobalt <span style="font-family:ui-monospace,monospace;">#2563EB</span> · OMS violet <span style="font-family:ui-monospace,monospace;">#7C3AED</span> · TMS cyan <span style="font-family:ui-monospace,monospace;">#0E7490</span> already read modern and carry console identity. <span style="font-family:ui-monospace,monospace;">--color-text-secondary #5F6672</span> stays (text is good, per your note).</p>
+  </div>
+
+  <div data-screen-label="03 Status specimens" style="padding:40px 0; border-bottom:2px solid var(--color-divider);">
+    <div style="font-size:12px; letter-spacing:0.12em; text-transform:uppercase; color:var(--color-accent); font-weight:600;">03 — Status tones on your real surfaces</div>
+    <p style="font-size:14px; color:var(--color-neutral-700); margin:12px 0 18px; max-width:760px;">Both StatusChip variants — <em>inline</em> (icon + colored text, the table-cell default) and <em>chip</em> (tint pill, drawers) — rendered on theme-neutral's actual surfaces (#FFFFFF card / #262626 dark card). Every fg-on-tint pair ≥ 4.5:1.</p>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(430px,1fr)); gap:24px; font-family:'Archivo',system-ui,sans-serif;">
+      <sc-for list="{{modes}}" as="m" hint-placeholder-count="2">
+        <div style="border:2px solid var(--color-divider); background:{{m.body}}; padding:20px;">
+          <div style="font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:{{m.sec}}; font-weight:600;">{{m.name}} — on card {{m.card}}</div>
+          <div style="background:{{m.card}}; border:1px solid {{m.hair}}; border-radius:8px; margin-top:10px; padding:14px; display:flex; flex-direction:column; gap:12px;">
+            <sc-for list="{{m.tones}}" as="t" hint-placeholder-count="5">
+              <div style="display:grid; grid-template-columns:74px 1fr 1fr; gap:10px; align-items:center;">
+                <div style="font-size:10.5px; letter-spacing:0.06em; text-transform:uppercase; color:{{m.sec}}; font-weight:600;">{{t.tone}}</div>
+                <span style="display:inline-flex; align-items:center; gap:6px; color:{{t.fg}}; font-size:12px; font-weight:500;"><span style="width:8px; height:8px; border-radius:99px; background:{{t.fg}};"></span>{{t.inline}}</span>
+                <span style="justify-self:start; display:inline-flex; align-items:center; gap:4px; height:20px; padding:0 8px; border-radius:999px; background:{{t.bg}}; border:1px solid {{t.bd}}; color:{{t.fg}}; font-size:11px; font-weight:600;">{{t.chip}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div data-screen-label="04 Components applied" style="padding:40px 0; border-bottom:2px solid var(--color-divider);">
+    <div style="font-size:12px; letter-spacing:0.12em; text-transform:uppercase; color:var(--color-accent); font-weight:600;">04 — Buttons · card · table · progress · steps</div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(430px,1fr)); gap:24px; font-family:'Archivo',system-ui,sans-serif; margin-top:18px;">
+      <sc-for list="{{modes}}" as="m" hint-placeholder-count="2">
+        <div style="border:2px solid var(--color-divider); background:{{m.body}}; padding:20px; display:flex; flex-direction:column; gap:18px;">
+          <div>
+            <div style="font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:{{m.sec}}; font-weight:600;">Buttons — {{m.name}} (accent per console)</div>
+            <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; align-items:center;">
+              <button style="border:none; background:#2563EB; color:#fff; font-size:12px; font-weight:600; padding:7px 12px; border-radius:8px; font-family:inherit;">WMS primary</button>
+              <button style="border:none; background:#7C3AED; color:#fff; font-size:12px; font-weight:600; padding:7px 12px; border-radius:8px; font-family:inherit;">OMS primary</button>
+              <button style="border:none; background:{{m.tmsAcc}}; color:{{m.tmsOn}}; font-size:12px; font-weight:600; padding:7px 12px; border-radius:8px; font-family:inherit;">TMS primary</button>
+              <button style="border:1px solid {{m.hairStrong}}; background:{{m.card}}; color:{{m.ink}}; font-size:12px; font-weight:600; padding:7px 12px; border-radius:8px; font-family:inherit;">Secondary</button>
+              <button style="border:none; background:{{m.dangerSolid}}; color:#fff; font-size:12px; font-weight:600; padding:7px 12px; border-radius:8px; font-family:inherit;">Destructive</button>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:{{m.sec}}; font-weight:600;">Card + table — {{m.name}}</div>
+            <div style="background:{{m.card}}; border:1px solid {{m.hair}}; border-radius:8px; margin-top:10px; overflow:hidden;">
+              <div style="padding:12px 14px; display:flex; justify-content:space-between; align-items:center;"><span style="font-size:13px; font-weight:700; color:{{m.ink}};">Trips today</span><span style="display:inline-flex; align-items:center; gap:4px; height:20px; padding:0 8px; border-radius:999px; background:{{m.infoBg}}; border:1px solid {{m.infoBd}}; color:{{m.infoFg}}; font-size:11px; font-weight:600;">4 in transit</span></div>
+              <div style="display:grid; grid-template-columns:64px 1fr 100px 84px; gap:8px; padding:7px 14px; background:{{m.well}}; border-top:1px solid {{m.hair}}; border-bottom:1px solid {{m.hair}}; font-size:10px; letter-spacing:0.06em; text-transform:uppercase; color:{{m.sec}}; font-weight:600;"><div>Trip</div><div>Route</div><div>Status</div><div>Progress</div></div>
+              <sc-for list="{{m.rows}}" as="r" hint-placeholder-count="3">
+                <div style="display:grid; grid-template-columns:64px 1fr 100px 84px; gap:8px; padding:9px 14px; border-bottom:1px solid {{m.rowHair}}; font-size:12px; align-items:center;">
+                  <div style="font-family:ui-monospace,monospace; color:{{m.sec}}; font-size:11.5px;">{{r.id}}</div>
+                  <div style="color:{{m.ink}}; font-weight:500;">{{r.route}}</div>
+                  <span style="display:inline-flex; align-items:center; gap:6px; color:{{r.fg}}; font-size:11.5px; font-weight:500;"><span style="width:7px; height:7px; border-radius:99px; background:{{r.fg}};"></span>{{r.status}}</span>
+                  <div><div style="height:5px; background:{{m.track}}; border-radius:999px;"><div style="height:5px; width:{{r.pct}}; background:{{r.bar}}; border-radius:999px;"></div></div></div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:{{m.sec}}; font-weight:600;">Lifecycle steps — {{m.name}}</div>
+            <div style="background:{{m.card}}; border:1px solid {{m.hair}}; border-radius:8px; margin-top:10px; padding:14px; display:flex; align-items:center; gap:0;">
+              <sc-for list="{{m.steps}}" as="s" hint-placeholder-count="5">
+                <div style="display:flex; align-items:center; flex:{{s.grow}};">
+                  <div style="display:flex; flex-direction:column; align-items:center; gap:5px; min-width:58px;">
+                    <span style="width:18px; height:18px; border-radius:99px; background:{{s.dotBg}}; border:2px solid {{s.dotBd}}; display:inline-flex; align-items:center; justify-content:center; color:{{s.dotFg}}; font-size:10px; font-weight:700;">{{s.mark}}</span>
+                    <span style="font-size:10px; font-weight:600; color:{{s.lbl}}; white-space:nowrap;">{{s.name}}</span>
+                  </div>
+                  <div style="flex:1; height:2px; background:{{s.line}}; margin:0 4px 16px; display:{{s.lineDisp}};"></div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div data-screen-label="05 Drop-in code" style="padding:40px 0 0;">
+    <div style="font-size:12px; letter-spacing:0.12em; text-transform:uppercase; color:var(--color-accent); font-weight:600;">05 — Drop-in: theme.tsx</div>
+    <p style="font-size:14px; color:var(--color-neutral-700); margin:12px 0 14px; max-width:760px;">Replace these entries inside <span style="font-family:ui-monospace,monospace; font-size:13px;">VELAS_PALETTE</span>; delete <span style="font-family:ui-monospace,monospace; font-size:13px;">SAAS_TMS_PALETTE</span> (velasTmsTheme goes back to <span style="font-family:ui-monospace,monospace; font-size:13px;">accentTokens("tms")</span> only). Mirror the fg values in <span style="font-family:ui-monospace,monospace; font-size:13px;">status.test.ts</span> OVERRIDES.</p>
+    <pre style="background:var(--color-neutral-900); color:#e8e8e8; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; line-height:1.65; padding:20px 22px; overflow-x:auto; margin:0; border:2px solid var(--color-divider);">{{code}}</pre>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:2px; background:var(--color-divider); border:2px solid var(--color-divider); margin-top:24px;">
+      <div style="background:var(--color-bg); padding:18px;"><div style="font-family:var(--font-heading); font-weight:700; font-size:15px;">Also touched</div><ul style="font-size:13px; line-height:1.7; color:var(--color-neutral-700); margin:8px 0 0; padding-left:18px;"><li>status.test.ts OVERRIDES — mirror all fg + bg values (alpha bgs composite over the real surfaces in the test's resolver).</li><li>Progress fills inherit — the 5px track fix in styles.css stays as-is.</li><li>Banner stays fill-less; its icon/title colors ride the new --color-text-* automatically.</li></ul></div>
+      <div style="background:var(--color-bg); padding:18px;"><div style="font-family:var(--font-heading); font-weight:700; font-size:15px;">Not touched</div><ul style="font-size:13px; line-height:1.7; color:var(--color-neutral-700); margin:8px 0 0; padding-left:18px;"><li>Neutrals: body/surface/border/text-primary inherit theme-neutral (your "already good").</li><li>App accents (§3.7 cobalt/violet/cyan) + sidebar tokens.</li><li>The STATUS registry itself — only tone values change, no (domain, value) mappings.</li></ul></div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1360}}">
+class Component extends DCLogic {
+  renderVals() {
+    const P = {
+      green:  { fgL:'#15803D', fgD:'#4ADE80', bgL:'#F0FDF4', bgD:'rgba(74,222,128,0.14)', bdL:'#BBF7D0', bdD:'rgba(74,222,128,0.30)' },
+      orange: { fgL:'#B45309', fgD:'#FBBF24', bgL:'#FFFBEB', bgD:'rgba(251,191,36,0.14)', bdL:'#FDE68A', bdD:'rgba(251,191,36,0.30)' },
+      red:    { fgL:'#B91C1C', fgD:'#F87171', bgL:'#FEF2F2', bgD:'rgba(248,113,113,0.14)', bdL:'#FECACA', bdD:'rgba(248,113,113,0.30)' },
+      blue:   { fgL:'#0369A1', fgD:'#38BDF8', bgL:'#F0F9FF', bgD:'rgba(56,189,248,0.14)', bdL:'#BAE6FD', bdD:'rgba(56,189,248,0.30)' },
+      gray:   { fgL:'#52525B', fgD:'#A1A1AA', bgL:'#F4F4F5', bgD:'rgba(161,161,170,0.12)', bdL:'#E4E4E7', bdD:'rgba(161,161,170,0.25)' }
+    };
+    const cur = {
+      'text-green':['#046B4C','#34D399'], 'background-green':['#ECF5F0','#1E2F27'], 'border-green':['#CFE5DA','#2D4C3B'],
+      'text-orange':['#974608','#FBBF24'], 'background-orange':['#FBF3E6','#33291A'], 'border-orange':['#EFDDBC','#574522'],
+      'text-red':['#B61F1F','#F98F8F'], 'background-red':['#FBF0EF','#362323'], 'border-red':['#F1D8D5','#5C302E'],
+      'text-blue':['#036399','#38BDF8'], 'background-blue':['#EFF4FB','#202A38'], 'border-blue':['#D3E1F2','#32476B'],
+      'text-gray':['(theme)','(theme)'], 'background-gray':['#F1F2F4','#2A2A2A'], 'border-gray':['#E0E2E6','#3D3D3D'],
+      'error':['#C81E1E','#ffc6c1'], 'warning':['#F59E0B','#fdcf4f'], 'warning-muted':['#FEF0CD','#deb4333D']
+    };
+    const fam = ['green','orange','red','blue','gray'];
+    const kinds = ['text','background','border'];
+    const tokenRows = [];
+    for (const f of fam) for (const k of kinds) {
+      const key = k+'-'+f, c = cur[key] || ['—','—'];
+      const p = P[f];
+      const newL = k==='text'?p.fgL:k==='background'?p.bgL:p.bdL;
+      const newD = k==='text'?p.fgD:k==='background'?p.bgD:p.bdD;
+      tokenRows.push({ t:'--color-'+key, cur:c[0]+' / '+c[1],
+        curL:c[0].startsWith('#')?c[0]:'transparent', curD:c[1].startsWith('#')?c[1]:'transparent',
+        newL, newLs:newL, newDsw:newD, newDs:newD });
+    }
+    // cleaner dark labels
+    const darkLabel = { green:'#4ADE80', orange:'#FBBF24', red:'#F87171', blue:'#38BDF8', gray:'#A1A1AA' };
+    tokenRows.forEach(r => {
+      const f = fam.find(f => r.t.endsWith('-'+f));
+      if (r.newDs.startsWith('rgba')) r.newDs = darkLabel[f] + (r.t.includes('background') ? ' @14%' : ' @30%');
+    });
+    tokenRows.push(
+      { t:'--color-error', cur:cur.error[0]+' / '+cur.error[1], curL:cur.error[0], curD:cur.error[1], newL:'#DC2626', newLs:'#DC2626', newDsw:'#F87171', newDs:'#F87171' },
+      { t:'--color-warning', cur:cur.warning[0]+' / '+cur.warning[1], curL:cur.warning[0], curD:cur.warning[1], newL:'#F59E0B', newLs:'#F59E0B (keep)', newDsw:'#FBBF24', newDs:'#FBBF24' },
+      { t:'--color-warning-muted', cur:cur['warning-muted'][0]+' / …3D', curL:cur['warning-muted'][0], curD:'#deb433', newL:'#FFFBEB', newLs:'#FFFBEB', newDsw:'rgba(251,191,36,0.10)', newDs:'#FBBF24 @10%' }
+    );
+    const toneDefs = [
+      ['Success','Delivered','Cashier confirmed','green'],
+      ['Info','In transit','Handover confirmed','blue'],
+      ['Warning','RTO in transit','Due soon','orange'],
+      ['Danger','Failed','Discrepancy','red'],
+      ['Neutral','Planned','Settled','gray']
+    ];
+    const mkTones = dark => toneDefs.map(([tone,inline,chip,f]) => ({
+      tone, inline, chip,
+      fg: dark?P[f].fgD:P[f].fgL, bg: dark?P[f].bgD:P[f].bgL, bd: dark?P[f].bdD:P[f].bdL
+    }));
+    const mkRows = dark => [
+      { id:'TRP-311', route:'HCMC → Bien Hoa', status:'In transit', fg:dark?P.blue.fgD:P.blue.fgL, pct:'62%', bar:dark?'#22D3EE':'#0E7490' },
+      { id:'TRP-312', route:'HCMC → Can Tho', status:'Delivered', fg:dark?P.green.fgD:P.green.fgL, pct:'100%', bar:dark?'#4ADE80':'#16A34A' },
+      { id:'TRP-313', route:'Da Nang → Hue', status:'Failed', fg:dark?P.red.fgD:P.red.fgL, pct:'38%', bar:dark?'#F87171':'#DC2626' }
+    ];
+    const mkSteps = dark => {
+      const acc = dark?'#22D3EE':'#0E7490', accOn = dark?'#062A33':'#fff';
+      const mut = dark?'#3A3A3A':'#E4E4E7', sec = dark?'#8F96A2':'#5F6672', ink = dark?'#FAFAFA':'#171717';
+      const done = { dotBg:acc, dotBd:acc, dotFg:accOn, mark:'✓', line:acc };
+      const cment = { dotBg:dark?'#262626':'#fff', dotBd:acc, dotFg:acc, mark:'●', line:mut };
+      const todo = { dotBg:'transparent', dotBd:mut, dotFg:sec, mark:'', line:mut };
+      const names = ['Planned','Released','In transit','Delivered','Settled'];
+      return names.map((name,i) => {
+        const s = i<2?done : i===2?cment : todo;
+        return { name, ...s, lbl: i===2?ink:sec, grow: i<names.length-1?'1':'0', lineDisp: i<names.length-1?'block':'none' };
+      });
+    };
+    const modes = [
+      { name:'Light', body:'#F1F1F1', card:'#FFFFFF', well:'#F7F7F7', hair:'#E8E8E8', rowHair:'#F0F0F0', hairStrong:'#D4D4D4',
+        ink:'#171717', sec:'#5F6672', track:'#EBEBEB', tones:mkTones(false), rows:mkRows(false), steps:mkSteps(false),
+        tmsAcc:'#0E7490', tmsOn:'#fff', dangerSolid:'#DC2626',
+        infoBg:P.blue.bgL, infoBd:P.blue.bdL, infoFg:P.blue.fgL },
+      { name:'Dark', body:'#1B1B1B', card:'#262626', well:'#2C2C2C', hair:'#3A3A3A', rowHair:'#333333', hairStrong:'#474747',
+        ink:'#FAFAFA', sec:'#8F96A2', track:'#3A3A3A', tones:mkTones(true), rows:mkRows(true), steps:mkSteps(true),
+        tmsAcc:'#22D3EE', tmsOn:'#062A33', dangerSolid:'#DC2626',
+        infoBg:P.blue.bgD, infoBd:P.blue.bdD, infoFg:P.blue.fgD }
+    ];
+    const code = `// VELAS_PALETTE — modernized status families (2026-07-21). Neutrals/ink/sidebar/accents unchanged.
+// Semantic tone TEXT — brighter, cleaner hue; all >= 4.5:1 on their tints in both modes.
+"--color-text-green":  ["#15803D", "#4ADE80"],  // was #046B4C / #34D399
+"--color-text-orange": ["#B45309", "#FBBF24"],  // was #974608
+"--color-text-red":    ["#B91C1C", "#F87171"],  // was #B61F1F / #F98F8F
+"--color-text-blue":   ["#0369A1", "#38BDF8"],  // was #036399
+"--color-text-gray":   ["#52525B", "#A1A1AA"],  // zinc — pure-neutral, matches the warm surfaces
+// Tone TINT surfaces — clean cold wash light; ~14%-alpha dark (surface-independent: card/body/popover).
+"--color-background-green":  ["#F0FDF4", "rgba(74,222,128,0.14)"],
+"--color-background-orange": ["#FFFBEB", "rgba(251,191,36,0.14)"],
+"--color-background-red":    ["#FEF2F2", "rgba(248,113,113,0.14)"],
+"--color-background-blue":   ["#F0F9FF", "rgba(56,189,248,0.14)"],
+"--color-background-gray":   ["#F4F4F5", "rgba(161,161,170,0.12)"],
+// Tone hairline borders — one step stronger than the tint (~30% alpha dark).
+"--color-border-green":  ["#BBF7D0", "rgba(74,222,128,0.30)"],
+"--color-border-orange": ["#FDE68A", "rgba(251,191,36,0.30)"],
+"--color-border-red":    ["#FECACA", "rgba(248,113,113,0.30)"],
+"--color-border-blue":   ["#BAE6FD", "rgba(56,189,248,0.30)"],
+"--color-border-gray":   ["#E4E4E7", "rgba(161,161,170,0.25)"],
+// Solid fills — destructive button / solid warning chip. White on #DC2626 = 4.5:1.
+"--color-error":         ["#DC2626", "#F87171"],
+"--color-warning":       ["#F59E0B", "#FBBF24"],
+"--color-warning-muted": ["#FFFBEB", "rgba(251,191,36,0.10)"],
+
+// DELETE: SAAS_TMS_PALETTE + its spread in velasTmsTheme — this palette now serves all three
+// consoles; velasTmsTheme = defineTheme({ name:"velas-tms", extends: velasTheme,
+//   tokens: accentTokens("tms") });`;
+    return { tokenRows, modes, code };
+  }
+}
+</script>
+</body>
+</html>

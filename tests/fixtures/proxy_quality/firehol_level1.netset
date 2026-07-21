@@ -1,0 +1,5 @@
+# Sanitized FireHOL-style fixture using documentation ranges only.
+
+192.0.2.0/25
+203.0.113.128/25
+2001:db8:abcd::/48

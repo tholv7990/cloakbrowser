@@ -1,0 +1,88 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.test-profiles/
+
+# Generated benchmark and browser runtime output
+artifacts/
+benchmarks/results/
+
+# Binary cache (downloaded chromium)
+.cloakbrowser/
+
+# Claude Code (private project context)
+CLAUDE.md
+.claude/
+
+# JavaScript / Node.js
+js/node_modules/
+js/dist/
+
+# Distribution
+*.tar.gz
+*.whl
+AGENTS.md
+.beads
+result
+
+# Infrastructure and generated/local data
+test-infra/
+site/
+managed-serve/
+
+publish.sh
+deploy.sh
+.env
+debug
+publish-docker.sh
+captures
+20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*.txt
+
+# CloakBrowser Manager local state and secrets
+manager.db
+manager.db-*
+*.sqlite
+*.sqlite3
+install-token
+profiles/
+reports/
+trash/
+runtime-logs/
+proxy-credentials*
+*.har
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.antigravitycli
+.plans
+.pi
