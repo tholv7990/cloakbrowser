@@ -221,12 +221,10 @@ def test_bulk_pin_and_trash(client, auth_headers):
     assert client.get("/api/v1/profiles", headers=auth_headers).json()["total"] == 0
 
 
-def test_runtime_routes_are_typed_until_adapter_is_installed(client, auth_headers):
+def test_focus_runtime_route_is_typed_until_adapter_is_installed(client, auth_headers):
     profile = create_profile(client, auth_headers)
-
-    for action in ("start", "stop", "focus-window"):
-        response = client.post(
-            f"/api/v1/profiles/{profile['id']}/{action}", headers=auth_headers
-        )
-        assert response.status_code == 501
-        assert response.json()["error"]["code"] == "runtime_not_available"
+    response = client.post(
+        f"/api/v1/profiles/{profile['id']}/focus-window", headers=auth_headers
+    )
+    assert response.status_code == 501
+    assert response.json()["error"]["code"] == "runtime_command_not_supported"

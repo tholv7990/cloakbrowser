@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends
 from .features.catalog.routes import router as catalog_router
 from .features.app.routes import router as app_router
 from .features.profiles.routes import router as profiles_router
+from .features.runtime.routes import router as runtime_router
 from .dependencies import require_authenticated_session
 from .schemas.common import ErrorEnvelope
 
@@ -19,3 +20,4 @@ api_router = APIRouter(
 api_router.include_router(app_router)
 api_router.include_router(catalog_router)
 api_router.include_router(profiles_router)
+api_router.include_router(runtime_router)

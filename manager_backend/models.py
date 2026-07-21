@@ -11,11 +11,13 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Table,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -133,6 +135,57 @@ class Profile(TimestampMixin, Base):
     folder: Mapped[Folder | None] = relationship(back_populates="profiles")
     workflow_status: Mapped[WorkflowStatus | None] = relationship(back_populates="profiles")
     tags: Mapped[list[Tag]] = relationship(secondary=profile_tags, back_populates="profiles")
+    runtime_sessions: Mapped[list["RuntimeSession"]] = relationship(
+        back_populates="profile", cascade="all, delete-orphan"
+    )
+
+    @property
+    def runtime_state(self) -> str:
+        active = {"queued", "starting", "running", "stopping", "detached"}
+        current = next(
+            (runtime for runtime in reversed(self.runtime_sessions) if runtime.state in active),
+            None,
+        )
+        return current.state if current is not None else "stopped"
+
+
+class RuntimeSession(Base):
+    __tablename__ = "runtime_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('queued','starting','running','stopping','stopped','crashed','detached')",
+            name="ck_runtime_sessions_state",
+        ),
+        Index(
+            "uq_runtime_sessions_active_profile",
+            "profile_id",
+            unique=True,
+            sqlite_where=text(
+                "state IN ('queued','starting','running','stopping','detached')"
+            ),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    profile_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    manager_instance_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    manager_pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    manager_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    browser_pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    browser_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cdp_endpoint: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_message: Mapped[str] = mapped_column(String(120), nullable=False, default="queued")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+    profile: Mapped[Profile] = relationship(back_populates="runtime_sessions")
 
 
 class Owner(TimestampMixin, Base):

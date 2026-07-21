@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from fastapi import Depends, FastAPI
+import asyncio
+from contextlib import asynccontextmanager
+
+from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
+from sqlalchemy import select
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import api_router
@@ -10,6 +15,12 @@ from .db import create_engine_for, create_session_factory
 from .errors import install_error_handlers
 from .models import Base
 from .dependencies import require_authenticated_session
+from .features.runtime.manager import RuntimeManager
+from .features.runtime.reconcile import cleanup_stale_locks, reconcile_runtimes
+from .features.runtime.routes import runtime_to_dict
+from .auth.sessions import validate_session
+from .dependencies import SESSION_COOKIE
+from .models import RuntimeSession
 
 
 def create_app(settings: ManagerSettings | None = None) -> FastAPI:
@@ -17,12 +28,30 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
     if resolved.host != "127.0.0.1":
         raise ValueError("CloakBrowser Manager must bind to 127.0.0.1")
 
-    app = FastAPI(title="CloakBrowser Manager API", version="1.0.0")
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        try:
+            summary = reconcile_runtimes(
+                application.state.session_factory, application.state.settings
+            )
+            summary["stale_locks_removed"] = cleanup_stale_locks(
+                application.state.settings
+            )
+            application.state.runtime_reconciliation = summary
+            yield
+        finally:
+            application.state.runtime_manager.shutdown()
+            application.state.engine.dispose()
+
+    app = FastAPI(
+        title="CloakBrowser Manager API", version="1.0.0", lifespan=lifespan
+    )
     app.state.settings = resolved
     app.state.install_token = resolved.resolved_install_token()
     app.state.engine = create_engine_for(resolved)
     Base.metadata.create_all(app.state.engine)
     app.state.session_factory = create_session_factory(app.state.engine)
+    app.state.runtime_manager = RuntimeManager(app.state.session_factory, resolved)
     app.state.login_failures = {}
     app.add_middleware(
         CORSMiddleware,
@@ -42,5 +71,50 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
             "service": "cloakbrowser-manager",
             "api_version": "v1",
         }
+
+    @app.websocket("/api/v1/events")
+    async def runtime_events(websocket: WebSocket) -> None:
+        if websocket.headers.get("origin") != resolved.allowed_origin:
+            await websocket.close(code=4403, reason="origin_rejected")
+            return
+        with app.state.session_factory() as session:
+            try:
+                validate_session(session, websocket.cookies.get(SESSION_COOKIE))
+            except Exception:
+                await websocket.close(code=4401, reason="authentication_required")
+                return
+        await websocket.accept()
+        sequence = 0
+        previous = None
+        try:
+            while True:
+                with app.state.session_factory() as session:
+                    runtimes = list(
+                        session.scalars(
+                            select(RuntimeSession).order_by(
+                                RuntimeSession.created_at.desc(), RuntimeSession.id
+                            )
+                        )
+                    )
+                    marker = tuple(
+                        (item.id, item.state, item.updated_at, item.last_message)
+                        for item in runtimes
+                    )
+                    payload = [runtime_to_dict(item) for item in runtimes]
+                if marker != previous:
+                    sequence += 1
+                    await websocket.send_json(
+                        jsonable_encoder(
+                            {
+                                "sequence": sequence,
+                                "type": "runtime.snapshot",
+                                "runtimes": payload,
+                            }
+                        )
+                    )
+                    previous = marker
+                await asyncio.sleep(0.05)
+        except WebSocketDisconnect:
+            return
 
     return app

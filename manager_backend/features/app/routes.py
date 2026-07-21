@@ -22,7 +22,7 @@ def bootstrap(request: Request) -> AppBootstrap:
             "profiles": True,
             "catalogs": True,
             "proxy_management": False,
-            "browser_runtime": False,
+            "browser_runtime": True,
             "fingerprint_diagnostics": False,
         },
     )
