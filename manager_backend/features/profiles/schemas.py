@@ -227,7 +227,7 @@ class ProfileLogRead(StrictModel):
 
 
 class ProfileLogPage(Page[ProfileLogRead]):
-    pass
+    page_size: int = Field(ge=1, le=200)
 
 
 class BulkProfileRequest(StrictModel):

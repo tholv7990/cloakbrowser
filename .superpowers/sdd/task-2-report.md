@@ -97,3 +97,65 @@ None for the implementation. Run Manager tests as `python -m pytest`; the
 standalone `pytest` command in this environment initially loaded a different
 runtime import state, while the explicit interpreter command consistently
 used this worktree and produced the verification above.
+
+## Review fix: scoped 200-row log pages
+
+The initial `ProfileLogPage` inherited `Page.page_size`, whose `le=100`
+constraint is correct for unrelated endpoints but contradicted the log API's
+documented 200-row maximum. `ProfileLogPage` now overrides only its own
+`page_size` field to `Field(ge=1, le=200)`; the shared `Page` schema remains
+unchanged.
+
+### RED
+
+The new API test seeded 200 safe `runtime.ready` records, then requested
+`GET /api/v1/profiles/{id}/logs?page_size=200`.
+
+```powershell
+python -m pytest tests/manager/test_runtime_api.py::test_profile_logs_accept_a_200_row_page_size -q
+```
+
+Output (exit code 1):
+
+```text
+fastapi.exceptions.ResponseValidationError: 1 validation error:
+{'type': 'less_than_equal', 'loc': ('response', 'page_size'),
+ 'msg': 'Input should be less than or equal to 100', 'input': 200,
+ 'ctx': {'le': 100}}
+1 failed, 1 warning in 0.90s
+```
+
+### GREEN
+
+After the scoped schema override, the same test confirmed HTTP 200,
+`page_size: 200`, and 200 returned items.
+
+```powershell
+python -m pytest tests/manager/test_runtime_api.py::test_profile_logs_accept_a_200_row_page_size -q
+```
+
+Output (exit code 0):
+
+```text
+1 passed, 1 warning in 0.36s
+```
+
+The existing API assertion still verifies `page_size=201` returns HTTP 422.
+
+### Review-fix verification
+
+```powershell
+python -m pytest tests/manager/test_runtime_logs.py tests/manager/test_runtime_api.py tests/manager/test_runtime_manager.py tests/manager/test_runtime_reconcile.py -q
+```
+
+```text
+37 passed, 1 warning in 9.82s
+```
+
+```powershell
+python -m pytest tests/manager -q
+```
+
+```text
+167 passed, 1 skipped, 1 warning in 27.06s
+```

@@ -6,7 +6,7 @@ import time
 from manager_backend.features.runtime.manager import RuntimeManager
 from manager_backend.features.runtime.reconcile import reconcile_runtimes
 from manager_backend.features.runtime.service import create_runtime_session, transition_runtime
-from manager_backend.models import Profile, RuntimeSession
+from manager_backend.models import Profile, ProfileLogEntry, RuntimeSession
 
 
 class Handle:
@@ -210,6 +210,32 @@ def test_profile_logs_require_login_and_limit_page_size(client, auth_headers):
     assert response.status_code == 422
     client.cookies.clear()
     assert client.get(f"/api/v1/profiles/{profile_id}/logs").status_code == 401
+
+
+def test_profile_logs_accept_a_200_row_page_size(client, auth_headers):
+    profile_id = _profile(client, auth_headers)
+    with client.app.state.session_factory() as session:
+        session.add_all(
+            [
+                ProfileLogEntry(
+                    profile_id=profile_id,
+                    level="info",
+                    event="runtime.ready",
+                    message="Runtime ready.",
+                )
+                for _ in range(200)
+            ]
+        )
+        session.commit()
+
+    response = client.get(
+        f"/api/v1/profiles/{profile_id}/logs?page_size=200",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["page_size"] == 200
+    assert len(payload["items"]) == 200
 
 
 def test_runtime_routes_require_login(client):
