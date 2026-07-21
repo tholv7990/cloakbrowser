@@ -56,3 +56,42 @@ First run found one outdated bootstrap-shape assertion in `tests/manager/test_co
 ## Concerns
 
 No implementation blockers. The Manager suite retains the pre-existing Starlette TestClient deprecation warning.
+
+## Review-fix pass
+
+### RED
+
+Added regressions for queued-state exclusion, count-only WebSocket snapshots, startup reconciliation before bootstrap observation, and SQL query growth for folder list/reorder responses.
+
+Command:
+
+```powershell
+python -m pytest tests/manager/test_catalog_api.py tests/manager/test_runtime_api.py tests/manager/test_runtime_reconcile.py -q
+```
+
+Observed result before the batching change: `1 failed, 27 passed`. The folder-list query regression recorded 5 statements for one folder and 23 for ten folders, proving the per-folder count N+1 behavior.
+
+The queued, count-only snapshot, and startup-reconciliation regressions passed immediately because the original Task 3 implementation already excluded `queued`, included the count in the snapshot marker, and reconciled during lifespan startup.
+
+### GREEN
+
+- Added grouped helpers for non-deleted profile counts and active runtime counts by folder ID.
+- Folder list, create, update, and reorder now prepare two count maps and serialize folders from those maps, instead of querying per folder.
+- Global and grouped active-runtime queries share `_active_runtime_count_filters`, preserving the exact `starting`/`running`/`stopping`, non-deleted definition.
+- Added explicit list and reorder query-growth regressions; both now retain a constant query count as folders grow.
+
+Focused verification after the final refactor:
+
+```powershell
+python -m pytest tests/manager/test_catalog_api.py tests/manager/test_runtime_api.py tests/manager/test_runtime_reconcile.py -q
+```
+
+Result: `29 passed, 1 warning`.
+
+Fresh full verification:
+
+```powershell
+python -m pytest tests/manager -q
+```
+
+Result: `174 passed, 1 skipped, 1 warning`.

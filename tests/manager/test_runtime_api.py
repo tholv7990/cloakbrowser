@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import threading
 import time
 
@@ -36,8 +37,17 @@ def _profile(client, auth_headers):
 
 
 def _seed_runtime_count_states(client):
+    profile_ids = {}
     with client.app.state.session_factory() as session:
-        for state in ("stopped", "starting", "running", "stopping", "crashed", "detached"):
+        for state in (
+            "queued",
+            "stopped",
+            "starting",
+            "running",
+            "stopping",
+            "crashed",
+            "detached",
+        ):
             profile = Profile(
                 name=f"{state} count profile",
                 fingerprint_seed=str(abs(hash(f"count {state}")) % 1_000_000_000 + 1),
@@ -46,6 +56,7 @@ def _seed_runtime_count_states(client):
             session.add(profile)
             session.flush()
             session.add(RuntimeSession(profile_id=profile.id, state=state, last_message=state))
+            profile_ids[state] = profile.id
         deleted = Profile(
             name="deleted running count profile",
             fingerprint_seed=str(abs(hash("deleted count")) % 1_000_000_000 + 1),
@@ -60,6 +71,7 @@ def _seed_runtime_count_states(client):
             RuntimeSession(profile_id=deleted.id, state="running", last_message="running")
         )
         session.commit()
+    return profile_ids
 
 
 def test_bootstrap_reports_only_live_active_runtime_sessions(client, auth_headers):
@@ -289,6 +301,29 @@ def test_runtime_snapshot_reports_live_active_runtime_session_count(client, auth
 
     assert snapshot["type"] == "runtime.snapshot"
     assert snapshot["running_session_count"] == 3
+
+
+def test_runtime_snapshot_emits_when_only_running_count_changes(client, auth_headers):
+    profile_ids = _seed_runtime_count_states(client)
+
+    with client.websocket_connect(
+        "/api/v1/events",
+        headers={"Origin": "http://127.0.0.1:5173"},
+    ) as socket:
+        initial = socket.receive_json()
+        assert initial["running_session_count"] == 3
+
+        with client.app.state.session_factory() as session:
+            session.get(Profile, profile_ids["running"]).deleted_at = datetime.now(
+                timezone.utc
+            )
+            session.commit()
+
+        changed = socket.receive_json()
+
+    assert changed["sequence"] == initial["sequence"] + 1
+    assert changed["type"] == "runtime.snapshot"
+    assert changed["running_session_count"] == 2
 
 
 def test_runtime_events_require_cookie_and_exact_origin(client, auth_headers):

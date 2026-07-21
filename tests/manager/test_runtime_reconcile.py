@@ -110,3 +110,24 @@ def test_app_startup_runs_runtime_reconciliation(db_session_factory, settings):
         assert client.app.state.runtime_reconciliation["crashed"] == 1
         with client.app.state.session_factory() as session:
             assert session.get(RuntimeSession, runtime_id).state == "crashed"
+
+
+def test_bootstrap_observes_reconciled_stale_runtimes(db_session_factory, settings):
+    _running_runtime(db_session_factory, "startup-bootstrap")
+    with TestClient(create_app(settings)) as client:
+        setup = client.post(
+            "/api/v1/auth/setup",
+            headers={"Origin": settings.allowed_origin},
+            json={
+                "email": "owner@example.com",
+                "password": "correct horse battery staple",
+            },
+        )
+        assert setup.status_code == 201
+
+        bootstrap = client.get(
+            "/api/v1/app/bootstrap", headers={"Origin": settings.allowed_origin}
+        )
+
+    assert bootstrap.status_code == 200
+    assert bootstrap.json()["running_session_count"] == 0

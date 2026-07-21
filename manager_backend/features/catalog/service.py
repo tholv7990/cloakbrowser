@@ -8,10 +8,26 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...errors import ManagerError
-from ...models import Folder, Tag, WorkflowStatus
+from ...models import Folder, Profile, Tag, WorkflowStatus
 
 
 CatalogModel = TypeVar("CatalogModel", Folder, Tag, WorkflowStatus)
+
+
+def count_non_deleted_profiles_by_folder(
+    session: Session, folder_ids: list[str]
+) -> dict[str, int]:
+    if not folder_ids:
+        return {}
+    rows = session.execute(
+        select(Profile.folder_id, func.count(Profile.id))
+        .where(
+            Profile.folder_id.in_(folder_ids),
+            Profile.deleted_at.is_(None),
+        )
+        .group_by(Profile.folder_id)
+    )
+    return {folder_id: int(count) for folder_id, count in rows}
 
 
 def _kind(model: type[Any]) -> str:

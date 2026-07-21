@@ -21,18 +21,36 @@ _TRANSITIONS = {
 }
 
 
+def _active_runtime_count_filters():
+    return (
+        RuntimeSession.state.in_(COUNTED_ACTIVE_STATES),
+        Profile.deleted_at.is_(None),
+    )
+
+
 def count_active_runtimes(session: Session, folder_id: str | None = None) -> int:
     statement = (
         select(func.count(RuntimeSession.id))
         .join(Profile, RuntimeSession.profile_id == Profile.id)
-        .where(
-            RuntimeSession.state.in_(COUNTED_ACTIVE_STATES),
-            Profile.deleted_at.is_(None),
-        )
+        .where(*_active_runtime_count_filters())
     )
     if folder_id is not None:
         statement = statement.where(Profile.folder_id == folder_id)
     return int(session.scalar(statement) or 0)
+
+
+def count_active_runtimes_by_folder(
+    session: Session, folder_ids: list[str]
+) -> dict[str, int]:
+    if not folder_ids:
+        return {}
+    rows = session.execute(
+        select(Profile.folder_id, func.count(RuntimeSession.id))
+        .join(Profile, RuntimeSession.profile_id == Profile.id)
+        .where(*_active_runtime_count_filters(), Profile.folder_id.in_(folder_ids))
+        .group_by(Profile.folder_id)
+    )
+    return {folder_id: int(count) for folder_id, count in rows}
 
 
 def active_runtime(session: Session, profile_id: str) -> RuntimeSession | None:
