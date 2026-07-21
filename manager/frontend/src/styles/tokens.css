@@ -1,0 +1,49 @@
+/*
+ * CloakBrowser Profile Manager — original color system.
+ * Dark is the default operational theme; light is a first-class alternate.
+ * Values are space-separated RGB channels so Tailwind opacity modifiers work.
+ * The theme store sets data-theme="dark|light" on <html> (system resolves to one).
+ */
+
+:root,
+:root[data-theme='dark'] {
+  --cb-canvas: 11 14 20;
+  --cb-surface: 17 22 33;
+  --cb-surface-raised: 22 28 41;
+  --cb-surface-sunken: 29 37 52;
+  --cb-line: 35 44 61;
+  --cb-line-strong: 51 64 90;
+  --cb-ink: 231 236 243;
+  --cb-ink-muted: 154 166 188;
+  --cb-ink-faint: 103 114 138;
+  --cb-accent: 110 99 242;
+  --cb-accent-hover: 126 116 245;
+  --cb-accent-fg: 255 255 255;
+  --cb-success: 53 200 142;
+  --cb-warning: 231 180 80;
+  --cb-danger: 242 109 109;
+  --cb-info: 79 176 230;
+  --cb-neutral: 107 118 136;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --cb-canvas: 245 246 249;
+  --cb-surface: 255 255 255;
+  --cb-surface-raised: 255 255 255;
+  --cb-surface-sunken: 239 241 246;
+  --cb-line: 226 230 238;
+  --cb-line-strong: 203 210 223;
+  --cb-ink: 16 21 31;
+  --cb-ink-muted: 90 100 120;
+  --cb-ink-faint: 138 147 166;
+  --cb-accent: 91 80 224;
+  --cb-accent-hover: 79 68 209;
+  --cb-accent-fg: 255 255 255;
+  --cb-success: 23 150 106;
+  --cb-warning: 183 121 31;
+  --cb-danger: 209 67 67;
+  --cb-info: 44 130 201;
+  --cb-neutral: 107 118 136;
+  color-scheme: light;
+}

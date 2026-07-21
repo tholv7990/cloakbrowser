@@ -1,0 +1,241 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { FormProvider, useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { ArrowLeft, ArrowRight, Check, Play, Save, X } from 'lucide-react';
+import { api } from '@/api';
+import { useAppData } from '@/hooks/useAppData';
+import { useProxies } from '@/features/proxies/api';
+import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
+import { LoadingBlock, ErrorState } from '@/components/ui/states';
+import { cn } from '@/lib/cn';
+import {
+  defaultWizardValues,
+  profileToWizardValues,
+  profileWizardSchema,
+  stepFields,
+  wizardValuesToPayload,
+  type ProfileWizardValues,
+} from '@/schemas/profile';
+import { WIZARD_STEPS, type WizardRefs } from './steps';
+import { useCreateProfile, useProfile, useUpdateProfile } from './api';
+
+export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
+  const params = useParams();
+  const navigate = useNavigate();
+  const editingId = mode === 'edit' ? (params.id ?? null) : null;
+
+  const app = useAppData();
+  const proxiesQuery = useProxies();
+  const profileQuery = useProfile(editingId);
+  const createProfile = useCreateProfile();
+  const updateProfile = useUpdateProfile();
+
+  const [step, setStep] = useState(0);
+
+  const form = useForm<ProfileWizardValues>({
+    resolver: zodResolver(profileWizardSchema),
+    defaultValues: defaultWizardValues(),
+    mode: 'onBlur',
+  });
+
+  // Load an existing profile into the form once (edit mode).
+  useEffect(() => {
+    if (mode === 'edit' && profileQuery.data) {
+      form.reset(profileToWizardValues(profileQuery.data));
+    }
+  }, [mode, profileQuery.data, form]);
+
+  const refs: WizardRefs = useMemo(
+    () => ({
+      folders: app.folders,
+      statuses: app.statuses,
+      tags: app.tags,
+      proxies: proxiesQuery.data ?? [],
+      extensions: app.extensions,
+      browserVersion: app.browserVersion,
+      isEdit: mode === 'edit',
+    }),
+    [
+      app.folders,
+      app.statuses,
+      app.tags,
+      app.extensions,
+      app.browserVersion,
+      proxiesQuery.data,
+      mode,
+    ],
+  );
+
+  if (app.isLoading || (mode === 'edit' && profileQuery.isLoading)) {
+    return <LoadingBlock label="Loading profile editor…" />;
+  }
+  if (app.isError) {
+    return (
+      <ErrorState
+        message="Could not load the profile editor."
+        onRetry={() => window.location.reload()}
+      />
+    );
+  }
+  if (mode === 'edit' && profileQuery.isError) {
+    return (
+      <ErrorState message="Could not load this profile." onRetry={() => profileQuery.refetch()} />
+    );
+  }
+
+  const isLast = step === WIZARD_STEPS.length - 1;
+  const saving = createProfile.isPending || updateProfile.isPending;
+
+  const goNext = async () => {
+    const valid = await form.trigger(stepFields[step]);
+    if (valid) setStep((current) => Math.min(current + 1, WIZARD_STEPS.length - 1));
+  };
+
+  const persist = async (): Promise<string | null> => {
+    const valid = await form.trigger();
+    if (!valid) {
+      // Jump to the first step that has an error.
+      const errored = Object.keys(form.formState.errors);
+      const firstStep = WIZARD_STEPS.findIndex((_, index) =>
+        stepFields[index].some((field) => errored.includes(field as string)),
+      );
+      if (firstStep >= 0) setStep(firstStep);
+      return null;
+    }
+    const values = form.getValues();
+    const payload = wizardValuesToPayload(values);
+    if (mode === 'edit' && editingId) {
+      await updateProfile.mutateAsync({ id: editingId, payload });
+      return editingId;
+    }
+    const created = await createProfile.mutateAsync(payload);
+    return created.id;
+  };
+
+  const onSave = async () => {
+    const id = await persist();
+    if (id) navigate('/profiles');
+  };
+
+  const onSaveAndRun = async () => {
+    const id = await persist();
+    if (!id) return;
+    try {
+      await api.startProfile(id);
+    } catch {
+      // Start failures surface via events/runtime state on the list.
+    }
+    navigate('/profiles');
+  };
+
+  const CurrentStep = WIZARD_STEPS[step].Component;
+
+  return (
+    <FormProvider {...form}>
+      <div className="flex h-full flex-col">
+        <div className="flex items-center justify-between border-b border-line px-5 py-3">
+          <div>
+            <h2 className="font-display text-[15px] font-semibold text-ink">
+              {mode === 'edit' ? 'Edit profile' : 'New profile'}
+            </h2>
+            <p className="text-2xs text-ink-faint">
+              Step {step + 1} of {WIZARD_STEPS.length} — {WIZARD_STEPS[step].title}
+            </p>
+          </div>
+          <IconButton label="Close editor" onClick={() => navigate('/profiles')}>
+            <X className="h-4 w-4" />
+          </IconButton>
+        </div>
+
+        <div className="flex min-h-0 flex-1">
+          <nav
+            className="hidden w-56 shrink-0 overflow-y-auto border-r border-line p-3 md:block"
+            aria-label="Wizard steps"
+          >
+            <ol className="space-y-0.5">
+              {WIZARD_STEPS.map((wizardStep, index) => {
+                const active = index === step;
+                const done = index < step;
+                return (
+                  <li key={wizardStep.id}>
+                    <button
+                      type="button"
+                      onClick={() => setStep(index)}
+                      className={cn(
+                        'flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors',
+                        active ? 'bg-accent/15' : 'hover:bg-surface-sunken',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-2xs font-semibold',
+                          active
+                            ? 'border-accent bg-accent text-accent-fg'
+                            : done
+                              ? 'border-success/40 bg-success/15 text-success'
+                              : 'border-line text-ink-faint',
+                        )}
+                      >
+                        {done ? <Check className="h-3 w-3" /> : index + 1}
+                      </span>
+                      <span className="min-w-0">
+                        <span
+                          className={cn(
+                            'block text-[13px] font-medium',
+                            active ? 'text-ink' : 'text-ink-muted',
+                          )}
+                        >
+                          {wizardStep.title}
+                        </span>
+                        <span className="block truncate text-2xs text-ink-faint">
+                          {wizardStep.description}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
+
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-2xl px-5 py-6">
+              <div className="mb-4">
+                <h3 className="font-display text-base font-semibold text-ink">
+                  {WIZARD_STEPS[step].title}
+                </h3>
+                <p className="text-[13px] text-ink-muted">{WIZARD_STEPS[step].description}</p>
+              </div>
+              <CurrentStep refs={refs} />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-2 border-t border-line px-5 py-3">
+          <Button
+            variant="ghost"
+            onClick={() => setStep((s) => Math.max(0, s - 1))}
+            disabled={step === 0}
+          >
+            <ArrowLeft className="h-4 w-4" /> Back
+          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={onSave} loading={saving}>
+              <Save className="h-4 w-4" /> Save
+            </Button>
+            <Button variant="secondary" onClick={onSaveAndRun} loading={saving}>
+              <Play className="h-4 w-4" /> Save &amp; run
+            </Button>
+            {!isLast && (
+              <Button variant="primary" onClick={goNext}>
+                Next <ArrowRight className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    </FormProvider>
+  );
+}

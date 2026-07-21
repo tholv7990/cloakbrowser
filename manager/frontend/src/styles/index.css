@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import './tokens.css';
+
+@layer base {
+  * {
+    border-color: rgb(var(--cb-line));
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-sans antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Keyboard focus is always visible; pointer focus stays quiet. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--cb-accent));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: rgb(var(--cb-accent) / 0.28);
+  }
+
+  /* Dense operational surfaces get a slim, themed scrollbar. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--cb-line-strong));
+    border-radius: 8px;
+    border: 2px solid rgb(var(--cb-canvas));
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--cb-ink-faint));
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Tabular data (IDs, seeds, IPs, ports) reads as a single monospace register. */
+  .data {
+    @apply font-mono tabular-nums;
+    font-variant-ligatures: none;
+  }
+}
