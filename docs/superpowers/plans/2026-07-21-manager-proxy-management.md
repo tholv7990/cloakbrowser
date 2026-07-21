@@ -1,6 +1,6 @@
 # Manager Proxy Management Implementation Plan
 
-> Superseded before implementation by `2026-07-21-profile-owned-proxy.md`. No reusable proxy CRUD or paging API will be built.
+> Active implementation plan. Product review restored reusable proxy CRUD and confirmed that the same create/edit flow is available from a profile's proxy-assignment dialog.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -17,6 +17,9 @@
 - Manager unit tests require no network, browser, or real Windows Credential Manager.
 - Schemes are exactly `direct`, `http`, `https`, `socks5`, and `socks5h`.
 - Quick tests have a 20-second total budget; quality tests are asynchronous and never solve CAPTCHAs.
+- `GET /api/v1/proxies` returns `Proxy[]` to match the current frontend adapter; no paging envelope is introduced in this version.
+- `Proxy` reads match `manager/frontend/src/types/api.ts`: `username` is always `null`, `has_password` is derived from the credential store, and `masked_endpoint` never includes credentials.
+- Creating from a profile uses the same `POST /api/v1/proxies` route. The frontend selects the returned ID and assigns it through the existing full profile PATCH only when the owner confirms **Assign**.
 
 ---
 
@@ -45,7 +48,7 @@
 
 **Files:**
 - Modify: `manager_backend/models.py`
-- Create: `manager_backend/migrations/versions/0005_proxy_management.py`
+- Create: `manager_backend/migrations/versions/0006_proxy_management.py`
 - Create: `manager_backend/features/proxies/service.py`
 - Create: `manager_backend/features/proxies/routes.py`
 - Modify: `manager_backend/api.py`
@@ -55,12 +58,12 @@
 - Test: `tests/manager/test_proxy_migration.py`
 
 **Interfaces:**
-- Produces safe proxy list/detail/create/patch/delete/parse routes under `/api/v1/proxies`.
+- Produces safe proxy list/detail/create/patch/delete/parse routes under `/api/v1/proxies`, with list returning `list[ProxyRead]` for the current frontend contract.
 - Produces `resolve_proxy_url(db, credential_store, proxy_id) -> str | None` for runtime and tests.
 
-- [ ] Write failing authenticated API tests for parse, create/read/list/update, credential preservation/replacement/clear, no-secret serialization, duplicate labels, direct records, pagination, and referenced-delete rejection.
+- [ ] Write failing authenticated API tests for parse, create/read/list/update, credential preservation/replacement/clear, no-secret serialization, duplicate labels, direct records, profile create/patch assignment, and referenced-delete rejection.
 - [ ] Run the API tests and confirm missing routes.
-- [ ] Add `Proxy` model, profile foreign key/relationship, migration `0005`, service compensation logic, and routes.
+- [ ] Add `Proxy` model, profile foreign key/relationship, migration `0006`, service compensation logic, and routes. The migration rebuilds the existing nullable `profiles.proxy_id` column with `ON DELETE RESTRICT` while preserving current rows.
 - [ ] Inject `app.state.credential_store`; production defaults to `KeyringCredentialStore`, tests use `MemoryCredentialStore`.
 - [ ] Write and run migration preservation plus upgrade/downgrade tests.
 - [ ] Run CRUD, profile, database, and security tests; commit `feat(manager): add reusable proxy management APIs`.
@@ -86,7 +89,7 @@
 
 **Files:**
 - Modify: `manager_backend/models.py`
-- Create: `manager_backend/migrations/versions/0006_proxy_quality_runs.py`
+- Create: `manager_backend/migrations/versions/0007_proxy_quality_runs.py`
 - Create: `manager_backend/features/proxies/quality.py`
 - Modify: `manager_backend/features/proxies/schemas.py`
 - Modify: `manager_backend/features/proxies/routes.py`

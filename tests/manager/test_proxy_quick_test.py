@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import time
+
+from manager_backend.features.proxies.credentials import MemoryCredentialStore
+from manager_backend.features.proxies.testing import (
+    QuickTestResult,
+    ProxyTestFailure,
+    ScannerQuickTester,
+)
+
+
+def _create(client, auth_headers, **changes):
+    payload = {
+        "label": "Quick test",
+        "scheme": "socks5",
+        "host": "193.169.218.22",
+        "port": 50101,
+        "username": "MSproxy",
+        "password": "TrustProxy",
+        "test_before_launch": True,
+    }
+    payload.update(changes)
+    return client.post("/api/v1/proxies", headers=auth_headers, json=payload).json()
+
+
+def test_quick_test_returns_and_caches_only_safe_results(client, auth_headers):
+    client.app.state.credential_store = MemoryCredentialStore()
+
+    class Tester:
+        def __init__(self):
+            self.received = None
+
+        def run(self, proxy_url, timeout_seconds=20):
+            self.received = (proxy_url, timeout_seconds)
+            return QuickTestResult(
+                exit_ip="74.0.96.143",
+                exit_ip_matches=True,
+                latency_ms=184,
+                country="US",
+                city="Dallas",
+                timezone="America/Chicago",
+                asn="AS212238",
+                organization="Datacamp Limited",
+                checked_at=datetime(2026, 7, 21, tzinfo=timezone.utc),
+            )
+
+    tester = Tester()
+    client.app.state.proxy_quick_tester = tester
+    proxy = _create(client, auth_headers)
+    response = client.post(f"/api/v1/proxies/{proxy['id']}/quick-test", headers=auth_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {
+        "ok": True,
+        "connectivity": True,
+        "exit_ip": "74.0.96.143",
+        "exit_ip_matches": True,
+        "latency_ms": 184,
+        "country": "US",
+        "city": "Dallas",
+        "timezone": "America/Chicago",
+        "asn": "AS212238",
+        "organization": "Datacamp Limited",
+        "checked_at": "2026-07-21T00:00:00Z",
+        "error": None,
+    }
+    assert tester.received[1] == 20
+    assert "MSproxy" in tester.received[0]
+    assert "TrustProxy" in tester.received[0]
+    serialized = str(body)
+    assert "MSproxy" not in serialized and "TrustProxy" not in serialized
+    cached = client.get(f"/api/v1/proxies/{proxy['id']}").json()
+    assert cached["exit_ip"] == "74.0.96.143"
+    assert cached["city"] == "Dallas"
+    assert cached["latency_ms"] == 184
+
+
+def test_quick_test_maps_transport_failure_to_safe_category(client, auth_headers):
+    client.app.state.credential_store = MemoryCredentialStore()
+
+    class Tester:
+        def run(self, _proxy_url, timeout_seconds=20):
+            raise ProxyTestFailure("authentication_failed")
+
+    client.app.state.proxy_quick_tester = Tester()
+    proxy = _create(client, auth_headers)
+    response = client.post(f"/api/v1/proxies/{proxy['id']}/quick-test", headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
+    assert response.json()["error"] == "authentication_failed"
+
+
+def test_direct_proxy_quick_test_is_rejected(client, auth_headers):
+    client.app.state.credential_store = MemoryCredentialStore()
+    proxy = _create(
+        client,
+        auth_headers,
+        label="Direct",
+        scheme="direct",
+        host="",
+        port=None,
+        username=None,
+        password=None,
+    )
+    response = client.post(f"/api/v1/proxies/{proxy['id']}/quick-test", headers=auth_headers)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "proxy_test_not_applicable"
+
+
+def test_scanner_quick_test_honors_total_timeout_budget():
+    def slow_resolver(_proxy_url, *, attempts):
+        time.sleep(0.2)
+        return {}
+
+    tester = ScannerQuickTester(resolver=slow_resolver)
+    started = time.monotonic()
+    try:
+        tester.run("socks5://proxy.example:1080", timeout_seconds=0.02)
+    except ProxyTestFailure as error:
+        assert error.category == "timeout"
+    else:
+        raise AssertionError("expected timeout")
+    assert time.monotonic() - started < 0.15

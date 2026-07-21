@@ -1,6 +1,6 @@
 # Manager Proxy Management Design
 
-> Superseded by `2026-07-21-profile-owned-proxy-design.md`. Competitor research and product review showed that CloakBrowser does not need a separate reusable proxy inventory in version 1.
+> Active design. Product review on July 21, 2026 restored reusable proxy management because the frontend supports assigning, creating, and editing proxies directly from a profile as well as from the Proxy Manager.
 
 ## Objective
 
@@ -24,11 +24,21 @@ A proxy record contains:
 
 Profiles continue storing only `proxy_id`. A direct profile may leave `proxy_id` null or reference a reusable `direct` record. Soft-deleted proxies cannot be assigned or launched.
 
+## Create and Assign from a Profile
+
+The profile UI and Proxy Manager use the same proxy CRUD API and the same records. There is no embedded or duplicated proxy configuration inside a profile.
+
+From a profile's **Assign proxy** dialog, the owner can select an existing record, edit the selected record, or open **Add new proxy**. Saving a new proxy calls `POST /api/v1/proxies`; the returned ID becomes the dialog selection. The profile is updated with that `proxy_id` only when the owner confirms **Assign**. Cancelling assignment leaves the newly created proxy safely available in Proxy Manager rather than deleting it implicitly.
+
+Editing a proxy from a profile edits the shared record. When it is assigned to multiple profiles, the frontend displays a linkage warning because changing the endpoint affects every referencing profile. Creating or editing a proxy never launches a browser.
+
+Profile creation follows the same two-step contract: create the proxy record first when needed, then include its ID in `POST /api/v1/profiles`. The backend validates that the proxy exists and is not deleted. This keeps one credential entry and one authoritative test history per proxy.
+
 ## Credential Storage
 
 Use Python `keyring` with Windows Credential Manager. The keyring service name is `cloakbrowser-manager-proxy`; the account name is the random `credential_ref`. The stored secret is a JSON object containing the username and password.
 
-SQLite never stores either credential. API reads expose only `username_present`. Create and update requests accept write-only `username` and `password`; both must be supplied together. Omitting both during update preserves the existing credential. `clear_credentials=true` removes it and cannot be combined with new credentials.
+SQLite never stores either credential. API reads expose `username: null` and `has_password` for the current frontend contract; they never return the stored username or password. Create and update requests accept write-only `username` and `password`; both must be supplied together. Omitting both during update preserves the existing credential. `clear_credentials=true` removes it and cannot be combined with new credentials.
 
 Database and credential changes use compensating cleanup:
 
