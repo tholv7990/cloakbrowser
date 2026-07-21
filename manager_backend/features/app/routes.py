@@ -1,18 +1,24 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request
+from sqlalchemy.orm import Session
 
 from cloakbrowser._version import __version__ as cloakbrowser_version
 from cloakbrowser.config import get_chromium_version
 
+from ...dependencies import get_session
+from ..runtime.service import count_active_runtimes
 from .schemas import AppBootstrap, AppVersion
 
 
 router = APIRouter(prefix="/app", tags=["application"])
+SessionDependency = Annotated[Session, Depends(get_session)]
 
 
 @router.get("/bootstrap", response_model=AppBootstrap, operation_id="app_bootstrap")
-def bootstrap(request: Request) -> AppBootstrap:
+def bootstrap(request: Request, session: SessionDependency) -> AppBootstrap:
     return AppBootstrap(
         api_version="v1",
         platform="windows",
@@ -26,6 +32,7 @@ def bootstrap(request: Request) -> AppBootstrap:
             "fingerprint_diagnostics": False,
             "settings": True,
         },
+        running_session_count=count_active_runtimes(session),
     )
 
 

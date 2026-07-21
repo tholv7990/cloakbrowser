@@ -1,5 +1,57 @@
 from __future__ import annotations
 
+from manager_backend.models import Folder, Profile, RuntimeSession
+
+
+def _profile_with_runtime(session, *, folder_id, name, state, deleted=False):
+    profile = Profile(
+        name=name,
+        folder_id=folder_id,
+        fingerprint_seed=str(abs(hash(name)) % 1_000_000_000 + 1),
+        fingerprint_config_hash="a" * 64,
+    )
+    if deleted:
+        from datetime import datetime, timezone
+
+        profile.deleted_at = datetime.now(timezone.utc)
+    session.add(profile)
+    session.flush()
+    session.add(RuntimeSession(profile_id=profile.id, state=state, last_message=state))
+
+
+def test_folders_report_non_deleted_profiles_and_active_runtime_counts(
+    client, auth_headers
+):
+    with client.app.state.session_factory() as session:
+        active_folder = Folder(name="Active", position=0)
+        empty_folder = Folder(name="Empty", position=1)
+        session.add_all([active_folder, empty_folder])
+        session.flush()
+        for state in ("stopped", "starting", "running", "stopping", "crashed", "detached"):
+            _profile_with_runtime(
+                session,
+                folder_id=active_folder.id,
+                name=f"{state} profile",
+                state=state,
+            )
+        _profile_with_runtime(
+            session,
+            folder_id=active_folder.id,
+            name="deleted running profile",
+            state="running",
+            deleted=True,
+        )
+        session.commit()
+
+    response = client.get("/api/v1/folders", headers=auth_headers)
+
+    assert response.status_code == 200
+    by_name = {item["name"]: item for item in response.json()}
+    assert by_name["Active"]["profile_count"] == 6
+    assert by_name["Active"]["running_count"] == 3
+    assert by_name["Empty"]["profile_count"] == 0
+    assert by_name["Empty"]["running_count"] == 0
+
 
 def test_folder_crud(client, auth_headers):
     created = client.post(

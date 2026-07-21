@@ -8,6 +8,7 @@ def test_foundation_routes_are_authenticated_and_typed(client, auth_headers):
         "api_version": "v1",
         "platform": "windows",
         "owner_email": "owner@example.com",
+        "running_session_count": 0,
         "capabilities": {
             "authentication": True,
             "profiles": True,

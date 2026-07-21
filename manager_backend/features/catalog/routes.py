@@ -3,10 +3,12 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ...dependencies import get_session
-from ...models import Folder, Tag, WorkflowStatus
+from ...models import Folder, Profile, Tag, WorkflowStatus
+from ..runtime.service import count_active_runtimes
 from .schemas import (
     FolderCreate,
     FolderPatch,
@@ -32,24 +34,49 @@ SessionDependency = Annotated[Session, Depends(get_session)]
 router = APIRouter()
 
 
+def folder_to_dict(session: Session, folder: Folder) -> dict:
+    return {
+        "id": folder.id,
+        "name": folder.name,
+        "position": folder.position,
+        "created_at": folder.created_at,
+        "updated_at": folder.updated_at,
+        "profile_count": int(
+            session.scalar(
+                select(func.count(Profile.id)).where(
+                    Profile.folder_id == folder.id,
+                    Profile.deleted_at.is_(None),
+                )
+            )
+            or 0
+        ),
+        "running_count": count_active_runtimes(session, folder.id),
+    }
+
+
 @router.get("/folders", response_model=list[FolderRead])
 def list_folders(session: SessionDependency):
-    return list_catalog(session, Folder)
+    return [folder_to_dict(session, folder) for folder in list_catalog(session, Folder)]
 
 
 @router.post("/folders", response_model=FolderRead, status_code=status.HTTP_201_CREATED)
 def create_folder(payload: FolderCreate, session: SessionDependency):
-    return create_catalog(session, Folder, payload.model_dump())
+    return folder_to_dict(session, create_catalog(session, Folder, payload.model_dump()))
 
 
 @router.post("/folders/reorder", response_model=list[FolderRead])
 def reorder_folders(payload: ReorderRequest, session: SessionDependency):
-    return reorder_catalog(session, Folder, payload.ids)
+    return [
+        folder_to_dict(session, folder)
+        for folder in reorder_catalog(session, Folder, payload.ids)
+    ]
 
 
 @router.patch("/folders/{item_id}", response_model=FolderRead)
 def update_folder(item_id: str, payload: FolderPatch, session: SessionDependency):
-    return update_catalog(session, Folder, item_id, payload.model_dump())
+    return folder_to_dict(
+        session, update_catalog(session, Folder, item_id, payload.model_dump())
+    )
 
 
 @router.delete("/folders/{item_id}", status_code=status.HTTP_204_NO_CONTENT)

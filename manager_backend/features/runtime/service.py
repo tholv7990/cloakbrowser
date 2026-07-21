@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -9,6 +9,7 @@ from ...models import Profile, RuntimeSession, utc_now
 
 
 ACTIVE_STATES = frozenset({"queued", "starting", "running", "stopping", "detached"})
+COUNTED_ACTIVE_STATES = frozenset({"starting", "running", "stopping"})
 _TRANSITIONS = {
     "queued": frozenset({"starting", "stopped", "crashed", "detached"}),
     "starting": frozenset({"running", "stopping", "crashed", "detached"}),
@@ -18,6 +19,20 @@ _TRANSITIONS = {
     "stopped": frozenset(),
     "crashed": frozenset(),
 }
+
+
+def count_active_runtimes(session: Session, folder_id: str | None = None) -> int:
+    statement = (
+        select(func.count(RuntimeSession.id))
+        .join(Profile, RuntimeSession.profile_id == Profile.id)
+        .where(
+            RuntimeSession.state.in_(COUNTED_ACTIVE_STATES),
+            Profile.deleted_at.is_(None),
+        )
+    )
+    if folder_id is not None:
+        statement = statement.where(Profile.folder_id == folder_id)
+    return int(session.scalar(statement) or 0)
 
 
 def active_runtime(session: Session, profile_id: str) -> RuntimeSession | None:

@@ -35,6 +35,42 @@ def _profile(client, auth_headers):
     return response.json()["id"]
 
 
+def _seed_runtime_count_states(client):
+    with client.app.state.session_factory() as session:
+        for state in ("stopped", "starting", "running", "stopping", "crashed", "detached"):
+            profile = Profile(
+                name=f"{state} count profile",
+                fingerprint_seed=str(abs(hash(f"count {state}")) % 1_000_000_000 + 1),
+                fingerprint_config_hash="a" * 64,
+            )
+            session.add(profile)
+            session.flush()
+            session.add(RuntimeSession(profile_id=profile.id, state=state, last_message=state))
+        deleted = Profile(
+            name="deleted running count profile",
+            fingerprint_seed=str(abs(hash("deleted count")) % 1_000_000_000 + 1),
+            fingerprint_config_hash="a" * 64,
+        )
+        from datetime import datetime, timezone
+
+        deleted.deleted_at = datetime.now(timezone.utc)
+        session.add(deleted)
+        session.flush()
+        session.add(
+            RuntimeSession(profile_id=deleted.id, state="running", last_message="running")
+        )
+        session.commit()
+
+
+def test_bootstrap_reports_only_live_active_runtime_sessions(client, auth_headers):
+    _seed_runtime_count_states(client)
+
+    response = client.get("/api/v1/app/bootstrap", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json()["running_session_count"] == 3
+
+
 def _logs(client, auth_headers, profile_id):
     response = client.get(
         f"/api/v1/profiles/{profile_id}/logs",
@@ -240,6 +276,19 @@ def test_profile_logs_accept_a_200_row_page_size(client, auth_headers):
 
 def test_runtime_routes_require_login(client):
     assert client.get("/api/v1/runtimes").status_code == 401
+
+
+def test_runtime_snapshot_reports_live_active_runtime_session_count(client, auth_headers):
+    _seed_runtime_count_states(client)
+
+    with client.websocket_connect(
+        "/api/v1/events",
+        headers={"Origin": "http://127.0.0.1:5173"},
+    ) as socket:
+        snapshot = socket.receive_json()
+
+    assert snapshot["type"] == "runtime.snapshot"
+    assert snapshot["running_session_count"] == 3
 
 
 def test_runtime_events_require_cookie_and_exact_origin(client, auth_headers):

@@ -18,6 +18,7 @@ class AppBootstrap(StrictModel):
     platform: str
     owner_email: str
     capabilities: AppCapabilities
+    running_session_count: int
 
 
 class AppVersion(StrictModel):

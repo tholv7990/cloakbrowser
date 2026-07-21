@@ -32,6 +32,8 @@ class FolderRead(CatalogNameMixin):
     position: int
     created_at: datetime
     updated_at: datetime
+    profile_count: int
+    running_count: int
 
 
 class TagCreate(CatalogNameMixin):

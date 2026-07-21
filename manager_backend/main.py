@@ -18,6 +18,7 @@ from .dependencies import require_authenticated_session
 from .features.runtime.manager import RuntimeManager
 from .features.runtime.reconcile import cleanup_stale_locks, reconcile_runtimes
 from .features.runtime.routes import runtime_to_dict
+from .features.runtime.service import count_active_runtimes
 from .auth.sessions import validate_session
 from .dependencies import SESSION_COOKIE
 from .models import RuntimeSession
@@ -123,7 +124,9 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
                         (item.id, item.state, item.updated_at, item.last_message)
                         for item in runtimes
                     )
+                    running_session_count = count_active_runtimes(session)
                     payload = [runtime_to_dict(item) for item in runtimes]
+                marker = (marker, running_session_count)
                 if marker != previous:
                     sequence += 1
                     await websocket.send_json(
@@ -132,6 +135,7 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
                                 "sequence": sequence,
                                 "type": "runtime.snapshot",
                                 "runtimes": payload,
+                                "running_session_count": running_session_count,
                             }
                         )
                     )
