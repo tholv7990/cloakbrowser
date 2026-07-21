@@ -210,7 +210,7 @@ git commit -m "feat(manager): define canonical API schemas"
 **Interfaces:**
 - Produces authenticated CRUD under `/api/v1/folders`, `/tags`, `/workflow-statuses` and `/reorder` endpoints accepting `{ "ids": [uuid] }`.
 
-- [ ] **Step 1: Write failing API tests**
+- [x] **Step 1: Write failing API tests**
 
 ```python
 def test_folder_crud(client, auth_headers):
@@ -226,10 +226,10 @@ def test_duplicate_folder_uses_safe_error(client, auth_headers):
     assert response.json()["error"]["code"] == "folder_name_conflict"
 ```
 
-- [ ] **Step 2: Verify RED**, run `python -m pytest -q tests/manager/test_catalog_api.py`, and confirm 404 responses.
-- [ ] **Step 3: Implement transactional catalog services, deterministic positions, conflict translation, referential checks, and authenticated routes.**
-- [ ] **Step 4: Verify GREEN** with `python -m pytest -q tests/manager/test_catalog_api.py`.
-- [ ] **Step 5: Commit** with `git commit -m "feat(manager): add catalog CRUD APIs"` after staging the catalog files and tests.
+- [x] **Step 2: Verify RED**, run `python -m pytest -q tests/manager/test_catalog_api.py`, and confirm 404 responses.
+- [x] **Step 3: Implement transactional catalog services, deterministic positions, conflict translation, referential checks, and authenticated routes.**
+- [x] **Step 4: Verify GREEN** with `python -m pytest -q tests/manager/test_catalog_api.py`.
+- [x] **Step 5: Commit** with `git commit -m "feat(manager): add catalog CRUD APIs"` after staging the catalog files and tests.
 
 ### Task 5: Profile CRUD, filters, duplicate, fingerprint regeneration, and trash
 

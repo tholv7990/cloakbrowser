@@ -5,6 +5,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 
@@ -34,4 +35,25 @@ def install_error_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=error.status_code,
             content=error_payload(error, request_id),
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def handle_validation_error(
+        request: Request, error: RequestValidationError
+    ) -> JSONResponse:
+        field_errors: dict[str, str] = {}
+        for item in error.errors():
+            location = [str(part) for part in item.get("loc", ()) if part != "body"]
+            field = ".".join(location) or "request"
+            field_errors.setdefault(field, str(item.get("msg", "Invalid value")))
+        safe_error = ManagerError(
+            "validation_error",
+            "One or more request fields are invalid.",
+            422,
+            field_errors,
+        )
+        request_id = getattr(request.state, "request_id", None)
+        return JSONResponse(
+            status_code=422,
+            content=error_payload(safe_error, request_id),
         )
