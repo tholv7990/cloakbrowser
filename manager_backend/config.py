@@ -22,6 +22,11 @@ class ManagerSettings(BaseModel):
     port: int = 8765
     allowed_origin: str = "http://127.0.0.1:5173"
     install_token: str | None = None
+    max_concurrent_launches: int = Field(default=2, ge=1, le=8)
+
+    @property
+    def profile_root(self) -> Path:
+        return self.data_root / "profiles"
 
     @property
     def token_path(self) -> Path:
