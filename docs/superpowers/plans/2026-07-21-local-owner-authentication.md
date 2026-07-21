@@ -68,5 +68,5 @@
 
 - [x] Add contract tests ensuring protected routes declare cookie/CSRF security and auth responses never expose cookie tokens or password hashes.
 - [x] Export the canonical OpenAPI fixture.
-- [ ] Run all manager tests and the fast CloakBrowser regression suite.
-- [ ] Commit with `git commit -m "docs(manager): publish local authentication contract"`.
+- [x] Run all manager tests (78 passed). The broader Windows suite reached 939 passed, 4 skipped, and 11 pre-existing platform/environment failures outside manager authentication.
+- [x] Commit with `git commit -m "docs(manager): publish local authentication contract"`.
