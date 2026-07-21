@@ -1450,7 +1450,7 @@ alembic -c manager_backend/alembic.ini upgrade head
 python -m uvicorn manager_backend.main:create_app --factory --host 127.0.0.1 --port 8765
 ```
 
-The service intentionally rejects non-loopback binding. The dashboard uses first-run email/password setup and persistent, revocable session cookies; the internal install token is not a frontend login credential. Configure the frontend origin with `ManagerSettings.allowed_origin` when it differs from `http://127.0.0.1:5173`.
+The service intentionally rejects non-loopback binding. The dashboard uses first-run email/password setup and persistent, revocable session cookies; the internal install token is not a frontend login credential. Configure the frontend origin with `ManagerSettings.allowed_origin` when it differs from `http://127.0.0.1:5273`.
 
 The checked-in frontend contract is [`manager_backend/openapi.json`](manager_backend/openapi.json). Regenerate it after API changes with:
 

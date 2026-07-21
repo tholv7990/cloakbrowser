@@ -46,8 +46,8 @@ Configured via `.env.local` (see `.env.example`). All are optional in mock mode.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `VITE_API_MODE` | `mock` | `mock` uses the in-browser fixtures; `real` talks to the backend. |
-| `VITE_API_BASE_URL` | `http://127.0.0.1:8799/api/v1` | REST base URL, including the `/api/v1` prefix. Loopback only. |
+| `VITE_API_MODE` | `real` outside tests | `mock` uses the in-browser fixtures; `real` talks to the backend. |
+| `VITE_API_BASE_URL` | `/api/v1` | REST base URL, including the `/api/v1` prefix. The Vite dev server proxies this to `http://127.0.0.1:8765`. |
 | `VITE_WS_URL` | derived from API base (`http→ws` + `/events`) | Runtime-events WebSocket endpoint. |
 
 **Switching to the real backend:** set `VITE_API_MODE=real` and point

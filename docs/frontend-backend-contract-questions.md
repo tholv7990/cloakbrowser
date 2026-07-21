@@ -43,10 +43,6 @@ ship. `capabilities.*` flags let the UI detect availability.
   `fingerprint_diagnostics`).
 - **Runtime extras** — `/profiles/{id}/logs`, `/export`, `/profiles/import`,
   `/cookies/import`, `/cookies/export` (flag: `browser_runtime`).
-- **Settings** — `GET/PATCH /settings` persist non-secret owner preferences, and
-  `POST /settings/browser/check-update` refreshes the entitled free/Pro binary.
-  Binary path, version, tier, installation state, and license/session metadata
-  are composed live; the license key is never returned or persisted.
 - **Extensions list** — no endpoint; the wizard Extensions step is informational
   and `extension_ids` is not part of `ProfileCreate` (do not send it).
 - **Running-session count** and **profile root path** are not exposed; the header
@@ -85,6 +81,6 @@ items. **For the backend owner (Codex):**
    The frontend sends a color from a small palette; please confirm the server
    default/uniqueness (we dedupe by name client-side too). `POST /workflow-statuses`
    is available for the same pattern when the UI needs it.
-4. Still deferred and mock-backed (unchanged): diagnostics, settings, profile
+4. Still deferred and mock-backed (unchanged): diagnostics, profile
    logs/export/import, cookies import/export, extensions list, running-session
    count, and profile root path.

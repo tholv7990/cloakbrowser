@@ -20,7 +20,7 @@ class ManagerSettings(BaseModel):
     data_root: Path = Field(default_factory=default_data_root)
     host: str = "127.0.0.1"
     port: int = 8765
-    allowed_origin: str = "http://127.0.0.1:5173"
+    allowed_origin: str = "http://127.0.0.1:5273"
     install_token: str | None = None
     max_concurrent_launches: int = Field(default=2, ge=1, le=8)
 
