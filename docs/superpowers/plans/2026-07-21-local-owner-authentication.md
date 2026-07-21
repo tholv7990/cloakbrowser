@@ -40,11 +40,11 @@
 - Modify: `manager_backend/dependencies.py`
 - Test: `tests/manager/test_auth_sessions.py`
 
-- [ ] Write failing tests for opaque token hashing, idle/absolute expiry, revocation, exact Origin, CSRF validation, and sanitized errors.
-- [ ] Run the tests and confirm missing session interfaces.
-- [ ] Implement session issuance, constant-time hash comparison, expiry/revocation, and protected dependencies.
-- [ ] Run session and existing security tests.
-- [ ] Commit with `git commit -m "feat(manager): enforce local authenticated sessions"`.
+- [x] Write failing tests for opaque token hashing, idle/absolute expiry, revocation, exact Origin, CSRF validation, and sanitized errors.
+- [x] Run the tests and confirm missing session interfaces.
+- [x] Implement session issuance, constant-time hash comparison, expiry/revocation, and protected dependencies.
+- [x] Run session and existing security tests.
+- [x] Commit with `git commit -m "feat(manager): enforce local authenticated sessions"`.
 
 ### Task 3: Setup/login/logout/lock/password endpoints
 
@@ -54,11 +54,11 @@
 - Modify: `manager_backend/main.py`
 - Test: `tests/manager/test_auth_api.py`
 
-- [ ] Write failing API tests covering first setup, second setup rejection, generic login failure, successful cookie login, session lookup, logout, lock, and password change.
-- [ ] Run tests and confirm missing routes.
-- [ ] Implement the public auth router, protected router integration, cookies, CSRF handling, and login throttling.
-- [ ] Run all manager API tests with authenticated fixtures.
-- [ ] Commit with `git commit -m "feat(manager): add local email and password login"`.
+- [x] Write failing API tests covering first setup, second setup rejection, generic login failure, successful cookie login, session lookup, logout, lock, and password change.
+- [x] Run tests and confirm missing routes.
+- [x] Implement the public auth router, protected router integration, cookies, CSRF handling, and login throttling.
+- [x] Run all manager API tests with authenticated fixtures.
+- [x] Commit with `git commit -m "feat(manager): add local email and password login"`.
 
 ### Task 4: OpenAPI/frontend handoff
 
@@ -66,7 +66,7 @@
 - Modify: `manager_backend/openapi.json`
 - Test: `tests/manager/test_auth_contract.py`
 
-- [ ] Add contract tests ensuring protected routes declare cookie/CSRF security and auth responses never expose cookie tokens or password hashes.
-- [ ] Export the canonical OpenAPI fixture.
-- [ ] Run all manager tests and the fast CloakBrowser regression suite.
-- [ ] Commit with `git commit -m "docs(manager): publish local authentication contract"`.
+- [x] Add contract tests ensuring protected routes declare cookie/CSRF security and auth responses never expose cookie tokens or password hashes.
+- [x] Export the canonical OpenAPI fixture.
+- [x] Run all manager tests (78 passed). The broader Windows suite reached 939 passed, 4 skipped, and 11 pre-existing platform/environment failures outside manager authentication.
+- [x] Commit with `git commit -m "docs(manager): publish local authentication contract"`.

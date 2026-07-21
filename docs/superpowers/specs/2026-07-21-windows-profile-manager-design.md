@@ -58,7 +58,7 @@ The backend starts on a loopback port, opens the local dashboard in the default 
 - Hash passwords with Argon2id. Never store or log plaintext passwords.
 - Authenticate the dashboard with an opaque random session in an `HttpOnly`, `SameSite=Strict` cookie. Store only a SHA-256 hash of the session token.
 - Require an exact Origin and a session-bound `X-CSRF-Token` for mutating requests.
-- Expire sessions after 30 minutes of inactivity and an absolute 12-hour lifetime.
+- Keep sessions across dashboard, app, browser, and Windows restarts until explicit revocation.
 - Apply increasing local throttling after five failed logins. Login errors do not reveal whether an email exists.
 - Password change requires the current password and revokes every session.
 - Logout revokes the current session. Lock revokes every session without stopping running profiles.
@@ -466,7 +466,7 @@ Prefix every route with `/api/v1`.
 - `POST /auth/logout` revokes the current session.
 - `POST /auth/lock` revokes all sessions.
 - `POST /auth/change-password` requires the current password, stores a new Argon2id hash, and revokes all sessions.
-- `GET /auth/session` returns the authenticated owner email, CSRF token, and expiry metadata.
+- `GET /auth/session` returns the authenticated owner email and CSRF token. Sessions have no time-based expiry metadata.
 
 All non-authentication `/api/v1` routes require an active owner session. WebSocket connections use the same session cookie and exact Origin validation. Authentication tokens never appear in query strings or local storage.
 

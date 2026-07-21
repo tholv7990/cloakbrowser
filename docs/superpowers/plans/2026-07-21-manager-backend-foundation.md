@@ -210,7 +210,7 @@ git commit -m "feat(manager): define canonical API schemas"
 **Interfaces:**
 - Produces authenticated CRUD under `/api/v1/folders`, `/tags`, `/workflow-statuses` and `/reorder` endpoints accepting `{ "ids": [uuid] }`.
 
-- [ ] **Step 1: Write failing API tests**
+- [x] **Step 1: Write failing API tests**
 
 ```python
 def test_folder_crud(client, auth_headers):
@@ -226,10 +226,10 @@ def test_duplicate_folder_uses_safe_error(client, auth_headers):
     assert response.json()["error"]["code"] == "folder_name_conflict"
 ```
 
-- [ ] **Step 2: Verify RED**, run `python -m pytest -q tests/manager/test_catalog_api.py`, and confirm 404 responses.
-- [ ] **Step 3: Implement transactional catalog services, deterministic positions, conflict translation, referential checks, and authenticated routes.**
-- [ ] **Step 4: Verify GREEN** with `python -m pytest -q tests/manager/test_catalog_api.py`.
-- [ ] **Step 5: Commit** with `git commit -m "feat(manager): add catalog CRUD APIs"` after staging the catalog files and tests.
+- [x] **Step 2: Verify RED**, run `python -m pytest -q tests/manager/test_catalog_api.py`, and confirm 404 responses.
+- [x] **Step 3: Implement transactional catalog services, deterministic positions, conflict translation, referential checks, and authenticated routes.**
+- [x] **Step 4: Verify GREEN** with `python -m pytest -q tests/manager/test_catalog_api.py`.
+- [x] **Step 5: Commit** with `git commit -m "feat(manager): add catalog CRUD APIs"` after staging the catalog files and tests.
 
 ### Task 5: Profile CRUD, filters, duplicate, fingerprint regeneration, and trash
 
@@ -242,7 +242,7 @@ def test_duplicate_folder_uses_safe_error(client, auth_headers):
 **Interfaces:**
 - Produces: profile list/create/read/patch, quick-create, duplicate, regenerate-fingerprint, move-to-trash, restore, and bulk operations. Runtime commands remain explicit `501 runtime_not_available` until subsystem 2 replaces the adapter.
 
-- [ ] **Step 1: Write failing profile lifecycle tests**
+- [x] **Step 1: Write failing profile lifecycle tests**
 
 ```python
 def test_create_list_patch_and_trash_profile(client, auth_headers):
@@ -259,10 +259,10 @@ def test_duplicate_gets_new_seed(client, auth_headers, created_profile):
     assert duplicate["fingerprint_seed"] != created_profile["fingerprint_seed"]
 ```
 
-- [ ] **Step 2: Verify RED**, run `python -m pytest -q tests/manager/test_profiles_api.py`, and confirm missing routes.
-- [ ] **Step 3: Implement services with `secrets.randbits(64)`, soft-delete defaults, filter composition, allowlisted sorting, transactional tag replacement, and safe bulk limits.**
-- [ ] **Step 4: Verify GREEN** with `python -m pytest -q tests/manager/test_profiles_api.py`.
-- [ ] **Step 5: Commit** with `git commit -m "feat(manager): add profile management APIs"` after staging profile files and tests.
+- [x] **Step 2: Verify RED**, run `python -m pytest -q tests/manager/test_profiles_api.py`, and confirm missing routes.
+- [x] **Step 3: Implement services with `secrets.randbits(64)`, soft-delete defaults, filter composition, allowlisted sorting, transactional tag replacement, and safe bulk limits.**
+- [x] **Step 4: Verify GREEN** with `python -m pytest -q tests/manager/test_profiles_api.py`.
+- [x] **Step 5: Commit** with `git commit -m "feat(manager): add profile management APIs"` after staging profile files and tests.
 
 ### Task 6: Bootstrap, version, OpenAPI fixture, and foundation verification
 
