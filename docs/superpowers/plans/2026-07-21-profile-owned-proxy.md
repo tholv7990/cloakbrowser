@@ -30,6 +30,7 @@
 - [ ] Write failing tests for create/read/patch/direct transition, write-only secrets, preservation/replacement/clear compensation, duplicate-without-secret behavior, trash restoration, and migration.
 - [ ] Add validated `proxy_config_json`, remove `proxy_id`, inject credential store, and implement profile-owned proxy updates.
 - [ ] Add authenticated `POST /api/v1/profiles/proxy/parse`.
+- [ ] Add smart bulk preview/apply tests and endpoints with explicit mapping, one-to-all warning, opt-in round robin, unused-line reporting, 100-row bounds, and safe partial failures.
 - [ ] Run profile/security/migration tests and commit `feat(manager): attach proxies to profiles`.
 
 ### Task 3: Quick Test

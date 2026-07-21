@@ -50,6 +50,13 @@ Removing a proxy uses `PATCH /api/v1/profiles/{id}` with `proxy.mode=direct`. De
 - `GET /api/v1/profiles/{id}/proxy/reports` lists sanitized quality summaries.
 - `GET /api/v1/proxy-reports/{run_id}` returns a safe report and manager-owned artifact links.
 
+Bulk proxy assignment follows Hidemium's efficient selected-profile workflow while keeping proxy data owned by profiles:
+
+- `POST /api/v1/profiles/proxy/bulk-preview` parses up to 100 pasted proxies and returns masked profile-to-proxy mappings plus safe validation errors.
+- `POST /api/v1/profiles/proxy/bulk-apply` applies explicit profile/proxy pairs and returns per-profile successes and failures.
+
+One proxy can be applied to all selected profiles only after a linkage warning. Equal profile/proxy counts map sequentially by the explicit selected-profile order. Fewer proxies never repeat silently; round-robin reuse requires an explicit option. More proxies report unused input lines before apply.
+
 The parser supports official competitor-style formats plus CloakBrowser schemes: URLs, `host:port`, `host:port:username:password`, `username:password@host:port`, and bracketed IPv6 URLs. Bare values default to SOCKS5. It rejects paths, queries, fragments, control characters, partial credentials, invalid ports, and ambiguous unbracketed IPv6.
 
 ## Quick Test
@@ -74,4 +81,4 @@ When `test_before_launch` is enabled, launch performs the bounded connectivity s
 
 All endpoints require owner authentication, and mutations require exact Origin and CSRF. Tests use an in-memory credential store and injected offline network/quality adapters.
 
-Automated coverage includes parser formats, schema secrecy, create/edit/duplicate/direct transitions, keyring compensation, trash behavior, quick-test caching/error mapping, quality lifecycle, migration upgrade/downgrade, OpenAPI write-only inputs, and existing proxy-scanner regressions.
+Automated coverage includes parser formats, schema secrecy, create/edit/duplicate/direct transitions, smart bulk mapping/partial failures, keyring compensation, trash behavior, quick-test caching/error mapping, quality lifecycle, migration upgrade/downgrade, OpenAPI write-only inputs, and existing proxy-scanner regressions.
