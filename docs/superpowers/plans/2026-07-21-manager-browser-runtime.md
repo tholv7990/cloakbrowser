@@ -52,4 +52,4 @@
 - [x] Implement injected process inspection/reconnect adoption, startup reconciliation, and graceful shutdown through FastAPI lifespan.
 - [x] Add contract tests for the runtime capability flag and create an opt-in slow Windows real-browser lifecycle test.
 - [x] Run all manager tests, relevant browser/session regressions, migration drift, and keep the real-browser test opt-in with `CLOAK_RUN_RUNTIME_SLOW=1`.
-- [ ] Commit the reconciliation milestone, push the feature branch, merge through a clean integration worktree, verify, and push main.
+- [x] Commit the reconciliation milestone, push the feature branch, merge through a clean integration worktree, verify, and push main.
