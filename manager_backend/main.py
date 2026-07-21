@@ -21,6 +21,7 @@ from .features.runtime.routes import runtime_to_dict
 from .auth.sessions import validate_session
 from .dependencies import SESSION_COOKIE
 from .models import RuntimeSession
+from .features.proxies.credentials import KeyringCredentialStore
 
 
 def create_app(settings: ManagerSettings | None = None) -> FastAPI:
@@ -52,6 +53,7 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
     Base.metadata.create_all(app.state.engine)
     app.state.session_factory = create_session_factory(app.state.engine)
     app.state.runtime_manager = RuntimeManager(app.state.session_factory, resolved)
+    app.state.credential_store = KeyringCredentialStore()
     app.state.login_failures = {}
     app.add_middleware(
         CORSMiddleware,

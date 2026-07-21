@@ -79,6 +79,38 @@ class WorkflowStatus(TimestampMixin, Base):
     profiles: Mapped[list["Profile"]] = relationship(back_populates="workflow_status")
 
 
+class Proxy(TimestampMixin, Base):
+    __tablename__ = "proxies"
+    __table_args__ = (
+        CheckConstraint(
+            "scheme IN ('direct','http','https','socks5','socks5h')",
+            name="ck_proxies_scheme",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    label: Mapped[str] = mapped_column(String(120, collation="NOCASE"), nullable=False, unique=True)
+    scheme: Mapped[str] = mapped_column(String(16), nullable=False)
+    host: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    credential_ref: Mapped[str | None] = mapped_column(String(36), nullable=True, unique=True)
+    test_before_launch: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    exit_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    timezone: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    asn: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    organization: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    proxy_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    type_confidence: Mapped[float | None] = mapped_column(nullable=True)
+    reputation: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    profiles: Mapped[list["Profile"]] = relationship(back_populates="proxy")
+
+
 class Profile(TimestampMixin, Base):
     __tablename__ = "profiles"
     __table_args__ = (
@@ -126,7 +158,9 @@ class Profile(TimestampMixin, Base):
     behavior: Mapped[dict[str, Any]] = mapped_column(
         "behavior_json", JSON, default=lambda: {"humanize_enabled": False}, nullable=False
     )
-    proxy_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    proxy_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("proxies.id", ondelete="RESTRICT"), nullable=True
+    )
     test_proxy_before_launch: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     total_runtime_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -134,6 +168,7 @@ class Profile(TimestampMixin, Base):
 
     folder: Mapped[Folder | None] = relationship(back_populates="profiles")
     workflow_status: Mapped[WorkflowStatus | None] = relationship(back_populates="profiles")
+    proxy: Mapped[Proxy | None] = relationship(back_populates="profiles")
     tags: Mapped[list[Tag]] = relationship(secondary=profile_tags, back_populates="profiles")
     runtime_sessions: Mapped[list["RuntimeSession"]] = relationship(
         back_populates="profile", cascade="all, delete-orphan"

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ...errors import ManagerError
 from ...fingerprints import build_fingerprint_identity, generate_unique_seed
-from ...models import Folder, Profile, Tag, WorkflowStatus
+from ...models import Folder, Profile, Proxy, Tag, WorkflowStatus
 from .schemas import BulkProfileRequest, ProfileCreate, ProfilePatch
 
 
@@ -48,12 +48,17 @@ def _validate_references(
     folder_id: str | None,
     status_id: str | None,
     tag_ids: list[str],
+    proxy_id: str | None,
 ) -> list[Tag]:
     errors: dict[str, str] = {}
     if folder_id is not None and session.get(Folder, folder_id) is None:
         errors["folder_id"] = "not_found"
     if status_id is not None and session.get(WorkflowStatus, status_id) is None:
         errors["workflow_status_id"] = "not_found"
+    if proxy_id is not None:
+        proxy = session.get(Proxy, proxy_id)
+        if proxy is None or proxy.deleted_at is not None:
+            errors["proxy_id"] = "not_found"
     unique_tag_ids = list(dict.fromkeys(tag_ids))
     tags = (
         list(session.scalars(select(Tag).where(Tag.id.in_(unique_tag_ids))))
@@ -113,6 +118,7 @@ def create_profile(session: Session, payload: ProfileCreate) -> Profile:
         folder_id=values.get("folder_id"),
         status_id=values.get("status_id"),
         tag_ids=tag_ids,
+        proxy_id=values.get("proxy_id"),
     )
     identity = _fingerprint_identity(seed, values)
     profile = Profile(
@@ -258,12 +264,18 @@ def update_profile(session: Session, profile_id: str, payload: ProfilePatch) -> 
     if "workflow_status_id" in changes:
         changes["status_id"] = changes.pop("workflow_status_id")
     tags = None
-    if tag_ids is not None or "folder_id" in changes or "status_id" in changes:
+    if (
+        tag_ids is not None
+        or "folder_id" in changes
+        or "status_id" in changes
+        or "proxy_id" in changes
+    ):
         tags = _validate_references(
             session,
             folder_id=changes.get("folder_id", profile.folder_id),
             status_id=changes.get("status_id", profile.status_id),
             tag_ids=tag_ids if tag_ids is not None else [tag.id for tag in profile.tags],
+            proxy_id=changes.get("proxy_id", profile.proxy_id),
         )
     for nested in ("location", "window", "behavior"):
         if nested in changes:
@@ -340,6 +352,7 @@ def bulk_update(
             folder_id=payload.folder_id,
             status_id=None,
             tag_ids=[],
+            proxy_id=None,
         )
     if payload.action == "set_status":
         _validate_references(
@@ -347,6 +360,7 @@ def bulk_update(
             folder_id=None,
             status_id=payload.workflow_status_id,
             tag_ids=[],
+            proxy_id=None,
         )
     now = datetime.now(timezone.utc)
     for profile in profiles:
