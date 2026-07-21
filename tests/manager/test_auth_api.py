@@ -24,6 +24,9 @@ def test_setup_creates_session_cookie_and_rejects_second_owner(client):
     assert "cloak_session=" in response.headers["set-cookie"]
     assert "HttpOnly" in response.headers["set-cookie"]
     assert "SameSite=strict" in response.headers["set-cookie"]
+    assert "Max-Age" not in response.headers["set-cookie"]
+    assert "Expires" not in response.headers["set-cookie"]
+    assert set(response.json()) == {"email", "csrf_token"}
 
     second = client.post("/api/v1/auth/setup", json=OWNER, headers={"Origin": ORIGIN})
     assert second.status_code == 409
@@ -61,6 +64,7 @@ def test_login_uses_generic_failure_and_successful_session(client):
     assert session.status_code == 200
     assert session.json()["email"] == "owner@example.com"
     assert session.json()["csrf_token"]
+    assert set(session.json()) == {"email", "csrf_token"}
 
 
 def test_logout_revokes_current_session(client):

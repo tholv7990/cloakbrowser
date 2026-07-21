@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 from pydantic import EmailStr, Field, field_validator
 
 from ..schemas.common import StrictModel
@@ -57,5 +55,3 @@ class AuthStatus(StrictModel):
 class OwnerSessionRead(StrictModel):
     email: EmailStr
     csrf_token: str
-    idle_expires_at: datetime
-    absolute_expires_at: datetime

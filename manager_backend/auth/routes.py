@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timezone
-
 from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -27,7 +25,6 @@ from .schemas import (
 )
 from .sessions import (
     IssuedSession,
-    SessionPolicy,
     ValidatedSession,
     issue_session,
     revoke_all_sessions,
@@ -36,9 +33,6 @@ from .sessions import (
 
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
-_POLICY = SessionPolicy()
-
-
 def _set_session_cookie(request: Request, response: Response, issued: IssuedSession) -> None:
     secure = request.app.state.settings.allowed_origin.startswith("https://")
     response.set_cookie(
@@ -47,7 +41,6 @@ def _set_session_cookie(request: Request, response: Response, issued: IssuedSess
         httponly=True,
         secure=secure,
         samesite="strict",
-        max_age=int(_POLICY.absolute_timeout.total_seconds()),
         path="/",
     )
     response.set_cookie(
@@ -56,23 +49,14 @@ def _set_session_cookie(request: Request, response: Response, issued: IssuedSess
         httponly=False,
         secure=secure,
         samesite="strict",
-        max_age=int(_POLICY.absolute_timeout.total_seconds()),
         path="/",
     )
 
 
 def _session_read(owner: Owner, issued: IssuedSession) -> OwnerSessionRead:
-    last_seen = issued.record.last_seen_at
-    if last_seen.tzinfo is None:
-        last_seen = last_seen.replace(tzinfo=timezone.utc)
-    absolute = issued.record.absolute_expires_at
-    if absolute.tzinfo is None:
-        absolute = absolute.replace(tzinfo=timezone.utc)
     return OwnerSessionRead(
         email=owner.email,
         csrf_token=issued.csrf_token,
-        idle_expires_at=last_seen + _POLICY.idle_timeout,
-        absolute_expires_at=absolute,
     )
 
 
@@ -133,18 +117,9 @@ def current_session(
     request: Request,
     validated: ValidatedSession = Depends(require_authenticated_session),
 ) -> OwnerSessionRead:
-    record = validated.record
-    last_seen = record.last_seen_at
-    absolute = record.absolute_expires_at
-    if last_seen.tzinfo is None:
-        last_seen = last_seen.replace(tzinfo=timezone.utc)
-    if absolute.tzinfo is None:
-        absolute = absolute.replace(tzinfo=timezone.utc)
     return OwnerSessionRead(
         email=validated.owner.email,
         csrf_token=request.cookies.get(CSRF_COOKIE, ""),
-        idle_expires_at=last_seen + _POLICY.idle_timeout,
-        absolute_expires_at=absolute,
     )
 
 

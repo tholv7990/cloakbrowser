@@ -27,3 +27,5 @@ def test_auth_contract_never_exposes_password_or_cookie_token(client):
     assert "password_hash" not in properties
     assert "session_token" not in properties
     assert "csrf_token" in properties
+    assert "idle_expires_at" not in properties
+    assert "absolute_expires_at" not in properties

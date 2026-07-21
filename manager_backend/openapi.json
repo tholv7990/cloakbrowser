@@ -2024,25 +2024,13 @@
           "csrf_token": {
             "type": "string",
             "title": "Csrf Token"
-          },
-          "idle_expires_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Idle Expires At"
-          },
-          "absolute_expires_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Absolute Expires At"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "email",
-          "csrf_token",
-          "idle_expires_at",
-          "absolute_expires_at"
+          "csrf_token"
         ],
         "title": "OwnerSessionRead"
       },
