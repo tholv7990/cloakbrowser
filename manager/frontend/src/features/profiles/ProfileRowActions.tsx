@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { IconButton } from '@/components/ui/IconButton';
 import { Menu, MenuGroup, MenuItem, MenuSeparator } from '@/components/ui/Menu';
+import { useCapabilities } from '@/hooks/useAppData';
 import { useClipboard } from '@/hooks/useClipboard';
 import { useToast } from '@/components/ui/Toast';
 import { api } from '@/api';
@@ -63,6 +64,7 @@ export function ProfileRowActions({
   const pin = usePinToggle();
   const duplicate = useDuplicateProfile();
   const focus = useFocusWindow();
+  const runtimeEnabled = useCapabilities().browser_runtime;
 
   const running = profile.runtime_state === 'running';
   const busy = profile.runtime_state === 'starting' || profile.runtime_state === 'stopping';
@@ -178,26 +180,29 @@ export function ProfileRowActions({
 
       <MenuSeparator />
       <MenuGroup label={t('row.group.runtime')}>
-        {running || busy ? (
+        {runtimeEnabled &&
+          (running || busy ? (
+            <MenuItem
+              icon={<Square className="h-4 w-4" />}
+              disabled={busy}
+              onSelect={() => stop.mutate(profile.id)}
+            >
+              {t('row.stop')}
+            </MenuItem>
+          ) : (
+            <MenuItem icon={<Play className="h-4 w-4" />} onSelect={() => start.mutate(profile.id)}>
+              {t('row.start')}
+            </MenuItem>
+          ))}
+        {runtimeEnabled && (
           <MenuItem
-            icon={<Square className="h-4 w-4" />}
-            disabled={busy}
-            onSelect={() => stop.mutate(profile.id)}
+            icon={<Send className="h-4 w-4" />}
+            disabled={!running}
+            onSelect={() => focus.mutate(profile.id)}
           >
-            {t('row.stop')}
-          </MenuItem>
-        ) : (
-          <MenuItem icon={<Play className="h-4 w-4" />} onSelect={() => start.mutate(profile.id)}>
-            {t('row.start')}
+            {t('row.bringFront')}
           </MenuItem>
         )}
-        <MenuItem
-          icon={<Send className="h-4 w-4" />}
-          disabled={!running}
-          onSelect={() => focus.mutate(profile.id)}
-        >
-          {t('row.bringFront')}
-        </MenuItem>
         <MenuItem
           icon={<ScrollText className="h-4 w-4" />}
           onSelect={() => onDialog('logs', profile)}

@@ -1,6 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { api, queryKeys } from '@/api';
-import type { BrowserInfo, Extension, Folder, Tag, WorkflowStatus } from '@/types/api';
+import type {
+  AppCapabilities,
+  BrowserInfo,
+  Extension,
+  Folder,
+  Tag,
+  WorkflowStatus,
+} from '@/types/api';
 import { useFolders } from '@/features/folders/api';
 import { useTags, useWorkflowStatuses } from './useReferenceData';
 
@@ -11,6 +18,24 @@ export function useBootstrap() {
     queryFn: () => api.bootstrap(),
     staleTime: 60_000,
   });
+}
+
+/** Fail open: until bootstrap resolves (or if it errors), every feature is
+ * treated as available so a transient blip never hides the whole app. Once the
+ * backend reports a flag off, the matching nav/route/action degrades. */
+const ALL_CAPABILITIES: AppCapabilities = {
+  authentication: true,
+  profiles: true,
+  catalogs: true,
+  proxy_management: true,
+  browser_runtime: true,
+  fingerprint_diagnostics: true,
+  settings: true,
+};
+
+export function useCapabilities(): AppCapabilities {
+  const bootstrap = useBootstrap();
+  return bootstrap.data?.capabilities ?? ALL_CAPABILITIES;
 }
 
 /** GET /app/version — manager/CloakBrowser/Chromium versions. */

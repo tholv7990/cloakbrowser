@@ -111,7 +111,7 @@ export function ProxyQualityReportView({ report }: { report: ProxyQualityReport 
         {report.proxy_type && (
           <Badge tone="info">
             {t('pxr.confidence', {
-              type: report.proxy_type,
+              type: t(`enum.proxyType.${report.proxy_type}` as TranslationKey),
               pct: formatPercent(report.type_confidence),
             })}
           </Badge>
@@ -126,17 +126,23 @@ export function ProxyQualityReportView({ report }: { report: ProxyQualityReport 
                   : 'warning'
             }
           >
-            {t('pxr.reputation', { rep: report.reputation })}
+            {t('pxr.reputation', {
+              rep: t(`enum.reputation.${report.reputation}` as TranslationKey),
+            })}
           </Badge>
         )}
         {report.google_outcome && (
           <Badge tone={OUTCOME_TONE[report.google_outcome]}>
-            {t('pxr.google', { outcome: report.google_outcome })}
+            {t('pxr.google', {
+              outcome: t(`enum.outcome.${report.google_outcome}` as TranslationKey),
+            })}
           </Badge>
         )}
         {report.turnstile_outcome && (
           <Badge tone={OUTCOME_TONE[report.turnstile_outcome]}>
-            {t('pxr.turnstile', { outcome: report.turnstile_outcome })}
+            {t('pxr.turnstile', {
+              outcome: t(`enum.outcome.${report.turnstile_outcome}` as TranslationKey),
+            })}
           </Badge>
         )}
         <span className="ml-auto text-2xs text-ink-faint">
