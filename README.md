@@ -1440,6 +1440,27 @@ A: Yes. Pass `proxy="http://user:pass@host:port"` or `proxy="socks5://user:pass@
 - ☕ **Support** — [ko-fi.com/cloakhq](https://ko-fi.com/cloakhq)
 - 📧 **Contact** — <cloakhq@pm.me>
 
+## Local Profile Manager Backend
+
+The Windows profile manager API is a loopback-only FastAPI service. Install its optional dependencies, migrate the local SQLite database, and start it from PowerShell:
+
+```powershell
+python -m pip install -e ".[manager,manager-test]"
+alembic -c manager_backend/alembic.ini upgrade head
+python -m uvicorn manager_backend.main:create_app --factory --host 127.0.0.1 --port 8765
+```
+
+The service intentionally rejects non-loopback binding. The dashboard uses first-run email/password setup and persistent, revocable session cookies; the internal install token is not a frontend login credential. Configure the frontend origin with `ManagerSettings.allowed_origin` when it differs from `http://127.0.0.1:5173`.
+
+The checked-in frontend contract is [`manager_backend/openapi.json`](manager_backend/openapi.json). Regenerate it after API changes with:
+
+```powershell
+python -m manager_backend.export_openapi
+pytest tests/manager -q
+```
+
+Manager data defaults to `%LOCALAPPDATA%\CloakBrowser\Manager`. Keep the API on `127.0.0.1`; do not expose port `8765` to the LAN or internet.
+
 ## Security
 
 The wrapper automatically verifies every binary download against a pinned Ed25519 signature on the published checksums before extraction — a compromised mirror cannot serve a tampered or downgraded binary. Releases are additionally signed for manual supply chain verification:
