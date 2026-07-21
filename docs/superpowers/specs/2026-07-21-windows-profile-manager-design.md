@@ -11,7 +11,7 @@ This document is the contract between two implementations:
 - **Frontend owner:** Claude Code builds the React application and consumes the API/events defined here.
 - **Backend owner:** Codex builds FastAPI, SQLite persistence, Windows credential storage, process management, proxy diagnostics, and CloakBrowser integration.
 
-Version 1 is Windows-only, local-only, and single-user. It has no cloud synchronization, login, billing, profile sharing, team permissions, mobile personas, or alternative browser engines.
+Version 1 is Windows-only, local-only, and single-user. It has one locally authenticated owner account but no cloud synchronization, cloud registration, billing, profile sharing, team permissions, mobile personas, or alternative browser engines.
 
 ## 2. Technology decisions
 
@@ -53,8 +53,16 @@ The backend starts on a loopback port, opens the local dashboard in the default 
 ## 3. Security model
 
 - Listen only on `127.0.0.1`; never bind to LAN interfaces by default.
-- Generate a random per-install local API token and store it with owner-only Windows permissions.
-- Require the token for REST mutations and the WebSocket handshake.
+- First-run setup creates exactly one local owner using an email address and password.
+- Normalize and store the email locally; do not verify it or send it to a cloud service.
+- Hash passwords with Argon2id. Never store or log plaintext passwords.
+- Authenticate the dashboard with an opaque random session in an `HttpOnly`, `SameSite=Strict` cookie. Store only a SHA-256 hash of the session token.
+- Require an exact Origin and a session-bound `X-CSRF-Token` for mutating requests.
+- Expire sessions after 30 minutes of inactivity and an absolute 12-hour lifetime.
+- Apply increasing local throttling after five failed logins. Login errors do not reveal whether an email exists.
+- Password change requires the current password and revokes every session.
+- Logout revokes the current session. Lock revokes every session without stopping running profiles.
+- Keep the per-install token as an internal bootstrap secret only. Never expose it to frontend JavaScript or use it as the dashboard login credential.
 - Validate `Origin` against the manager's exact loopback origin.
 - Use strict JSON content types and explicit CORS denial; no wildcard CORS.
 - Store proxy usernames/passwords in Windows Credential Manager. SQLite stores only a credential reference.
@@ -449,6 +457,18 @@ Prefix every route with `/api/v1`.
 - `GET /health`
 - `GET /app/bootstrap`
 - `GET /app/version`
+
+### Authentication
+
+- `GET /auth/status` is public and reports only whether first-run setup is required.
+- `POST /auth/setup` is public only while no owner exists; it creates the single owner and initial session.
+- `POST /auth/login` accepts local email and password. It returns safe owner/session metadata and a CSRF token while setting the opaque session token as an `HttpOnly` cookie.
+- `POST /auth/logout` revokes the current session.
+- `POST /auth/lock` revokes all sessions.
+- `POST /auth/change-password` requires the current password, stores a new Argon2id hash, and revokes all sessions.
+- `GET /auth/session` returns the authenticated owner email, CSRF token, and expiry metadata.
+
+All non-authentication `/api/v1` routes require an active owner session. WebSocket connections use the same session cookie and exact Origin validation. Authentication tokens never appear in query strings or local storage.
 
 ### Profiles
 

@@ -133,3 +133,33 @@ class Profile(TimestampMixin, Base):
     folder: Mapped[Folder | None] = relationship(back_populates="profiles")
     workflow_status: Mapped[WorkflowStatus | None] = relationship(back_populates="profiles")
     tags: Mapped[list[Tag]] = relationship(secondary=profile_tags, back_populates="profiles")
+
+
+class Owner(TimestampMixin, Base):
+    __tablename__ = "owners"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: "local-owner")
+    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
+    password_hash: Mapped[str] = mapped_column(String(512), nullable=False)
+    password_changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    sessions: Mapped[list["AuthSession"]] = relationship(
+        back_populates="owner", cascade="all, delete-orphan"
+    )
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("owners.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    csrf_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    absolute_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    owner: Mapped[Owner] = relationship(back_populates="sessions")
