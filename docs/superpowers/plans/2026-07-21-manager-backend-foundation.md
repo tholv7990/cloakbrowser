@@ -103,7 +103,7 @@ git commit -m "feat(manager): add secure loopback API foundation"
 **Interfaces:**
 - Produces: `Base`, `create_engine_for(settings)`, `session_scope()`, and model classes `Profile`, `Folder`, `Tag`, `ProfileTag`, `WorkflowStatus`.
 
-- [ ] **Step 1: Write failing persistence tests**
+- [x] **Step 1: Write failing persistence tests**
 
 ```python
 def test_sqlite_uses_wal(database_engine):
@@ -117,21 +117,21 @@ def test_profile_name_and_seed_persist(session, profile_factory):
     assert session.get(Profile, profile.id).fingerprint_seed == "18446744073709551615"
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `python -m pytest -q tests/manager/test_database.py`
 Expected: import failure for `manager_backend.db`.
 
-- [ ] **Step 3: Implement models and migration**
+- [x] **Step 3: Implement models and migration**
 
 Use SQLAlchemy 2 typed mappings, UUID strings, UTC-aware timestamp helpers, foreign keys with explicit delete behavior, uniqueness for catalog names, JSON stored as validated text, soft deletion on profiles, and SQLite connect hooks enabling WAL and foreign keys.
 
-- [ ] **Step 4: Verify migration and GREEN**
+- [x] **Step 4: Verify migration and GREEN**
 
 Run: `python -m alembic -c manager_backend/alembic.ini upgrade head` with `CLOAK_MANAGER_DATA_ROOT` pointing to a temporary directory, then `python -m pytest -q tests/manager/test_database.py`.
 Expected: migration succeeds and tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```text
 git add manager_backend tests/manager
