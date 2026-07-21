@@ -43,11 +43,33 @@ def _log_count(session, profile_id) -> int:
 
 def test_append_profile_log_keeps_the_newest_2000_entries(db_session_factory, settings):
     profile_id = _profile(db_session_factory)
+    events = (
+        "runtime.start_requested",
+        "runtime.preflight_failed",
+        "runtime.ready",
+        "runtime.stop_requested",
+        "runtime.crashed",
+        "runtime.reconciled",
+    )
     with db_session_factory() as session:
-        for _ in range(2002):
-            _append(session, profile_id, settings)
+        entries = [
+            _append(session, profile_id, settings, events[number % len(events)])
+            for number in range(2002)
+        ]
 
         assert _log_count(session, profile_id) == 2000
+        remaining = list(
+            session.scalars(
+                select(ProfileLogEntry)
+                .where(ProfileLogEntry.profile_id == profile_id)
+                .order_by(ProfileLogEntry.created_at.desc(), ProfileLogEntry.id.desc())
+            )
+        )
+
+    expected = sorted(entries, key=lambda entry: (entry.created_at, entry.id), reverse=True)[:2000]
+    assert [(entry.id, entry.message) for entry in remaining] == [
+        (entry.id, entry.message) for entry in expected
+    ]
 
 
 def test_list_profile_logs_paginates_newest_first(db_session_factory, settings):
@@ -117,6 +139,34 @@ def test_append_profile_log_rejects_non_allowlisted_events(db_session_factory, s
         with pytest.raises(ValueError, match="event"):
             _append(session, profile_id, settings, "runtime.custom")
         assert _log_count(session, profile_id) == 0
+
+
+def test_append_profile_log_rejects_path_like_and_noncanonical_profile_ids(
+    db_session_factory, settings
+):
+    profile_id = _profile(db_session_factory)
+    invalid_profile_ids = (
+        r"..\..\outside",
+        "../../outside",
+        "profiles/../outside",
+        "not-a-uuid",
+        profile_id.upper(),
+        f"{{{profile_id}}}",
+        profile_id.replace("-", ""),
+    )
+
+    with db_session_factory() as session:
+        for invalid_profile_id in invalid_profile_ids:
+            with pytest.raises(ValueError, match="profile_id"):
+                _append(
+                    session,
+                    invalid_profile_id,
+                    settings,
+                    "runtime.process_started",
+                    fields={"profile_path": str(settings.profile_root / profile_id / "user-data")},
+                )
+        assert _log_count(session, profile_id) == 0
+        assert session.scalar(select(func.count(ProfileLogEntry.id))) == 0
 
 
 @pytest.mark.parametrize(

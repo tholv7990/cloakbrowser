@@ -1,13 +1,25 @@
-# Task 1 report: persisted and sanitized profile logs
+# Task 1 report: safe profile runtime logs
 
-## Files changed
+## Current implementation
 
-- `manager_backend/models.py`: adds `ProfileLogEntry` with a profile/created-at index, bounded fields, and an allowed-level check.
-- `manager_backend/migrations/versions/0008_runtime_observability.py`: creates and drops `profile_log_entries` and its index.
-- `manager_backend/features/runtime/logs.py`: provides append/list services, a single regex-driven sanitizer, newest-2,000 retention, and pagination limited to 200 entries.
-- `tests/manager/test_runtime_logs.py`: covers retention, newest-first pagination, manager-owned path allowance, and credential/license/token/path redaction.
+- `manager_backend/models.py` defines `ProfileLogEntry`, including its `(profile_id, created_at)` index and bounded database fields.
+- `manager_backend/migrations/versions/0008_runtime_observability.py` creates and drops the log table and index.
+- `manager_backend/features/runtime/logs.py` accepts only code-owned event templates and bounded structured fields. It derives paths from trusted `ManagerSettings`, validates canonical UUID profile IDs before path use or persistence, and retains exactly the newest 2,000 entries per profile.
+- `tests/manager/test_runtime_logs.py` covers templates, structured-path containment, retention, pagination, free-form rejection, canonical IDs, and page-size limits.
+- `docs/superpowers/plans/2026-07-22-manager-runtime-observability.md` and `.superpowers/sdd/task-1-brief.md` document the `fields, settings` interface and trusted-root boundary.
 
-## TDD evidence
+## Current security boundary
+
+- `append_profile_log` has no `message` parameter. It supports only the eight approved runtime events: `runtime.start_requested`, `runtime.preflight_failed`, `runtime.process_started`, `runtime.ready`, `runtime.stop_requested`, `runtime.exited`, `runtime.crashed`, and `runtime.reconciled`.
+- Messages are generated from code-owned templates. `profile_path` is accepted only for `runtime.process_started`, and can render only the derived profile root or its `user-data` directory; any other value becomes `[REDACTED_PATH]`. `exit_code` is accepted only for `runtime.exited` and only from `-1` through `255`.
+- Profile IDs must be lowercase, hyphenated canonical UUIDs. The resolved `<data_root>/profiles/<profile-id>` directory is verified to remain beneath the resolved profiles root.
+- Command strings, environment lookups, credentials/tokens, and any arbitrary free-form data have no supported persistence field and are rejected before insertion.
+
+## Superseded implementation history
+
+The original free-message sanitizer and its regex-redaction iterations were superseded by the approved template-only design in commit `d049c32`. Earlier RED/GREEN evidence remains available in the preceding commits; the evidence below applies to the current implementation.
+
+## Current TDD evidence
 
 ### RED
 
@@ -19,13 +31,12 @@ python -m pytest tests/manager/test_runtime_logs.py -q
 
 Observed exit code: `1`.
 
-Observed failure:
-
 ```text
-ModuleNotFoundError: No module named 'manager_backend.features.runtime.logs'
+1 failed, 14 passed, 1 warning in 7.36s
+sqlalchemy.exc.IntegrityError: FOREIGN KEY constraint failed
 ```
 
-The new test module could not import the requested service because the module and ORM model did not yet exist.
+The new traversal/noncanonical-ID regression demonstrated that the prior service constructed a path and attempted insertion for `..\\..\\outside` instead of rejecting the ID before either operation.
 
 ### GREEN
 
@@ -38,160 +49,21 @@ python -m pytest tests/manager/test_runtime_logs.py -q
 Observed exit code: `0`.
 
 ```text
-4 passed, 1 warning in 6.27s
+15 passed, 1 warning in 7.02s
 ```
 
-The warning is FastAPI/TestClient's existing Starlette deprecation warning for `httpx`.
-
-## Additional verification
+Full regression command:
 
 ```powershell
-python -m py_compile manager_backend/models.py manager_backend/features/runtime/logs.py manager_backend/migrations/versions/0008_runtime_observability.py
 python -m pytest tests/manager -q
 ```
 
-Both exited `0`; manager tests reported:
+Observed exit code: `0`.
 
 ```text
-151 passed, 1 skipped, 1 warning in 23.73s
+162 passed, 1 skipped, 1 warning in 28.50s
 ```
-
-Migration upgrade/downgrade/upgrade was verified against a dedicated temporary SQLite data root:
-
-```powershell
-python -m alembic -c manager_backend/alembic.ini upgrade head
-python -m alembic -c manager_backend/alembic.ini downgrade 0007_proxy_quality_runs
-python -m alembic -c manager_backend/alembic.ini upgrade head
-```
-
-All three commands exited `0`; Alembic ran revision `0008_runtime_observability` in both upgrade passes and downgraded it successfully.
-
-## Self-review
-
-- Sanitization uses one compiled regex with named alternatives and never emits credentials, `cb_` values, session/cookie token values, or paths outside `<profile_root>/<profile_id>`.
-- Retention deletes only entries beyond the deterministic newest-first 2,000 selection for the current profile.
-- The paginated result is ordered by `created_at DESC, id DESC`, matching retention's ordering and making ties deterministic.
-- Migration names, field types, check constraint, index, foreign-key cascade, upgrade, and downgrade match the ORM model.
 
 ## Concerns
 
-None. The suite still reports the pre-existing FastAPI/TestClient deprecation warning noted above.
-
-## Review fixes
-
-### Security changes
-
-- `append_profile_log` now accepts trusted `ManagerSettings` and derives the sole allowed directory from `settings.data_root / "profiles" / profile_id`; no caller can supply an alternate profile root.
-- Events must be lowercase, dotted stable identifiers (`runtime.ready`, `runtime.crashed`, and so on), with a maximum of 80 characters. Invalid events are rejected before persistence.
-- The single compiled message sanitizer now redacts generic credential assignments (`password`, `api_key`, secrets, credentials), URL credentials, licenses, cookie/session tokens, complete process-environment representations (`environment`, `env`, and `os.environ`), labelled and unlabelled command lines, and paths outside the derived profile directory.
-- Tests now cover invalid events, generic credentials, environment representations, labelled and relative command lines, untrusted-root and UNC paths, and `page_size=201` rejection.
-
-### RED
-
-Command:
-
-```powershell
-python -m pytest tests/manager/test_runtime_logs.py -q
-```
-
-Observed exit code: `1`.
-
-```text
-7 failed, 1 passed, 1 warning in 0.50s
-TypeError: append_profile_log() got an unexpected keyword argument 'settings'
-```
-
-The tests switched to the trusted settings boundary before the service implemented it. Subsequent focused RED runs also demonstrated the missing relative-command protection and Python-style process-environment protection:
-
-```text
-1 failed, 8 passed, 1 warning in 6.15s
-AssertionError: 'browser.exe' is contained here: browser.exe [REDACTED_COMMAND]
-
-1 failed, 8 passed, 1 warning in 6.53s
-assert '[REDACTED_COMMAND]' in ...
-
-1 failed, 9 passed, 1 warning in 6.39s
-AssertionError: assert '\\\\untrusted-server\\profiles\\secret\\Preferences' not in ...
-```
-
-### GREEN
-
-Command:
-
-```powershell
-python -m pytest tests/manager/test_runtime_logs.py -q
-```
-
-Observed exit code: `0`.
-
-```text
-10 passed, 1 warning in 15.25s
-```
-
-Full regression command:
-
-```powershell
-python -m pytest tests/manager -q
-```
-
-Observed exit code: `0`.
-
-```text
-157 passed, 1 skipped, 1 warning in 24.61s
-```
-
-The single warning remains FastAPI/TestClient's existing Starlette deprecation warning for `httpx`.
-
-## Security-first template correction
-
-### Design change
-
-- The Task 1 plan now documents `settings` as the trusted path authority; no interface accepts a caller-provided profile root.
-- `append_profile_log` no longer accepts a message argument. It persists only one of eight code-owned templates: `runtime.start_requested`, `runtime.preflight_failed`, `runtime.process_started`, `runtime.ready`, `runtime.stop_requested`, `runtime.exited`, `runtime.crashed`, or `runtime.reconciled`.
-- The only structured fields are `profile_path` for `runtime.process_started`, restricted to the manager-derived profile root or its `user-data` directory (all other paths render as `[REDACTED_PATH]`), and `exit_code` for `runtime.exited`, restricted to integers from `-1` through `255`.
-- Unknown events, fields, and any positional/free-form message input are rejected before an entry is added to the session.
-
-### RED
-
-Command:
-
-```powershell
-python -m pytest tests/manager/test_runtime_logs.py -q
-```
-
-Observed exit code: `1`.
-
-```text
-13 failed, 1 passed, 1 warning in 0.77s
-TypeError: append_profile_log() got an unexpected keyword argument 'fields'
-```
-
-The old service still accepted a positional message and did not expose the template/field API. The RED tests covered the full allowed-event set, untrusted structured paths, unsupported events, `cmd /c`, `python -m`, `pwsh -Command`, `os.environ["SECRET"]`, `os.getenv("SECRET")`, Authorization Bearer, refresh tokens, arbitrary message fields, and a direct positional free-form message.
-
-### GREEN
-
-Command:
-
-```powershell
-python -m pytest tests/manager/test_runtime_logs.py -q
-```
-
-Observed exit code: `0`.
-
-```text
-14 passed, 1 warning in 5.94s
-```
-
-Full regression command:
-
-```powershell
-python -m pytest tests/manager -q
-```
-
-Observed exit code: `0`.
-
-```text
-161 passed, 1 skipped, 1 warning in 22.26s
-```
-
-The warning remains the existing FastAPI/TestClient deprecation warning for `httpx`.
+None. The test environment reports FastAPI/TestClient's existing Starlette deprecation warning for `httpx`.

@@ -4,6 +4,7 @@ import math
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from pydantic import Field
 from sqlalchemy import delete, func, select
@@ -37,12 +38,27 @@ class ProfileLogPage(Page[dict[str, Any]]):
     page_size: int = Field(ge=1, le=MAX_PROFILE_LOG_PAGE_SIZE)
 
 
+def _canonical_profile_id(profile_id: object) -> str:
+    if not isinstance(profile_id, str):
+        raise ValueError("profile_id must be a canonical UUID")
+    try:
+        canonical_id = str(UUID(profile_id))
+    except (AttributeError, ValueError):
+        raise ValueError("profile_id must be a canonical UUID") from None
+    if profile_id != canonical_id:
+        raise ValueError("profile_id must be a canonical UUID")
+    return canonical_id
+
+
 def _profile_path_value(value: object, settings: ManagerSettings, profile_id: str) -> str:
     if not isinstance(value, str) or len(value) > 1024:
         raise ValueError("profile_path must be a bounded string")
     try:
         value_path = Path(value).resolve(strict=False)
-        allowed_root = (settings.data_root / "profiles" / profile_id).resolve(strict=False)
+        profiles_root = (settings.data_root / "profiles").resolve(strict=False)
+        allowed_root = (profiles_root / profile_id).resolve(strict=False)
+        if not allowed_root.is_relative_to(profiles_root):
+            raise ValueError("profile directory escapes the manager root")
         allowed_paths = {allowed_root, allowed_root / "user-data"}
         return str(value_path) if value_path in allowed_paths else "[REDACTED_PATH]"
     except (OSError, ValueError):
@@ -84,6 +100,7 @@ def append_profile_log(
     fields: Mapping[str, object] | None = None,
     settings: ManagerSettings,
 ) -> ProfileLogEntry:
+    profile_id = _canonical_profile_id(profile_id)
     if level not in _LEVELS:
         raise ValueError("profile log level is unsupported")
     message = _message_for_event(event, fields, profile_id=profile_id, settings=settings)

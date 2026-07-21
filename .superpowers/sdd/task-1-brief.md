@@ -1,78 +1,24 @@
-### Task 1: Deterministic report model and secret guard
+### Task 1: Persist safe profile runtime logs
 
-Create `benchmarks/proxy_quality_models.py` and `tests/test_proxy_quality_models.py`.
+**Files:**
+- Modify: `manager_backend/models.py`
+- Create: `manager_backend/migrations/versions/0008_runtime_observability.py`
+- Create: `manager_backend/features/runtime/logs.py`
+- Test: `tests/manager/test_runtime_logs.py`
 
-Produce these exact interfaces:
+**Interfaces:**
+- Produces: `append_profile_log(session, profile_id, level, event, *, fields, settings) -> ProfileLogEntry` and `list_profile_logs(...) -> Page`.
+- `settings` is the trusted path authority. The service derives every profile directory from `settings.data_root / "profiles" / profile_id` and never accepts a caller-provided root.
 
-- `NetworkType`, `Confidence`, `Reputation`, and `Suitability` string enums.
-- `classify_network(signals: list[dict[str, object]]) -> dict[str, object]`.
-- `summarize_report(report: dict[str, object]) -> dict[str, str]`.
-- `redact_proxy(proxy: str) -> str`, supporting URI and host:port:user:password forms.
-- `assert_no_secrets(value: object, secrets: set[str]) -> None`.
+**Required behavior:**
+- Accept only canonical UUID profile IDs before using the ID in a path or database entry. The resolved per-profile directory must remain contained by the resolved manager profiles root.
+- Persist only code-owned templates for `runtime.start_requested`, `runtime.preflight_failed`, `runtime.process_started`, `runtime.ready`, `runtime.stop_requested`, `runtime.exited`, `runtime.crashed`, and `runtime.reconciled`.
+- Do not accept a free-form message parameter. Reject unknown events and unsupported fields before insertion.
+- Support only bounded structured fields: `profile_path` for `runtime.process_started` (the manager-owned profile root or `user-data`; other paths render as `[REDACTED_PATH]`) and `exit_code` for `runtime.exited` (`-1` through `255`).
+- Retain exactly the newest 2,000 entries for each profile. List entries newest first with page sizes from 1 through 200.
+- Keep `ProfileLogEntry` indexed by `(profile_id, created_at)` and retain the migration upgrade/downgrade.
 
-Required tests and behavior:
-
-```python
-def test_two_mobile_signals_are_high_confidence():
-    result = classify_network([
-        {"source": "ipinfo", "is_mobile": True, "carrier": "Example Mobile"},
-        {"source": "asn", "asn_type": "isp", "mcc": "452"},
-    ])
-    assert result == {"type": "mobile", "type_confidence": "high", "conflicts": []}
-
-def test_hosting_asn_name_heuristic_is_low_confidence():
-    result = classify_network([
-        {"source": "sapics", "asn": "AS64500", "organization": "Example Cloud Hosting"},
-    ])
-    assert result["type"] == "datacenter_or_hosting"
-    assert result["type_confidence"] == "low"
-
-def test_clean_observed_requires_all_live_signals():
-    summary = summarize_report({
-        "connectivity": {"success": True, "exit_ip_agreement": True},
-        "reputation_intelligence": {"high_confidence_matches": [], "other_matches": []},
-        "identity_alignment": {"aligned": True},
-        "site_outcomes": {"cloudflare": "passed", "google": "results"},
-    })
-    assert summary["reputation"] == "clean_observed"
-    assert summary["suitable_for_protected_sites"] == "yes"
-
-def test_secret_guard_rejects_nested_password():
-    with pytest.raises(ValueError, match="secret"):
-        assert_no_secrets({"nested": ["sample-password"]}, {"sample-password"})
-
-def test_proxy_redaction_supports_uri_and_colon_formats():
-    assert redact_proxy("socks5://u:p@203.0.113.8:1080") == "socks5://***:***@203.0.113.8:1080"
-    assert redact_proxy("203.0.113.8:1080:u:p") == "203.0.113.8:1080:***:***"
-```
-
-Summary precedence:
-
-```python
-if google in {"captcha", "blocked"} or cloudflare in {"interactive", "blocked"} or high_matches:
-    reputation = "blocked"
-elif other_matches or not exit_ip_agreement or not identity_aligned:
-    reputation = "questionable"
-elif all_required_checks_pass:
-    reputation = "clean_observed"
-else:
-    reputation = "unknown"
-```
-
-Classification must count independent structured sources, record conflicts, and use ASN-name terms only as a low-confidence fallback. Hosting terms are `hosting`, `cloud`, `datacenter`, `data center`, and `vps`. Mobile structured fields are `is_mobile`, `carrier`, `mcc`, and `mnc`; an arbitrary organization containing `telecom` is not sufficient for mobile classification.
-
-Global constraints:
-
-- Never log or serialize proxy usernames, passwords, authentication headers, cookies, CAPTCHA tokens, or browser storage.
-- Classification based only on ASN-name heuristics has low confidence.
-- Follow TDD: record RED and GREEN evidence.
-- This is not a Git repository; do not commit. Use compilation/tests as the checkpoint.
-
-Verification:
-
-```powershell
-python -m pytest tests/test_proxy_quality_models.py -q
-python -m py_compile benchmarks/proxy_quality_models.py
-```
-
-Write the full implementation report to `.superpowers/sdd/task-1-report.md`.
+**Verification:**
+- Write failing tests for exact retention, newest-first pagination, trusted-root containment, canonical profile IDs, allowlisted templates, unsafe/free-form rejection, and page-size limits.
+- Run `python -m pytest tests/manager/test_runtime_logs.py -q` for RED and GREEN evidence.
+- Run `python -m pytest tests/manager -q` before committing.
