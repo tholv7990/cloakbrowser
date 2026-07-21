@@ -194,7 +194,9 @@ class ProfileRead(ProfileCreate):
     fingerprint_seed: str
     fingerprint_revision: int
     fingerprint_config_hash: str
-    runtime_state: Literal["stopped", "starting", "running", "stopping", "crashed"] = "stopped"
+    runtime_state: Literal[
+        "queued", "stopped", "starting", "running", "stopping", "crashed", "detached"
+    ] = "stopped"
     created_at: datetime
     updated_at: datetime
     last_opened_at: datetime | None = None

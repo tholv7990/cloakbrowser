@@ -138,7 +138,7 @@ def create_profile(session: Session, payload: ProfileCreate) -> Profile:
 def get_profile(session: Session, profile_id: str) -> Profile:
     profile = session.scalar(
         select(Profile)
-        .options(selectinload(Profile.tags))
+        .options(selectinload(Profile.tags), selectinload(Profile.runtime_sessions))
         .where(Profile.id == profile_id)
     )
     if profile is None:
@@ -169,7 +169,7 @@ def profile_to_dict(profile: Profile) -> dict[str, Any]:
         "behavior": profile.behavior,
         "proxy_id": profile.proxy_id,
         "test_proxy_before_launch": profile.test_proxy_before_launch,
-        "runtime_state": "stopped",
+        "runtime_state": profile.runtime_state,
         "created_at": profile.created_at,
         "updated_at": profile.updated_at,
         "last_opened_at": profile.last_opened_at,
@@ -190,7 +190,9 @@ def list_profiles(
     page: int,
     page_size: int,
 ) -> dict[str, Any]:
-    statement = select(Profile).options(selectinload(Profile.tags)).where(Profile.deleted_at.is_(None))
+    statement = select(Profile).options(
+        selectinload(Profile.tags), selectinload(Profile.runtime_sessions)
+    ).where(Profile.deleted_at.is_(None))
     count_statement = select(func.count(func.distinct(Profile.id))).where(Profile.deleted_at.is_(None))
     conditions = []
     if query:
