@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...errors import ManagerError
-from ...models import Profile, Proxy
+from ...models import Profile, Proxy, ProxyQualityRun
 from .credentials import CredentialStore, ProxyCredential
 from .schemas import ProxyWrite
 from .testing import QuickTestResult
@@ -183,3 +183,57 @@ def build_proxy_preflight(session_factory, store: CredentialStore, tester):
             return proxy_url
 
     return preflight
+
+
+def create_quality_run(session: Session, proxy_id: str) -> ProxyQualityRun:
+    get_proxy(session, proxy_id)
+    active = session.scalar(
+        select(ProxyQualityRun).where(
+            ProxyQualityRun.proxy_id == proxy_id,
+            ProxyQualityRun.state.in_({"queued", "running"}),
+        )
+    )
+    if active is not None:
+        raise ManagerError(
+            "proxy_quality_already_running", "A quality test is already active.", 409
+        )
+    run = ProxyQualityRun(proxy_id=proxy_id, state="queued", last_message="queued")
+    session.add(run)
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise ManagerError(
+            "proxy_quality_already_running", "A quality test is already active.", 409
+        ) from None
+    session.refresh(run)
+    return run
+
+
+def quality_report_to_dict(run: ProxyQualityRun) -> dict:
+    if run.report is not None:
+        return run.report
+    finding = {"status": "unknown", "detail": "No observation was available."}
+    return {
+        "id": run.id,
+        "proxy_id": run.proxy_id,
+        "state": "failed" if run.state == "cancelled" else run.state,
+        "proxy_type": None,
+        "type_confidence": None,
+        "reputation": None,
+        "matched_lists": [],
+        "google_outcome": None,
+        "turnstile_outcome": None,
+        "alignment": {name: finding for name in ("http", "webrtc", "dns", "timezone", "locale")},
+        "latency_ms": None,
+        "exit_ip": None,
+        "country": None,
+        "city": None,
+        "timezone": None,
+        "asn": None,
+        "organization": None,
+        "screenshot_path": None,
+        "report_path": None,
+        "observed_scope": "Timestamped observation; not a permanent cleanliness guarantee.",
+        "checked_at": run.checked_at or run.created_at,
+    }

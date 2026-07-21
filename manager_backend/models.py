@@ -109,6 +109,40 @@ class Proxy(TimestampMixin, Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     profiles: Mapped[list["Profile"]] = relationship(back_populates="proxy")
+    quality_runs: Mapped[list["ProxyQualityRun"]] = relationship(
+        back_populates="proxy", cascade="all, delete-orphan"
+    )
+
+
+class ProxyQualityRun(Base):
+    __tablename__ = "proxy_quality_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('queued','running','completed','failed','cancelled')",
+            name="ck_proxy_quality_runs_state",
+        ),
+        Index(
+            "uq_proxy_quality_runs_active_proxy",
+            "proxy_id",
+            unique=True,
+            sqlite_where=text("state IN ('queued','running')"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    proxy_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("proxies.id", ondelete="CASCADE"), nullable=False
+    )
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    report: Mapped[dict[str, Any] | None] = mapped_column("report_json", JSON, nullable=True)
+    last_message: Mapped[str] = mapped_column(String(80), nullable=False, default="queued")
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    proxy: Mapped[Proxy] = relationship(back_populates="quality_runs")
 
 
 class Profile(TimestampMixin, Base):

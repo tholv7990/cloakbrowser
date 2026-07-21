@@ -12,6 +12,7 @@ from .schemas import (
     ParsedProxyRead,
     ProxyParseRequest,
     ProxyQuickTestRead,
+    ProxyQualityReportRead,
     ProxyRead,
     ProxyWrite,
 )
@@ -24,9 +25,12 @@ from .service import (
     update_proxy,
     cache_quick_test,
     resolve_proxy_url,
+    create_quality_run,
+    quality_report_to_dict,
 )
 from .testing import ProxyTestFailure
 from ...errors import ManagerError
+from ...models import ProxyQualityRun
 
 
 router = APIRouter()
@@ -113,3 +117,37 @@ def quick_test(proxy_id: str, request: Request, session: SessionDependency):
         "checked_at": result.checked_at,
         "error": None,
     }
+
+
+@router.post(
+    "/proxies/{proxy_id}/quality-test",
+    response_model=ProxyQualityReportRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def quality_test(proxy_id: str, request: Request, session: SessionDependency):
+    run = create_quality_run(session, proxy_id)
+    request.app.state.proxy_quality_manager.submit(run.id)
+    session.expire_all()
+    return quality_report_to_dict(session.get(ProxyQualityRun, run.id))
+
+
+@router.get("/proxies/{proxy_id}/reports", response_model=list[ProxyQualityReportRead])
+def quality_reports(proxy_id: str, session: SessionDependency):
+    from sqlalchemy import select
+    get_proxy(session, proxy_id)
+    runs = list(
+        session.scalars(
+            select(ProxyQualityRun)
+            .where(ProxyQualityRun.proxy_id == proxy_id)
+            .order_by(ProxyQualityRun.created_at.desc())
+        )
+    )
+    return [quality_report_to_dict(run) for run in runs]
+
+
+@router.get("/proxy-reports/{run_id}", response_model=ProxyQualityReportRead)
+def quality_report(run_id: str, session: SessionDependency):
+    run = session.get(ProxyQualityRun, run_id)
+    if run is None:
+        raise ManagerError("proxy_report_not_found", "The requested report was not found.", 404)
+    return quality_report_to_dict(run)

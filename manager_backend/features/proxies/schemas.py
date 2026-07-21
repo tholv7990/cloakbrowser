@@ -91,3 +91,32 @@ class ProxyQuickTestRead(StrictModel):
     organization: str | None
     checked_at: datetime
     error: str | None
+
+
+class AlignmentFindingRead(StrictModel):
+    status: Literal["aligned", "mismatch", "leak", "unknown"]
+    detail: str
+
+
+class ProxyQualityReportRead(StrictModel):
+    id: str
+    proxy_id: str
+    state: Literal["queued", "running", "completed", "failed"]
+    proxy_type: str | None
+    type_confidence: float | None
+    reputation: str | None
+    matched_lists: list[str]
+    google_outcome: str | None
+    turnstile_outcome: str | None
+    alignment: dict[str, AlignmentFindingRead]
+    latency_ms: int | None
+    exit_ip: str | None
+    country: str | None
+    city: str | None
+    timezone: str | None
+    asn: str | None
+    organization: str | None
+    screenshot_path: str | None
+    report_path: str | None
+    observed_scope: str
+    checked_at: datetime

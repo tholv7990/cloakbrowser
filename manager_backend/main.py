@@ -24,6 +24,7 @@ from .models import RuntimeSession
 from .features.proxies.credentials import KeyringCredentialStore
 from .features.proxies.testing import ScannerQuickTester
 from .features.proxies.service import build_proxy_preflight
+from .features.proxies.quality import ProxyQualityManager, recover_orphan_quality_runs
 
 
 def create_app(settings: ManagerSettings | None = None) -> FastAPI:
@@ -41,9 +42,13 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
                 application.state.settings
             )
             application.state.runtime_reconciliation = summary
+            application.state.proxy_quality_recovered = recover_orphan_quality_runs(
+                application.state.session_factory
+            )
             yield
         finally:
             application.state.runtime_manager.shutdown()
+            application.state.proxy_quality_manager.shutdown()
             application.state.engine.dispose()
 
     app = FastAPI(
@@ -56,6 +61,9 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
     app.state.session_factory = create_session_factory(app.state.engine)
     app.state.credential_store = KeyringCredentialStore()
     app.state.proxy_quick_tester = ScannerQuickTester()
+    app.state.proxy_quality_manager = ProxyQualityManager(
+        app.state.session_factory, app.state.credential_store, resolved
+    )
     app.state.runtime_manager = RuntimeManager(
         app.state.session_factory,
         resolved,
