@@ -276,7 +276,7 @@ def test_duplicate_gets_new_seed(client, auth_headers, created_profile):
 **Interfaces:**
 - Produces: `/api/v1/health`, `/app/bootstrap`, `/app/version`, stable operation IDs, checked-in `manager_backend/openapi.json`, and local run instructions.
 
-- [ ] **Step 1: Write failing contract tests**
+- [x] **Step 1: Write failing contract tests**
 
 ```python
 def test_openapi_has_required_foundation_routes(app):
@@ -290,10 +290,10 @@ def test_every_error_response_references_error_envelope(app):
     assert "ErrorEnvelope" in document["components"]["schemas"]
 ```
 
-- [ ] **Step 2: Verify RED** with `python -m pytest -q tests/manager/test_contract.py`.
-- [ ] **Step 3: Implement bootstrap/version payloads, deterministic OpenAPI generation, and README commands using `127.0.0.1`.**
-- [ ] **Step 4: Generate the fixture with `python -m manager_backend.export_openapi` and run `python -m pytest -q tests/manager` plus `python -m pytest -q -m "not slow" tests/test_config.py tests/test_build_args.py tests/test_proxy.py`.**
-- [ ] **Step 5: Commit** with `git commit -m "docs(manager): publish foundation API contract"` after staging the fixture, docs, and tests.
+- [x] **Step 2: Verify RED** with `python -m pytest -q tests/manager/test_contract.py`.
+- [x] **Step 3: Implement bootstrap/version payloads, deterministic OpenAPI generation, and README commands using `127.0.0.1`.**
+- [x] **Step 4: Generate the fixture with `python -m manager_backend.export_openapi` and run `python -m pytest -q tests/manager` plus `python -m pytest -q -m "not slow" tests/test_config.py tests/test_build_args.py tests/test_proxy.py`.**
+- [x] **Step 5: Commit** with `git commit -m "docs(manager): publish foundation API contract"` after staging the fixture, docs, and tests.
 
 ## Self-Review Results
 
