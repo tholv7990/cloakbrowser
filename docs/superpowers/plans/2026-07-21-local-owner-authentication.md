@@ -40,9 +40,9 @@
 - Modify: `manager_backend/dependencies.py`
 - Test: `tests/manager/test_auth_sessions.py`
 
-- [ ] Write failing tests for opaque token hashing, idle/absolute expiry, revocation, exact Origin, CSRF validation, and sanitized errors.
-- [ ] Run the tests and confirm missing session interfaces.
-- [ ] Implement session issuance, constant-time hash comparison, expiry/revocation, and protected dependencies.
+- [x] Write failing tests for opaque token hashing, idle/absolute expiry, revocation, exact Origin, CSRF validation, and sanitized errors.
+- [x] Run the tests and confirm missing session interfaces.
+- [x] Implement session issuance, constant-time hash comparison, expiry/revocation, and protected dependencies.
 - [ ] Run session and existing security tests.
 - [ ] Commit with `git commit -m "feat(manager): enforce local authenticated sessions"`.
 
