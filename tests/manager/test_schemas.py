@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from pydantic import ValidationError
 
@@ -7,6 +9,7 @@ from manager_backend.features.profiles.schemas import (
     BehaviorSettings,
     LocationSettings,
     ProfileCreate,
+    ProfilePatch,
     WindowSettings,
 )
 from manager_backend.fingerprints import build_fingerprint_identity
@@ -116,3 +119,46 @@ def test_profile_defaults_are_safe_and_consistent():
     assert profile.window.mode == "maximized"
     assert profile.behavior.ignore_https_errors is False
     assert profile.startup_urls == []
+
+
+def test_profile_patch_requires_concurrency_token_and_tracks_only_provided_fields():
+    with pytest.raises(ValidationError):
+        ProfilePatch()
+
+    expected_updated_at = datetime(2026, 7, 22, 12, 30, tzinfo=timezone.utc)
+    patch = ProfilePatch(expected_updated_at=expected_updated_at)
+
+    assert patch.expected_updated_at == expected_updated_at
+    assert patch.model_fields_set == {"expected_updated_at"}
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("name", None),
+        ("notes", None),
+        ("pinned", None),
+        ("startup_urls", None),
+        ("location", None),
+        ("window", None),
+        ("behavior", None),
+    ],
+)
+def test_profile_patch_rejects_explicit_null_for_non_nullable_fields(field, value):
+    with pytest.raises(ValidationError):
+        ProfilePatch(
+            expected_updated_at=datetime(2026, 7, 22, tzinfo=timezone.utc),
+            **{field: value},
+        )
+
+
+def test_profile_patch_openapi_marks_only_concurrency_token_required():
+    schema = ProfilePatch.model_json_schema()
+
+    assert schema["required"] == ["expected_updated_at"]
+    assert schema["properties"]["name"]["type"] == "string"
+    assert {item["type"] for item in schema["properties"]["folder_id"]["anyOf"]} == {
+        "string",
+        "null",
+    }
+    assert "fingerprint_seed" not in schema["properties"]

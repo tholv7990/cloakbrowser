@@ -88,7 +88,10 @@ def test_profile_rejects_unknown_proxy_reference(client, auth_headers):
     patched = client.patch(
         f"/api/v1/profiles/{valid['id']}",
         headers=auth_headers,
-        json={"proxy_id": "missing-proxy"},
+        json={
+            "expected_updated_at": valid["updated_at"],
+            "proxy_id": "missing-proxy",
+        },
     )
     assert patched.status_code == 422
     assert patched.json()["error"]["field_errors"] == {"proxy_id": "not_found"}

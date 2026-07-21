@@ -185,8 +185,53 @@ class ProfileCreate(StrictModel):
         return self
 
 
-class ProfilePatch(ProfileCreate):
-    name: str | None = Field(default=None, min_length=1, max_length=80)
+class ProfilePatch(StrictModel):
+    expected_updated_at: datetime
+    name: str = Field(default=None, min_length=1, max_length=80)  # type: ignore[assignment]
+    folder_id: str | None = None
+    workflow_status_id: str | None = None
+    tag_ids: list[str] = Field(default=None, max_length=100)  # type: ignore[assignment]
+    notes: str = Field(default=None, max_length=4000)  # type: ignore[assignment]
+    pinned: bool = None  # type: ignore[assignment]
+    startup_urls: list[str] = Field(default=None, max_length=20)  # type: ignore[assignment]
+    fingerprint_preset: Literal["default", "consistent"] = None  # type: ignore[assignment]
+    browser_version_mode: Literal["installed", "pinned"] = None  # type: ignore[assignment]
+    browser_version: str | None = None
+    user_agent_mode: Literal["automatic", "custom"] = None  # type: ignore[assignment]
+    custom_user_agent: str | None = Field(default=None, min_length=20, max_length=512)
+    location: LocationSettings = None  # type: ignore[assignment]
+    window: WindowSettings = None  # type: ignore[assignment]
+    behavior: BehaviorSettings = None  # type: ignore[assignment]
+    proxy_id: str | None = None
+    test_proxy_before_launch: bool = None  # type: ignore[assignment]
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("name cannot be blank")
+        return value
+
+    @field_validator("browser_version")
+    @classmethod
+    def validate_browser_version(cls, value: str | None) -> str | None:
+        if value is not None and not _VERSION_RE.fullmatch(value):
+            raise ValueError("browser version must be a full numeric version")
+        return value
+
+    @field_validator("startup_urls")
+    @classmethod
+    def validate_startup_urls(cls, values: list[str]) -> list[str]:
+        for value in values:
+            parsed = urlsplit(value)
+            if parsed.scheme not in {"http", "https", "chrome-extension"}:
+                raise ValueError("unsupported startup URL scheme")
+            if not parsed.netloc:
+                raise ValueError("startup URL requires a host or extension ID")
+            if parsed.username or parsed.password:
+                raise ValueError("startup URLs cannot contain credentials")
+        return values
 
 
 class ProfileRead(ProfileCreate):

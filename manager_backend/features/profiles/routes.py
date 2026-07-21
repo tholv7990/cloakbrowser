@@ -119,9 +119,19 @@ def logs(
     return list_profile_logs(session, profile_id, page=page, page_size=page_size)
 
 
-@router.patch("/profiles/{profile_id}", response_model=ProfileRead)
+@router.patch(
+    "/profiles/{profile_id}",
+    response_model=ProfileRead,
+    responses={409: {"model": ErrorEnvelope, "description": "Profile update conflict"}},
+)
 def patch(profile_id: str, payload: ProfilePatch, request: Request, session: SessionDependency):
-    return profile_to_dict(update_profile(session, profile_id, payload), settings=request.app.state.settings)
+    profile = update_profile(
+        session,
+        profile_id,
+        payload,
+        settings=request.app.state.settings,
+    )
+    return profile_to_dict(profile, settings=request.app.state.settings)
 
 
 @router.post(

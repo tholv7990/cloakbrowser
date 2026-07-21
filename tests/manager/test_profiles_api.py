@@ -1,5 +1,21 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
+from threading import Barrier
+
+from manager_backend.errors import ManagerError
+from manager_backend.features.profiles import service as profile_service
+from manager_backend.features.profiles.schemas import ProfileCreate, ProfilePatch
+
+
+def patch_profile(client, auth_headers, profile, **changes):
+    return client.patch(
+        f"/api/v1/profiles/{profile['id']}",
+        headers=auth_headers,
+        json={"expected_updated_at": profile["updated_at"], **changes},
+    )
+
 
 def create_profile(client, auth_headers, name="Account A", **overrides):
     payload = {"name": name, **overrides}
@@ -36,11 +52,7 @@ def test_create_list_patch_and_trash_profile(client, auth_headers):
     assert listed.json()["total"] == 1
     assert listed.json()["items"][0]["id"] == profile_id
 
-    updated = client.patch(
-        f"/api/v1/profiles/{profile_id}",
-        headers=auth_headers,
-        json={"name": "Updated", "pinned": True},
-    )
+    updated = patch_profile(client, auth_headers, created, name="Updated", pinned=True)
     assert updated.status_code == 200, updated.text
     assert updated.json()["name"] == "Updated"
     assert updated.json()["pinned"] is True
@@ -182,14 +194,13 @@ def test_explicit_duplicate_seed_is_rejected(client, auth_headers):
 def test_hardware_override_recalculates_hash_not_seed(client, auth_headers):
     original = create_profile(client, auth_headers)
 
-    response = client.patch(
-        f"/api/v1/profiles/{original['id']}",
-        headers=auth_headers,
-        json={
-            "behavior": {
-                "hardware_concurrency_mode": "custom",
-                "hardware_concurrency": 8,
-            }
+    response = patch_profile(
+        client,
+        auth_headers,
+        original,
+        behavior={
+            "hardware_concurrency_mode": "custom",
+            "hardware_concurrency": 8,
         },
     )
 
@@ -231,3 +242,225 @@ def test_focus_runtime_route_is_typed_until_adapter_is_installed(client, auth_he
     )
     assert response.status_code == 501
     assert response.json()["error"]["code"] == "runtime_command_not_supported"
+
+
+def test_patch_requires_expected_updated_at(client, auth_headers):
+    profile = create_profile(client, auth_headers)
+
+    response = client.patch(
+        f"/api/v1/profiles/{profile['id']}",
+        headers=auth_headers,
+        json={"notes": "missing token"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    assert response.json()["error"]["field_errors"]["expected_updated_at"] == "Field required"
+
+
+def test_empty_patch_returns_profile_unchanged(client, auth_headers):
+    profile = create_profile(client, auth_headers, notes="keep everything")
+
+    response = patch_profile(client, auth_headers, profile)
+
+    assert response.status_code == 200, response.text
+    assert response.json() == profile
+
+
+def test_metadata_only_patch_preserves_fingerprint_identity(client, auth_headers):
+    profile = create_profile(client, auth_headers)
+
+    response = patch_profile(
+        client,
+        auth_headers,
+        profile,
+        notes="metadata changed",
+        pinned=True,
+        startup_urls=["https://example.com"],
+    )
+
+    assert response.status_code == 200, response.text
+    updated = response.json()
+    assert updated["notes"] == "metadata changed"
+    assert updated["pinned"] is True
+    assert updated["startup_urls"] == ["https://example.com"]
+    assert updated["fingerprint_seed"] == profile["fingerprint_seed"]
+    assert updated["fingerprint_revision"] == profile["fingerprint_revision"]
+    assert updated["fingerprint_config_hash"] == profile["fingerprint_config_hash"]
+    assert updated["updated_at"] != profile["updated_at"]
+
+
+def test_patch_explicit_null_clears_only_nullable_fields(client, auth_headers):
+    folder = client.post(
+        "/api/v1/folders", headers=auth_headers, json={"name": "Assigned"}
+    ).json()
+    profile = create_profile(client, auth_headers, folder_id=folder["id"])
+
+    cleared = patch_profile(client, auth_headers, profile, folder_id=None)
+
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["folder_id"] is None
+
+    rejected = patch_profile(client, auth_headers, cleared.json(), notes=None)
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"] == "validation_error"
+    assert rejected.json()["error"]["field_errors"]["notes"] == (
+        "Input should be a valid string"
+    )
+
+
+def test_patch_replaces_nested_objects_atomically(client, auth_headers):
+    profile = create_profile(
+        client,
+        auth_headers,
+        location={
+            "geo_mode": "manual",
+            "locale": "vi-VN",
+            "timezone": "Asia/Saigon",
+        },
+    )
+
+    response = patch_profile(
+        client, auth_headers, profile, location={"timezone": "UTC"}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["location"] == {
+        "geo_mode": "system",
+        "locale": None,
+        "timezone": "UTC",
+        "webrtc_mode": "direct",
+        "geolocation_mode": "ask",
+        "latitude": None,
+        "longitude": None,
+        "accuracy": None,
+    }
+
+
+def test_patch_accepts_equivalent_timezone_offset_timestamp(client, auth_headers):
+    profile = create_profile(client, auth_headers)
+    stored = datetime.fromisoformat(profile["updated_at"])
+    if stored.tzinfo is None:
+        stored = stored.replace(tzinfo=timezone.utc)
+    equivalent = stored.astimezone(timezone(timedelta(hours=7))).isoformat()
+
+    response = client.patch(
+        f"/api/v1/profiles/{profile['id']}",
+        headers=auth_headers,
+        json={"expected_updated_at": equivalent, "notes": "canonical UTC"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["notes"] == "canonical UTC"
+
+
+def test_stale_patch_returns_conflict_with_current_safe_profile(client, auth_headers):
+    original = create_profile(client, auth_headers)
+    first = patch_profile(client, auth_headers, original, notes="first writer")
+    assert first.status_code == 200, first.text
+    current = first.json()
+
+    stale = patch_profile(client, auth_headers, original, notes="stale writer")
+
+    assert stale.status_code == 409
+    error = stale.json()["error"]
+    assert error["code"] == "profile_conflict"
+    assert error["field_errors"]["current_profile"] == current
+    assert "fingerprint_seed" in error["field_errors"]["current_profile"]
+    assert "profile_directory" in error["field_errors"]["current_profile"]
+    assert "stale writer" not in stale.text
+
+
+def test_fingerprint_changes_increment_revision_once_per_semantic_patch(
+    client, auth_headers
+):
+    original = create_profile(client, auth_headers)
+
+    changed = patch_profile(
+        client,
+        auth_headers,
+        original,
+        location={"timezone": "UTC"},
+        window={"color_scheme": "dark"},
+    )
+    assert changed.status_code == 200, changed.text
+    changed_profile = changed.json()
+    assert changed_profile["fingerprint_seed"] == original["fingerprint_seed"]
+    assert changed_profile["fingerprint_revision"] == original["fingerprint_revision"] + 1
+    assert changed_profile["fingerprint_config_hash"] != original["fingerprint_config_hash"]
+
+    unchanged = patch_profile(
+        client,
+        auth_headers,
+        changed_profile,
+        location={"timezone": "UTC"},
+        window={"color_scheme": "dark"},
+    )
+    assert unchanged.status_code == 200, unchanged.text
+    assert unchanged.json()["fingerprint_revision"] == changed_profile["fingerprint_revision"]
+    assert unchanged.json()["fingerprint_config_hash"] == changed_profile["fingerprint_config_hash"]
+    assert unchanged.json()["updated_at"] == changed_profile["updated_at"]
+
+    operational = patch_profile(
+        client,
+        auth_headers,
+        unchanged.json(),
+        behavior={"clear_cache_before_launch": True},
+    )
+    assert operational.status_code == 200, operational.text
+    assert operational.json()["fingerprint_revision"] == changed_profile["fingerprint_revision"]
+    assert operational.json()["fingerprint_config_hash"] == changed_profile[
+        "fingerprint_config_hash"
+    ]
+    assert operational.json()["updated_at"] != changed_profile["updated_at"]
+
+
+def test_concurrent_patches_allow_exactly_one_writer(
+    db_session_factory, settings, monkeypatch
+):
+    with db_session_factory() as session:
+        original = profile_service.create_profile(session, ProfileCreate(name="Race"))
+        profile_id = original.id
+        expected_updated_at = original.updated_at
+
+    barrier = Barrier(2)
+    original_validator = profile_service._validate_identity_modes
+
+    def synchronize_after_initial_version_read(profile, changes):
+        original_validator(profile, changes)
+        barrier.wait(timeout=5)
+
+    monkeypatch.setattr(
+        profile_service,
+        "_validate_identity_modes",
+        synchronize_after_initial_version_read,
+    )
+
+    def attempt(notes):
+        with db_session_factory() as session:
+            try:
+                updated = profile_service.update_profile(
+                    session,
+                    profile_id,
+                    ProfilePatch(
+                        expected_updated_at=expected_updated_at,
+                        notes=notes,
+                    ),
+                    settings=settings,
+                )
+                return ("updated", updated.notes)
+            except ManagerError as error:
+                return (error.code, error.field_errors["current_profile"]["notes"])
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(attempt, ("writer one", "writer two")))
+
+    assert sorted(result[0] for result in results) == ["profile_conflict", "updated"]
+    winner = next(result[1] for result in results if result[0] == "updated")
+    conflict_current = next(
+        result[1] for result in results if result[0] == "profile_conflict"
+    )
+    assert conflict_current == winner
+
+    with db_session_factory() as session:
+        assert profile_service.get_profile(session, profile_id).notes == winner

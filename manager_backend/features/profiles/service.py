@@ -4,16 +4,16 @@ import math
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update as sql_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from ...config import ManagerSettings
 from ...errors import ManagerError
 from ...fingerprints import build_fingerprint_identity, generate_unique_seed
-from ...models import Folder, Profile, Proxy, Tag, WorkflowStatus
+from ...models import Folder, Profile, Proxy, Tag, WorkflowStatus, utc_now
 from .directories import resolve_profile_directory
-from .schemas import BulkProfileRequest, ProfileCreate, ProfilePatch
+from .schemas import BulkProfileRequest, ProfileCreate, ProfilePatch, ProfileRead
 
 
 _FINGERPRINT_FIELDS = {
@@ -180,11 +180,19 @@ def profile_to_dict(
         "proxy_id": profile.proxy_id,
         "test_proxy_before_launch": profile.test_proxy_before_launch,
         "runtime_state": profile.runtime_state,
-        "created_at": profile.created_at,
-        "updated_at": profile.updated_at,
-        "last_opened_at": profile.last_opened_at,
+        "created_at": _canonical_utc(profile.created_at),
+        "updated_at": _canonical_utc(profile.updated_at),
+        "last_opened_at": (
+            _canonical_utc(profile.last_opened_at)
+            if profile.last_opened_at is not None
+            else None
+        ),
         "total_runtime_seconds": profile.total_runtime_seconds,
-        "deleted_at": profile.deleted_at,
+        "deleted_at": (
+            _canonical_utc(profile.deleted_at)
+            if profile.deleted_at is not None
+            else None
+        ),
     }
     if settings is not None:
         values["profile_directory"] = str(
@@ -260,22 +268,77 @@ def list_profiles(
     }
 
 
-def update_profile(session: Session, profile_id: str, payload: ProfilePatch) -> Profile:
-    profile = get_profile(session, profile_id)
-    changes = payload.model_dump(exclude_unset=True)
-    if "fingerprint_seed" in changes:
+def _canonical_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _current_safe_profile(profile: Profile, settings: ManagerSettings) -> dict[str, Any]:
+    return ProfileRead.model_validate(
+        profile_to_dict(profile, settings=settings)
+    ).model_dump(mode="json")
+
+
+def _raise_profile_conflict(profile: Profile, settings: ManagerSettings) -> None:
+    raise ManagerError(
+        "profile_conflict",
+        "The profile was changed by another editor. Refresh and try again.",
+        409,
+        {"current_profile": _current_safe_profile(profile, settings)},
+    )
+
+
+def _validate_identity_modes(profile: Profile, changes: dict[str, Any]) -> None:
+    browser_version_mode = changes.get(
+        "browser_version_mode", profile.browser_version_mode
+    )
+    browser_version = changes.get("browser_version", profile.browser_version)
+    user_agent_mode = changes.get("user_agent_mode", profile.user_agent_mode)
+    custom_user_agent = changes.get("custom_user_agent", profile.custom_user_agent)
+    errors: dict[str, str] = {}
+    if browser_version_mode == "pinned" and browser_version is None:
+        errors["browser_version"] = "required_for_pinned_mode"
+    elif browser_version_mode == "installed" and browser_version is not None:
+        errors["browser_version"] = "requires_pinned_mode"
+    if user_agent_mode == "custom" and custom_user_agent is None:
+        errors["custom_user_agent"] = "required_for_custom_mode"
+    elif user_agent_mode == "automatic" and custom_user_agent is not None:
+        errors["custom_user_agent"] = "requires_custom_mode"
+    if errors:
         raise ManagerError(
-            "fingerprint_seed_read_only",
-            "Use the regenerate-fingerprint action to change the seed.",
+            "validation_error",
+            "One or more request fields are invalid.",
             422,
-            {"fingerprint_seed": "read_only"},
+            errors,
         )
+
+
+def update_profile(
+    session: Session,
+    profile_id: str,
+    payload: ProfilePatch,
+    *,
+    settings: ManagerSettings,
+) -> Profile:
+    profile = get_profile(session, profile_id)
+    if _canonical_utc(payload.expected_updated_at) != _canonical_utc(profile.updated_at):
+        _raise_profile_conflict(profile, settings)
+
+    provided_fields = payload.model_fields_set - {"expected_updated_at"}
+    changes = {field: getattr(payload, field) for field in provided_fields}
+    tag_ids_were_provided = "tag_ids" in changes
     tag_ids = changes.pop("tag_ids", None)
     if "workflow_status_id" in changes:
         changes["status_id"] = changes.pop("workflow_status_id")
+    for nested in ("location", "window", "behavior"):
+        if nested in changes:
+            changes[nested] = getattr(payload, nested).model_dump(mode="json")
+
+    _validate_identity_modes(profile, changes)
     tags = None
     if (
-        tag_ids is not None
+        tag_ids_were_provided
         or "folder_id" in changes
         or "status_id" in changes
         or "proxy_id" in changes
@@ -284,21 +347,44 @@ def update_profile(session: Session, profile_id: str, payload: ProfilePatch) -> 
             session,
             folder_id=changes.get("folder_id", profile.folder_id),
             status_id=changes.get("status_id", profile.status_id),
-            tag_ids=tag_ids if tag_ids is not None else [tag.id for tag in profile.tags],
+            tag_ids=tag_ids if tag_ids_were_provided else [tag.id for tag in profile.tags],
             proxy_id=changes.get("proxy_id", profile.proxy_id),
         )
-    for nested in ("location", "window", "behavior"):
-        if nested in changes:
-            changes[nested] = getattr(payload, nested).model_dump(mode="json")
-    for field, value in changes.items():
+
+    semantic_changes = {
+        field: value
+        for field, value in changes.items()
+        if getattr(profile, field) != value
+    }
+    tags_changed = tags is not None and {
+        tag.id for tag in tags
+    } != {tag.id for tag in profile.tags}
+
+    stored_updated_at = profile.updated_at
+    guard = session.execute(
+        sql_update(Profile)
+        .where(Profile.id == profile.id, Profile.updated_at == stored_updated_at)
+        .values(updated_at=Profile.updated_at)
+        .execution_options(synchronize_session=False)
+    )
+    if guard.rowcount != 1:
+        session.rollback()
+        _raise_profile_conflict(get_profile(session, profile_id), settings)
+
+    for field, value in semantic_changes.items():
         setattr(profile, field, value)
-    if tags is not None:
+    if tags_changed:
         profile.tags = tags
-    if _FINGERPRINT_FIELDS.intersection(changes):
-        values = profile_to_dict(profile)
-        identity = _fingerprint_identity(profile.fingerprint_seed, values)
-        profile.fingerprint_revision = identity.revision
-        profile.fingerprint_config_hash = identity.config_hash
+
+    if semantic_changes or tags_changed:
+        if _FINGERPRINT_FIELDS.intersection(semantic_changes):
+            values = profile_to_dict(profile)
+            identity = _fingerprint_identity(profile.fingerprint_seed, values)
+            if identity.config_hash != profile.fingerprint_config_hash:
+                profile.fingerprint_revision += 1
+                profile.fingerprint_config_hash = identity.config_hash
+        profile.updated_at = utc_now()
+
     session.commit()
     return get_profile(session, profile.id)
 
