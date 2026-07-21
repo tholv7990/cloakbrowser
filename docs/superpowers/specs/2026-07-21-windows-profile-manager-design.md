@@ -360,6 +360,8 @@ All IDs are UUID strings. All timestamps are UTC ISO-8601 in APIs and UTC-aware 
 - Platform is implicit and fixed to `windows`; browser is implicit and fixed to CloakBrowser Chromium. Neither is stored as a user-controlled field.
 - `fingerprint_seed` unsigned integer stored as decimal text.
 - `fingerprint_preset` enum: `default`, `consistent`.
+- `fingerprint_revision` positive integer identifying the manager fingerprint contract.
+- `fingerprint_config_hash` SHA-256 of the canonical non-secret fingerprint configuration.
 - `browser_version_mode` enum: `installed`, `pinned`.
 - `browser_version` nullable numeric version pin.
 - `user_agent_mode` enum: `automatic`, `custom`.
@@ -374,6 +376,16 @@ All IDs are UUID strings. All timestamps are UTC ISO-8601 in APIs and UTC-aware 
 - `deleted_at` nullable.
 
 Profile rows never contain website credentials, 2FA secrets, cookies, local storage, proxy passwords, or raw authorization values.
+
+`fingerprint_seed` is unique across active and trashed profiles. It is generated once
+with a cryptographically secure unsigned 64-bit value and remains stable across
+launches. Duplicate-profile and regenerate-fingerprint operations create a new seed.
+The manager never randomizes a profile fingerprint automatically before launch.
+
+The configuration hash detects accidental duplicate configurations and update drift;
+it is not a claim that every browser-exposed surface differs. Runtime diagnostics must
+separately verify same-profile stability and cross-profile differences on surfaces
+actually controlled by the installed CloakBrowser binary.
 
 ### `folders`
 
