@@ -11,6 +11,8 @@ This matrix is the implementation boundary for the Windows-only profile manager.
 | Identity | Platform/browser selector | Fixed | Windows + CloakBrowser Chromium |
 | Identity | Windows 10/11 selector | Exclude | Engine exposes only `--fingerprint-platform=windows` |
 | Identity | Stable seed | Include | `--fingerprint=<seed>` |
+| Identity | Seed uniqueness | Enforce | Database unique constraint plus collision retry |
+| Identity | Fingerprint revision/config hash | Include | Detect configuration duplication and binary-contract drift |
 | Identity | Consistent preset | Include/default | `fingerprint_preset="consistent"` |
 | Identity | Regenerate every launch | Exclude | Breaks persistent identity; regeneration is explicit only |
 | Identity | Browser version | Installed or pinned | `browser_version` |
@@ -46,3 +48,12 @@ This matrix is the implementation boundary for the Windows-only profile manager.
 The API exposes structured groups named `location`, `window`, and `behavior`. These groups use Pydantic models with unknown fields forbidden. They are not arbitrary JSON escape hatches.
 
 The normal creation path asks only for a name, optional organization metadata, proxy, and startup URLs. Advanced fingerprint overrides remain collapsed and display consistency warnings.
+
+## Fingerprint verification contract
+
+- Reopening one profile must reuse the same seed and canonical configuration hash.
+- Creating, duplicating, or explicitly regenerating a profile must allocate a different seed.
+- A local diagnostic snapshot records only non-secret browser-exposed properties such as user agent, platform, language, timezone, hardware concurrency, window geometry, WebGL identity, and derived Canvas/audio hashes.
+- Diagnostic snapshots must never contain cookies, storage values, history, page content, credentials, or authorization headers.
+- Same-profile repeat snapshots measure stability; cross-profile snapshots measure differences. Results report individual surfaces and do not label a fingerprint "unique" solely because its stored seed differs.
+- If the installed binary does not produce deterministic seed-derived differences for a surface, the manager reports that limitation instead of fabricating a pass.

@@ -144,6 +144,7 @@ git commit -m "feat(manager): add SQLite foundation schema"
 **Files:**
 - Modify: `manager_backend/models.py`
 - Create: `manager_backend/migrations/versions/0002_capability_profile_fields.py`
+- Create: `manager_backend/fingerprints.py`
 - Create: `manager_backend/schemas/__init__.py`
 - Create: `manager_backend/schemas/common.py`
 - Create: `manager_backend/features/profiles/schemas.py`
@@ -153,7 +154,7 @@ git commit -m "feat(manager): add SQLite foundation schema"
 **Interfaces:**
 - Produces: `ProfileCreate`, `ProfilePatch`, `ProfileRead`, `ProfilePage`, `FolderCreate`, `TagCreate`, `WorkflowStatusCreate`, and `ErrorEnvelope`.
 
-- [ ] **Step 1: Write failing schema tests**
+- [x] **Step 1: Write failing schema tests**
 
 ```python
 def test_profile_rejects_platform_override():
@@ -167,23 +168,31 @@ def test_seed_must_be_unsigned_64_bit_decimal():
 def test_profile_rejects_password_vault_fields():
     with pytest.raises(ValidationError):
         ProfileCreate(name="A", password="secret")
+
+def test_fingerprint_seed_and_hash_are_stable():
+    first = build_fingerprint_identity(seed="42", location=LocationSettings())
+    second = build_fingerprint_identity(seed="42", location=LocationSettings())
+    assert first.config_hash == second.config_hash
+
+def test_different_seeds_have_different_config_hashes():
+    assert build_fingerprint_identity(seed="1").config_hash != build_fingerprint_identity(seed="2").config_hash
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `python -m pytest -q tests/manager/test_schemas.py`
 Expected: schema imports fail.
 
-- [ ] **Step 3: Implement exact v1 schemas**
+- [x] **Step 3: Implement exact v1 schemas**
 
-Migrate the profile model from generic identity/hardware/advanced columns to the exact startup URL, browser identity, location, window, and behavior fields in the capability matrix. Forbid unknown write fields, trim names, validate structured groups, constrain page size to 1–100, keep seed as decimal text, expose runtime state as `stopped` until the runtime subsystem is installed, and omit every secret-bearing field.
+Migrate the profile model from generic identity/hardware/advanced columns to the exact startup URL, browser identity, location, window, and behavior fields in the capability matrix. Add a unique database constraint for the seed, fingerprint revision `1`, canonical JSON hashing, and collision-safe secure seed allocation. Forbid unknown write fields, trim names, validate structured groups, constrain page size to 1–100, keep seed as decimal text, expose runtime state as `stopped` until the runtime subsystem is installed, and omit every secret-bearing field.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `python -m pytest -q tests/manager/test_schemas.py`
 Expected: all validation and serialization tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```text
 git add manager_backend tests/manager

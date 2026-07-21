@@ -33,8 +33,8 @@ def test_profile_name_and_unsigned_seed_persist(tmp_path):
     with Session(engine) as session:
         profile = Profile(
             name="Account A",
-            windows_persona="windows_11",
             fingerprint_seed="18446744073709551615",
+            fingerprint_config_hash="a" * 64,
         )
         session.add(profile)
         session.commit()
@@ -44,9 +44,9 @@ def test_profile_name_and_unsigned_seed_persist(tmp_path):
         persisted = session.get(Profile, profile_id)
         assert persisted is not None
         assert persisted.fingerprint_seed == "18446744073709551615"
-        assert persisted.identity == {}
-        assert persisted.hardware == {}
-        assert persisted.advanced == {}
+        assert persisted.location == {"geo_mode": "system"}
+        assert persisted.window == {"mode": "maximized"}
+        assert persisted.behavior == {"humanize_enabled": False}
 
 
 def test_profile_folder_foreign_key_is_enforced(tmp_path):
@@ -57,8 +57,8 @@ def test_profile_folder_foreign_key_is_enforced(tmp_path):
             Profile(
                 name="Orphan",
                 folder_id="00000000-0000-0000-0000-000000000000",
-                windows_persona="windows_11",
                 fingerprint_seed="1",
+                fingerprint_config_hash="a" * 64,
             )
         )
         try:
@@ -88,8 +88,8 @@ def test_profile_tag_join_uses_composite_primary_key(tmp_path):
     with Session(engine) as session:
         profile = Profile(
             name="Tagged",
-            windows_persona="windows_10",
             fingerprint_seed="42",
+            fingerprint_config_hash="a" * 64,
         )
         tag = Tag(name="KYC", color="#2563EB")
         profile.tags.append(tag)
@@ -98,3 +98,50 @@ def test_profile_tag_join_uses_composite_primary_key(tmp_path):
 
         count = session.execute(text("SELECT COUNT(*) FROM profile_tags")).scalar_one()
         assert count == 1
+
+
+def test_fingerprint_seed_is_unique_even_for_trashed_profiles(tmp_path):
+    engine = _database(tmp_path)
+
+    with Session(engine) as session:
+        session.add_all(
+            [
+                Profile(name="A", fingerprint_seed="42", fingerprint_config_hash="a" * 64),
+                Profile(name="B", fingerprint_seed="42", fingerprint_config_hash="b" * 64),
+            ]
+        )
+        try:
+            session.commit()
+        except IntegrityError as error:
+            session.rollback()
+            assert "profiles.fingerprint_seed" in str(error)
+        else:
+            raise AssertionError("Expected duplicate fingerprint seed to fail")
+
+
+def test_capability_aligned_profile_fields_persist(tmp_path):
+    engine = _database(tmp_path)
+
+    with Session(engine) as session:
+        profile = Profile(
+            name="Structured",
+            startup_urls=["https://example.com"],
+            fingerprint_seed="7",
+            fingerprint_revision=1,
+            fingerprint_config_hash="a" * 64,
+            browser_version_mode="installed",
+            user_agent_mode="automatic",
+            location={"geo_mode": "system"},
+            window={"mode": "maximized"},
+            behavior={"humanize_enabled": False},
+        )
+        session.add(profile)
+        session.commit()
+        session.expire_all()
+
+        persisted = session.get(Profile, profile.id)
+        assert persisted is not None
+        assert persisted.startup_urls == ["https://example.com"]
+        assert persisted.fingerprint_revision == 1
+        assert persisted.fingerprint_config_hash == "a" * 64
+        assert persisted.location == {"geo_mode": "system"}

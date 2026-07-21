@@ -81,12 +81,16 @@ class Profile(TimestampMixin, Base):
     __tablename__ = "profiles"
     __table_args__ = (
         CheckConstraint(
-            "windows_persona IN ('windows_10', 'windows_11')",
-            name="ck_profiles_windows_persona",
-        ),
-        CheckConstraint(
             "fingerprint_preset IN ('default', 'consistent')",
             name="ck_profiles_fingerprint_preset",
+        ),
+        CheckConstraint(
+            "browser_version_mode IN ('installed', 'pinned')",
+            name="ck_profiles_browser_version_mode",
+        ),
+        CheckConstraint(
+            "user_agent_mode IN ('automatic', 'custom')",
+            name="ck_profiles_user_agent_mode",
         ),
     )
 
@@ -100,15 +104,26 @@ class Profile(TimestampMixin, Base):
     )
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
     pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    startup_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    windows_persona: Mapped[str] = mapped_column(String(16), nullable=False)
-    fingerprint_seed: Mapped[str] = mapped_column(String(20), nullable=False)
+    startup_urls: Mapped[list[str]] = mapped_column("startup_urls_json", JSON, default=list, nullable=False)
+    fingerprint_seed: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
     fingerprint_preset: Mapped[str] = mapped_column(
         String(16), nullable=False, default="consistent"
     )
-    identity: Mapped[dict[str, Any]] = mapped_column("identity_json", JSON, default=dict, nullable=False)
-    hardware: Mapped[dict[str, Any]] = mapped_column("hardware_json", JSON, default=dict, nullable=False)
-    advanced: Mapped[dict[str, Any]] = mapped_column("advanced_json", JSON, default=dict, nullable=False)
+    fingerprint_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    fingerprint_config_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    browser_version_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="installed")
+    browser_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    user_agent_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="automatic")
+    custom_user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    location: Mapped[dict[str, Any]] = mapped_column(
+        "location_json", JSON, default=lambda: {"geo_mode": "system"}, nullable=False
+    )
+    window: Mapped[dict[str, Any]] = mapped_column(
+        "window_json", JSON, default=lambda: {"mode": "maximized"}, nullable=False
+    )
+    behavior: Mapped[dict[str, Any]] = mapped_column(
+        "behavior_json", JSON, default=lambda: {"humanize_enabled": False}, nullable=False
+    )
     proxy_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     test_proxy_before_launch: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
