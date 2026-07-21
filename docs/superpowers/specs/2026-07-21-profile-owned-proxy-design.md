@@ -1,5 +1,7 @@
 # Profile-Owned Proxy Design
 
+> Superseded by `2026-07-21-manager-proxy-management-design.md`. The implemented frontend requires a reusable Proxy Manager plus create/edit/assign actions inside profile workflows. Profiles therefore reference shared proxy records by `proxy_id`.
+
 ## Decision and Competitor Evidence
 
 CloakBrowser version 1 stores one proxy configuration as part of each browser profile. It does not provide a separate proxy inventory, reusable proxy records, proxy paging, or assignment workflow.

@@ -1,6 +1,6 @@
 # Manager Proxy Management Implementation Plan
 
-> Superseded before implementation by `2026-07-21-profile-owned-proxy.md`. No reusable proxy CRUD or paging API will be built.
+> Active implementation plan. Product review restored reusable proxy CRUD and confirmed that the same create/edit flow is available from a profile's proxy-assignment dialog.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -45,7 +45,7 @@
 
 **Files:**
 - Modify: `manager_backend/models.py`
-- Create: `manager_backend/migrations/versions/0005_proxy_management.py`
+- Create: `manager_backend/migrations/versions/0006_proxy_management.py`
 - Create: `manager_backend/features/proxies/service.py`
 - Create: `manager_backend/features/proxies/routes.py`
 - Modify: `manager_backend/api.py`
@@ -86,7 +86,7 @@
 
 **Files:**
 - Modify: `manager_backend/models.py`
-- Create: `manager_backend/migrations/versions/0006_proxy_quality_runs.py`
+- Create: `manager_backend/migrations/versions/0007_proxy_quality_runs.py`
 - Create: `manager_backend/features/proxies/quality.py`
 - Modify: `manager_backend/features/proxies/schemas.py`
 - Modify: `manager_backend/features/proxies/routes.py`
