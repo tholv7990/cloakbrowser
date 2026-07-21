@@ -51,7 +51,7 @@
 **Interfaces:**
 - Produces: `ManagerSettings`, `create_app(settings: ManagerSettings | None = None) -> FastAPI`, `require_local_token`, and `redact_text(value: str) -> str`.
 
-- [ ] **Step 1: Write failing security tests**
+- [x] **Step 1: Write failing security tests**
 
 ```python
 def test_health_rejects_missing_token(client):
@@ -68,21 +68,21 @@ def test_redaction_removes_proxy_credentials():
     assert redact_text("socks5://user:secret@proxy.example:1080") == "socks5://***:***@proxy.example:1080"
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `python -m pytest -q tests/manager/test_security.py tests/manager/test_health.py`
 Expected: collection fails because `manager_backend` does not exist.
 
-- [ ] **Step 3: Implement the minimal application boundary**
+- [x] **Step 3: Implement the minimal application boundary**
 
 Add the `manager` optional dependency group (`fastapi`, `uvicorn`, `sqlalchemy`, `alembic`, `pydantic-settings`, `keyring`, `psutil`) and the `manager-test` group (`httpx`). Implement settings with injected `data_root`, atomically create a 32-byte URL-safe install token with user-only intent, validate `Authorization: Bearer`, permit absent Origin for non-browser clients, require an exact configured Origin when present, and install safe error handlers.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `python -m pytest -q tests/manager/test_security.py tests/manager/test_health.py`
 Expected: all tests pass with no network or browser launch.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```text
 git add pyproject.toml manager_backend tests/manager
