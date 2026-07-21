@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRealtimeEvent } from '@/hooks/useRealtimeEvent';
+import { useT } from '@/i18n';
 
 /** Live progress bar fed by proxy.test.progress events (spec §8, §14). */
 export function ProxyTestProgress({
@@ -12,11 +13,12 @@ export function ProxyTestProgress({
   active: boolean;
 }) {
   const [state, setState] = useState<{ phase: string; progress: number } | null>(null);
+  const t = useT();
 
   useEffect(() => {
-    if (active) setState({ phase: 'Starting…', progress: 0 });
+    if (active) setState({ phase: t('pxp.starting'), progress: 0 });
     else setState(null);
-  }, [active]);
+  }, [active, t]);
 
   const handler = useCallback(
     (event: { data: { proxy_id: string; kind: string; phase: string; progress: number } }) => {
