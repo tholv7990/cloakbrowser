@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from ...dependencies import get_session
 from ...errors import ManagerError
+from ...schemas.common import ErrorEnvelope
 from ..runtime.logs import MAX_PROFILE_LOG_PAGE_SIZE, list_profile_logs
 from ..runtime.routes import runtime_to_dict
 from .schemas import (
@@ -35,6 +36,12 @@ from .service import (
 
 SessionDependency = Annotated[Session, Depends(get_session)]
 router = APIRouter()
+_OPEN_DIRECTORY_ERRORS = {
+    400: {"model": ErrorEnvelope, "description": "Profile directory rejected"},
+    404: {"model": ErrorEnvelope, "description": "Profile not found"},
+    500: {"model": ErrorEnvelope, "description": "Directory open failed"},
+    501: {"model": ErrorEnvelope, "description": "Directory opening unsupported"},
+}
 
 
 @router.get("/profiles", response_model=ProfilePage)
@@ -89,7 +96,11 @@ def get(profile_id: str, request: Request, session: SessionDependency):
     return profile_to_dict(get_profile(session, profile_id), settings=request.app.state.settings)
 
 
-@router.post("/profiles/{profile_id}/open-directory", response_model=ProfileDirectoryOpen)
+@router.post(
+    "/profiles/{profile_id}/open-directory",
+    response_model=ProfileDirectoryOpen,
+    responses=_OPEN_DIRECTORY_ERRORS,
+)
 def open_directory(profile_id: str, request: Request, session: SessionDependency):
     get_profile(session, profile_id)
     directory = resolve_profile_directory(request.app.state.settings, profile_id)

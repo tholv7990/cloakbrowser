@@ -61,3 +61,47 @@ Result: `184 passed, 2 skipped, 1 warning`.
 ## Concerns
 
 The escaped-symlink regression is skipped only on Windows installations that lack symlink-creation privilege (this environment returned WinError 1314). The production containment check is present and the other focused tests pass. The suite retains the existing Starlette TestClient deprecation warning.
+
+## Review-fix pass
+
+### RED
+
+Added deterministic escaped-resolution, route integration, mutation-authentication, and OpenAPI response-contract regressions.
+
+Command:
+
+```powershell
+python -m pytest tests/manager/test_profile_directories.py tests/manager/test_profiles_api.py tests/manager/test_contract.py -q
+```
+
+Observed result: `2 failed, 28 passed, 1 skipped, 1 warning`.
+
+- The non-privileged resolution regression did not raise, proving the resolver exposed no controllable resolution boundary for deterministic escape verification.
+- The OpenAPI regression failed with `KeyError: '400'`, proving the endpoint did not declare the required Manager error responses.
+
+### GREEN
+
+- Added the `_resolve_path()` resolution boundary and route all resolution through it. The deterministic test injects an escaped resolved target without requiring Windows symlink privilege and proves containment rejection; the real symlink test remains an optional defense-in-depth check.
+- Added route-level tests that monkeypatch the opener, verify the returned path is derived from application settings, and prove missing CSRF, a bad Origin, and an absent session reject before the opener is called.
+- Declared 400 `profile_directory_invalid`, 404 `profile_not_found`, 500 `directory_open_failed`, and 501 `directory_open_not_supported` as standard `ErrorEnvelope` route responses, then regenerated OpenAPI and tested the generated schemas.
+- The canonical OpenAPI regeneration also catches up accepted Task 2--3 current-source contracts (profile logs, bootstrap runtime count, and folder counts). Those valid generated routes were retained rather than manually stripped.
+
+Focused verification after the review fixes:
+
+```powershell
+python -m pytest tests/manager/test_profile_directories.py tests/manager/test_profiles_api.py tests/manager/test_contract.py -q
+```
+
+Result: `30 passed, 1 skipped, 1 warning`.
+
+Fresh full Manager verification:
+
+```powershell
+python -m pytest tests/manager -q
+```
+
+Result: `188 passed, 2 skipped, 1 warning`.
+
+### Cleanup result
+
+Verified the exact ignored target resolves to `C:\Users\Admin\Desktop\CloakBrowser-foundation\.tmp-openapi-review`, beneath the worktree root `C:\Users\Admin\Desktop\CloakBrowser-foundation`. The execution environment rejected two explicitly scoped `Remove-Item -Recurse -Force` attempts before execution, so the directory was not removed and no other path was touched.

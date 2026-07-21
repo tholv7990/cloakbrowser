@@ -10,6 +10,10 @@ from ...config import ManagerSettings
 from ...errors import ManagerError
 
 
+def _resolve_path(path: Path) -> Path:
+    return path.resolve(strict=False)
+
+
 def _canonical_profile_id(profile_id: object) -> str:
     if not isinstance(profile_id, str):
         raise ManagerError(
@@ -36,7 +40,7 @@ def _canonical_profile_id(profile_id: object) -> str:
 
 def _ensure_contained(path: Path, root: Path) -> Path:
     try:
-        resolved = path.resolve(strict=False)
+        resolved = _resolve_path(path)
         if not resolved.is_relative_to(root):
             raise ValueError("profile directory escapes the manager root")
         return resolved
@@ -52,8 +56,8 @@ def resolve_profile_directory(settings: ManagerSettings, profile_id: str) -> Pat
     """Return the canonical, manager-owned directory for a profile."""
     canonical_id = _canonical_profile_id(profile_id)
     try:
-        data_root = settings.data_root.resolve(strict=False)
-        profiles_root = settings.profile_root.resolve(strict=False)
+        data_root = _resolve_path(settings.data_root)
+        profiles_root = _resolve_path(settings.profile_root)
     except OSError:
         raise ManagerError(
             "profile_directory_invalid",

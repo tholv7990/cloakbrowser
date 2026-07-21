@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from manager_backend.errors import ManagerError
+from manager_backend.features.profiles import directories
 from manager_backend.features.profiles.directories import (
     open_profile_directory,
     resolve_profile_directory,
@@ -34,6 +35,27 @@ def test_resolve_profile_directory_derives_the_canonical_manager_owned_path(sett
 def test_resolve_profile_directory_rejects_traversal_and_noncanonical_ids(settings, profile_id):
     with pytest.raises(ManagerError) as raised:
         resolve_profile_directory(settings, profile_id)
+
+    assert raised.value.code == "profile_directory_invalid"
+
+
+def test_resolve_profile_directory_rejects_an_escaped_resolved_target_without_symlinks(
+    monkeypatch, settings
+):
+    profiles_root = settings.profile_root.resolve()
+    escaped_path = settings.data_root.parent / "escaped-profile-directory"
+
+    def resolve_with_escaped_target(path: Path) -> Path:
+        if path == profiles_root / PROFILE_ID:
+            return escaped_path
+        return path.resolve(strict=False)
+
+    monkeypatch.setattr(
+        directories, "_resolve_path", resolve_with_escaped_target, raising=False
+    )
+
+    with pytest.raises(ManagerError) as raised:
+        resolve_profile_directory(settings, PROFILE_ID)
 
     assert raised.value.code == "profile_directory_invalid"
 
@@ -89,3 +111,65 @@ def test_open_profile_directory_sanitizes_operating_system_failures(settings):
 
     assert raised.value.code == "directory_open_failed"
     assert "secret.txt" not in raised.value.message
+
+
+def _create_profile(client, auth_headers) -> dict:
+    response = client.post(
+        "/api/v1/profiles", headers=auth_headers, json={"name": "Directory API"}
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_open_directory_route_uses_the_derived_path_and_returns_it(
+    client, auth_headers, monkeypatch
+):
+    profile = _create_profile(client, auth_headers)
+    opened: list[Path] = []
+    monkeypatch.setattr(
+        "manager_backend.features.profiles.routes.open_profile_directory", opened.append
+    )
+
+    response = client.post(
+        f"/api/v1/profiles/{profile['id']}/open-directory", headers=auth_headers
+    )
+
+    expected = (client.app.state.settings.profile_root / profile["id"]).resolve()
+    assert response.status_code == 200, response.text
+    assert response.json() == {"profile_directory": str(expected)}
+    assert opened == [expected]
+
+
+def test_open_directory_route_rejects_unauthenticated_and_invalid_mutations_before_opening(
+    client, auth_headers, monkeypatch
+):
+    profile = _create_profile(client, auth_headers)
+    opened: list[Path] = []
+    monkeypatch.setattr(
+        "manager_backend.features.profiles.routes.open_profile_directory", opened.append
+    )
+    endpoint = f"/api/v1/profiles/{profile['id']}/open-directory"
+
+    missing_csrf = client.post(endpoint, headers={"Origin": auth_headers["Origin"]})
+    bad_origin = client.post(
+        endpoint,
+        headers={"Origin": "http://untrusted.example", "X-CSRF-Token": auth_headers["X-CSRF-Token"]},
+    )
+    client.cookies.clear()
+    unauthenticated = client.post(endpoint, headers=auth_headers)
+
+    assert missing_csrf.status_code == 403
+    assert bad_origin.status_code == 403
+    assert unauthenticated.status_code == 401
+    assert opened == []
+
+
+def test_open_directory_route_declares_all_manager_error_envelopes(client):
+    responses = client.app.openapi()["paths"][
+        "/api/v1/profiles/{profile_id}/open-directory"
+    ]["post"]["responses"]
+
+    for status_code in ("400", "404", "500", "501"):
+        assert responses[status_code]["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/ErrorEnvelope"
+        }
