@@ -18,6 +18,7 @@
 - Store application data below `%LOCALAPPDATA%\CloakBrowser\Manager` unless tests inject a temporary root.
 - Use the standard `{ "error": { "code", "message", "field_errors", "request_id" } }` envelope.
 - New manager tests must run without browsers, network access, or Windows Credential Manager.
+- Profile fields must follow `docs/PROFILE_FIELD_CAPABILITY_MATRIX.md`; website credentials, 2FA secrets, and unsupported independent fingerprint toggles are forbidden.
 
 ---
 
@@ -141,6 +142,8 @@ git commit -m "feat(manager): add SQLite foundation schema"
 ### Task 3: Canonical schemas and error envelope
 
 **Files:**
+- Modify: `manager_backend/models.py`
+- Create: `manager_backend/migrations/versions/0002_capability_profile_fields.py`
 - Create: `manager_backend/schemas/__init__.py`
 - Create: `manager_backend/schemas/common.py`
 - Create: `manager_backend/features/profiles/schemas.py`
@@ -153,13 +156,17 @@ git commit -m "feat(manager): add SQLite foundation schema"
 - [ ] **Step 1: Write failing schema tests**
 
 ```python
-def test_profile_rejects_non_windows_persona():
+def test_profile_rejects_platform_override():
     with pytest.raises(ValidationError):
-        ProfileCreate(name="A", windows_persona="macos", fingerprint_seed="1")
+        ProfileCreate(name="A", platform="macos", fingerprint_seed="1")
 
 def test_seed_must_be_unsigned_64_bit_decimal():
     with pytest.raises(ValidationError):
-        ProfileCreate(name="A", windows_persona="windows_11", fingerprint_seed="18446744073709551616")
+        ProfileCreate(name="A", fingerprint_seed="18446744073709551616")
+
+def test_profile_rejects_password_vault_fields():
+    with pytest.raises(ValidationError):
+        ProfileCreate(name="A", password="secret")
 ```
 
 - [ ] **Step 2: Verify RED**
@@ -169,7 +176,7 @@ Expected: schema imports fail.
 
 - [ ] **Step 3: Implement exact v1 schemas**
 
-Forbid unknown write fields, trim names, validate JSON object fields, constrain page size to 1–100, keep seed as decimal text, expose runtime state as `stopped` until the runtime subsystem is installed, and omit every secret-bearing field.
+Migrate the profile model from generic identity/hardware/advanced columns to the exact startup URL, browser identity, location, window, and behavior fields in the capability matrix. Forbid unknown write fields, trim names, validate structured groups, constrain page size to 1–100, keep seed as decimal text, expose runtime state as `stopped` until the runtime subsystem is installed, and omit every secret-bearing field.
 
 - [ ] **Step 4: Verify GREEN**
 
@@ -230,7 +237,7 @@ def test_duplicate_folder_uses_safe_error(client, auth_headers):
 
 ```python
 def test_create_list_patch_and_trash_profile(client, auth_headers):
-    created = client.post("/api/v1/profiles", headers=auth_headers, json={"name": "Account A", "windows_persona": "windows_11"})
+    created = client.post("/api/v1/profiles", headers=auth_headers, json={"name": "Account A", "startup_urls": ["https://example.com"]})
     assert created.status_code == 201
     profile_id = created.json()["id"]
     assert client.get("/api/v1/profiles?query=Account", headers=auth_headers).json()["total"] == 1
