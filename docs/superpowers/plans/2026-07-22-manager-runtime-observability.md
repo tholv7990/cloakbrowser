@@ -27,7 +27,7 @@
 - Test: `tests/manager/test_runtime_logs.py`
 
 **Interfaces:**
-- Produces: `append_profile_log(session, profile_id, level, event, message, *, profile_root) -> ProfileLogEntry` and `list_profile_logs(...) -> Page`.
+- Produces: `append_profile_log(session, profile_id, level, event, *, fields, settings) -> ProfileLogEntry` and `list_profile_logs(...) -> Page`. `settings` is the trusted path authority; the service derives profile directories from `settings.data_root` and never accepts a caller-provided root.
 
 - [ ] Write failing tests proving retention, newest-first pagination, profile-root path allowance, and redaction of credential URLs, `cb_` license values, cookie/session tokens, and unrelated absolute paths.
 - [ ] Run `python -m pytest tests/manager/test_runtime_logs.py -q`; expect failures because the model/service do not exist.

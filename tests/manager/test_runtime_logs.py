@@ -21,223 +21,147 @@ def _profile(session_factory) -> str:
         return profile.id
 
 
+def _append(session, profile_id, settings, event="runtime.ready", *, level="info", fields=None):
+    return append_profile_log(
+        session,
+        profile_id,
+        level,
+        event,
+        fields=fields,
+        settings=settings,
+    )
+
+
+def _log_count(session, profile_id) -> int:
+    return int(
+        session.scalar(
+            select(func.count(ProfileLogEntry.id)).where(ProfileLogEntry.profile_id == profile_id)
+        )
+        or 0
+    )
+
+
 def test_append_profile_log_keeps_the_newest_2000_entries(db_session_factory, settings):
     profile_id = _profile(db_session_factory)
     with db_session_factory() as session:
-        for number in range(2002):
-            append_profile_log(
-                session,
-                profile_id,
-                "info",
-                "runtime.ready",
-                f"entry-{number}",
-                settings=settings,
-            )
+        for _ in range(2002):
+            _append(session, profile_id, settings)
 
-        total = session.scalar(
-            select(func.count(ProfileLogEntry.id)).where(ProfileLogEntry.profile_id == profile_id)
-        )
-        assert total == 2000
-        messages = list(
-            session.scalars(
-                select(ProfileLogEntry.message)
-                .where(ProfileLogEntry.profile_id == profile_id)
-                .order_by(ProfileLogEntry.created_at.asc(), ProfileLogEntry.id.asc())
-            )
-        )
-        assert "entry-0" not in messages
-        assert "entry-1" not in messages
-        assert "entry-2001" in messages
+        assert _log_count(session, profile_id) == 2000
 
 
 def test_list_profile_logs_paginates_newest_first(db_session_factory, settings):
     profile_id = _profile(db_session_factory)
     with db_session_factory() as session:
-        for number in range(3):
-            append_profile_log(
-                session,
-                profile_id,
-                "info",
-                "runtime.ready",
-                f"entry-{number}",
-                settings=settings,
-            )
-
+        _append(session, profile_id, settings, "runtime.start_requested")
+        _append(session, profile_id, settings, "runtime.ready")
+        _append(session, profile_id, settings, "runtime.crashed", level="error")
         page = list_profile_logs(session, profile_id, page=2, page_size=2)
 
     assert page.total == 3
     assert page.page == 2
     assert page.page_size == 2
     assert page.pages == 2
-    assert [entry["message"] for entry in page.items] == ["entry-0"]
+    assert [entry["event"] for entry in page.items] == ["runtime.start_requested"]
 
 
-def test_append_profile_log_allows_paths_inside_its_profile_directory(
+def test_append_profile_log_uses_allowlisted_runtime_event_templates(
     db_session_factory, settings
 ):
     profile_id = _profile(db_session_factory)
-    allowed_path = settings.profile_root / profile_id / "user-data" / "Preferences"
+    profile_path = settings.profile_root / profile_id / "user-data"
+    expected = [
+        ("runtime.start_requested", "Runtime start requested.", None),
+        ("runtime.preflight_failed", "Runtime preflight failed.", None),
+        ("runtime.process_started", f"Runtime process started at {profile_path}.", {"profile_path": str(profile_path)}),
+        ("runtime.ready", "Runtime ready.", None),
+        ("runtime.stop_requested", "Runtime stop requested.", None),
+        ("runtime.exited", "Runtime exited with code 17.", {"exit_code": 17}),
+        ("runtime.crashed", "Runtime crashed.", None),
+        ("runtime.reconciled", "Runtime reconciled.", None),
+    ]
 
     with db_session_factory() as session:
-        entry = append_profile_log(
-            session,
-            profile_id,
-            "info",
-            "runtime.ready",
-            f"Using {allowed_path}",
-            settings=settings,
-        )
+        entries = [
+            _append(session, profile_id, settings, event, fields=fields)
+            for event, _message, fields in expected
+        ]
 
-    assert str(allowed_path) in entry.message
+    assert [entry.event for entry in entries] == [event for event, _message, _fields in expected]
+    assert [entry.message for entry in entries] == [message for _event, message, _fields in expected]
 
 
-def test_append_profile_log_redacts_secrets_and_unrelated_absolute_paths(
+def test_append_profile_log_redacts_structured_paths_outside_its_profile_directory(
     db_session_factory, settings
 ):
     profile_id = _profile(db_session_factory)
     outside_path = Path(settings.profile_root).parent / "outside" / "tokens.txt"
-    message = (
-        "proxy=socks5://alice:proxy-password@proxy.example:1080 "
-        "license=cb_license-secret-123 "
-        "Cookie: session=browser-session-secret; theme=dark "
-        f"read {outside_path}"
-    )
 
     with db_session_factory() as session:
-        entry = append_profile_log(
+        entry = _append(
             session,
             profile_id,
-            "error",
-            "runtime.crashed",
-            message,
-            settings=settings,
+            settings,
+            "runtime.process_started",
+            fields={"profile_path": str(outside_path)},
         )
 
-    for secret in (
-        "alice",
-        "proxy-password",
-        "cb_license-secret-123",
-        "browser-session-secret",
-        str(outside_path),
-    ):
-        assert secret not in entry.message
-    assert "[REDACTED_URL]" in entry.message
-    assert "[REDACTED_LICENSE]" in entry.message
-    assert "[REDACTED_TOKEN]" in entry.message
-    assert "[REDACTED_PATH]" in entry.message
+    assert str(outside_path) not in entry.message
+    assert entry.message == "Runtime process started at [REDACTED_PATH]."
 
 
-def test_append_profile_log_rejects_non_event_identifiers(db_session_factory, settings):
+def test_append_profile_log_rejects_non_allowlisted_events(db_session_factory, settings):
     profile_id = _profile(db_session_factory)
 
-    with db_session_factory() as session, pytest.raises(ValueError, match="event"):
-        append_profile_log(
-            session,
-            profile_id,
-            "error",
-            "runtime.crashed password=event-secret",
-            "browser crashed",
-            settings=settings,
-        )
-
     with db_session_factory() as session:
-        assert session.scalar(
-            select(func.count(ProfileLogEntry.id)).where(ProfileLogEntry.profile_id == profile_id)
-        ) == 0
+        with pytest.raises(ValueError, match="event"):
+            _append(session, profile_id, settings, "runtime.custom")
+        assert _log_count(session, profile_id) == 0
 
 
-def test_append_profile_log_redacts_credentials_environment_and_command_lines(
-    db_session_factory, settings
-):
-    profile_id = _profile(db_session_factory)
-    message = (
-        "password=generic-password api_key: generic-api-key "
-        "environment={'CUSTOM_VALUE': 'environment-secret', 'PATH': 'C:/private/bin'} "
-        "os.environ={'CUSTOM_VALUE': 'process-environment-secret'} "
-        "command line: C:/private/browser.exe --proxy-server=socks5://user:pass@proxy.test"
-    )
-
-    with db_session_factory() as session:
-        entry = append_profile_log(
-            session,
-            profile_id,
-            "error",
-            "runtime.crashed",
-            message,
-            settings=settings,
-        )
-
-    for secret in (
-        "generic-password",
-        "generic-api-key",
-        "environment-secret",
-        "process-environment-secret",
-        "C:/private/bin",
-        "C:/private/browser.exe",
-        "proxy.test",
-    ):
-        assert secret not in entry.message
-    assert "[REDACTED_CREDENTIAL]" in entry.message
-    assert "[REDACTED_ENVIRONMENT]" in entry.message
-    assert "[REDACTED_COMMAND]" in entry.message
-
-
-def test_append_profile_log_redacts_unlabelled_relative_command_lines(
-    db_session_factory, settings
+@pytest.mark.parametrize(
+    "unsafe_input",
+    [
+        "cmd /c set SECRET=leak",
+        "python -m package --api-key leak",
+        'pwsh -Command "$env:SECRET"',
+        'os.environ["SECRET"]',
+        'os.getenv("SECRET")',
+        "Authorization: Bearer access-token",
+        "refresh_token=refresh-secret",
+    ],
+)
+def test_append_profile_log_rejects_unsafe_free_form_input(
+    db_session_factory, settings, unsafe_input
 ):
     profile_id = _profile(db_session_factory)
 
     with db_session_factory() as session:
-        entry = append_profile_log(
-            session,
-            profile_id,
-            "error",
-            "runtime.crashed",
-            "browser.exe --remote-debugging-port=9222 --proxy-server=socks5://user:pass@proxy.test",
-            settings=settings,
-        )
-
-    assert "browser.exe" not in entry.message
-    assert "9222" not in entry.message
-    assert "proxy.test" not in entry.message
-    assert entry.message == "[REDACTED_COMMAND]"
+        with pytest.raises(ValueError, match="fields"):
+            _append(
+                session,
+                profile_id,
+                settings,
+                "runtime.crashed",
+                level="error",
+                fields={"message": unsafe_input},
+            )
+        assert _log_count(session, profile_id) == 0
 
 
-def test_append_profile_log_redacts_paths_under_an_untrusted_root(db_session_factory, settings):
+def test_append_profile_log_has_no_message_argument(db_session_factory, settings):
     profile_id = _profile(db_session_factory)
-    untrusted_root = settings.data_root.parent / "untrusted-manager" / "profiles"
-    supplied_path = untrusted_root / profile_id / "user-data" / "Preferences"
-
     with db_session_factory() as session:
-        entry = append_profile_log(
-            session,
-            profile_id,
-            "info",
-            "runtime.ready",
-            f"Using {supplied_path}",
-            settings=settings,
-        )
-
-    assert str(supplied_path) not in entry.message
-    assert "[REDACTED_PATH]" in entry.message
-
-
-def test_append_profile_log_redacts_unc_paths(db_session_factory, settings):
-    profile_id = _profile(db_session_factory)
-    unc_path = r"\\untrusted-server\profiles\secret\Preferences"
-
-    with db_session_factory() as session:
-        entry = append_profile_log(
-            session,
-            profile_id,
-            "info",
-            "runtime.ready",
-            f"Using {unc_path}",
-            settings=settings,
-        )
-
-    assert unc_path not in entry.message
-    assert "[REDACTED_PATH]" in entry.message
+        with pytest.raises(TypeError):
+            append_profile_log(
+                session,
+                profile_id,
+                "error",
+                "runtime.crashed",
+                "arbitrary free-form message",
+                settings=settings,
+            )
+        assert _log_count(session, profile_id) == 0
 
 
 def test_list_profile_logs_rejects_page_size_above_200(db_session_factory, settings):

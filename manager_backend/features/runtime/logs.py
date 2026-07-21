@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -17,58 +17,62 @@ from ...schemas.common import Page
 MAX_PROFILE_LOG_ENTRIES = 2_000
 MAX_PROFILE_LOG_PAGE_SIZE = 200
 _LEVELS = frozenset({"debug", "info", "warning", "error"})
-_EVENT_RE = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$")
-_SANITIZE_RE = re.compile(
-    r"""
-    (?P<credential_url>\b(?:https?|socks5h?)://[^\s/@:]+:[^\s/@]+@[^\s]+)
-    |(?P<license>\bcb_[A-Za-z0-9_-]+\b)
-    |(?P<environment>\b(?:process\s+)?(?:environment|environ|env)\b(?:\s*[:=]\s*|\s+(?=[{\[]))(?:\{[^\r\n]*?\}|\[[^\r\n]*?\]|[^\r\n]+))
-    |(?P<command>\b(?:command(?:\s+line)?|cmd|argv|arguments?)\b\s*[:=]\s*[^\r\n]+|(?:[A-Za-z]:[\\/][^\r\n]*?|(?:^|\s)[^\s\"']+)\.(?:exe|cmd|bat|ps1|sh|py)\b[^\r\n]*|--[A-Za-z][A-Za-z0-9_-]*(?:[=\s][^\r\n]*)?)
-    |(?P<token>\b(?:cookie|set-cookie|session(?:[_-]?(?:id|token))?|token|authorization)\b\s*[:=]\s*[^\s;,\r\n]+)
-    |(?P<credential>(?:[\"']?(?:password|passwd|pwd|api[_-]?key|secret|credential|auth|access[_-]?token|proxy[_-]?(?:user|password))[\"']?)\s*[:=]\s*[\"']?[^\s;,}\]\r\n]+)
-    |(?P<absolute_path>(?:[A-Za-z]:[\\/]|\\\\|(?<![:\w])/)[^\s\"'<>;,)]+)
-    """,
-    re.IGNORECASE | re.VERBOSE,
-)
+_EVENT_TEMPLATES = {
+    "runtime.start_requested": "Runtime start requested.",
+    "runtime.preflight_failed": "Runtime preflight failed.",
+    "runtime.process_started": "Runtime process started.",
+    "runtime.ready": "Runtime ready.",
+    "runtime.stop_requested": "Runtime stop requested.",
+    "runtime.exited": "Runtime exited.",
+    "runtime.crashed": "Runtime crashed.",
+    "runtime.reconciled": "Runtime reconciled.",
+}
+_EVENT_FIELDS = {
+    "runtime.process_started": frozenset({"profile_path"}),
+    "runtime.exited": frozenset({"exit_code"}),
+}
 
 
 class ProfileLogPage(Page[dict[str, Any]]):
     page_size: int = Field(ge=1, le=MAX_PROFILE_LOG_PAGE_SIZE)
 
 
-def _is_allowed_profile_path(value: str, settings: ManagerSettings, profile_id: str) -> bool:
+def _profile_path_value(value: object, settings: ManagerSettings, profile_id: str) -> str:
+    if not isinstance(value, str) or len(value) > 1024:
+        raise ValueError("profile_path must be a bounded string")
     try:
         value_path = Path(value).resolve(strict=False)
         allowed_root = (settings.data_root / "profiles" / profile_id).resolve(strict=False)
-        return value_path.is_relative_to(allowed_root)
+        allowed_paths = {allowed_root, allowed_root / "user-data"}
+        return str(value_path) if value_path in allowed_paths else "[REDACTED_PATH]"
     except (OSError, ValueError):
-        return False
-
-
-def sanitize_profile_log_message(
-    message: str, *, profile_id: str, settings: ManagerSettings
-) -> str:
-    """Remove secrets and paths outside the manager-owned directory for a profile."""
-
-    def replace(match: re.Match[str]) -> str:
-        if match.lastgroup == "credential_url":
-            return "[REDACTED_URL]"
-        if match.lastgroup == "license":
-            return "[REDACTED_LICENSE]"
-        if match.lastgroup == "environment":
-            return "[REDACTED_ENVIRONMENT]"
-        if match.lastgroup == "command":
-            return "[REDACTED_COMMAND]"
-        if match.lastgroup == "token":
-            return "[REDACTED_TOKEN]"
-        if match.lastgroup == "credential":
-            return "[REDACTED_CREDENTIAL]"
-        path = match.group("absolute_path")
-        if path is not None and _is_allowed_profile_path(path, settings, profile_id):
-            return path
         return "[REDACTED_PATH]"
 
-    return _SANITIZE_RE.sub(replace, message)
+
+def _message_for_event(
+    event: str,
+    fields: Mapping[str, object] | None,
+    *,
+    profile_id: str,
+    settings: ManagerSettings,
+) -> str:
+    template = _EVENT_TEMPLATES.get(event)
+    if template is None:
+        raise ValueError("profile log event is unsupported")
+    if fields is not None and not isinstance(fields, Mapping):
+        raise ValueError("profile log fields must be a mapping")
+    safe_fields = dict(fields or {})
+    allowed_fields = _EVENT_FIELDS.get(event, frozenset())
+    if set(safe_fields) - allowed_fields:
+        raise ValueError("profile log fields are unsupported for this event")
+    if event == "runtime.process_started" and "profile_path" in safe_fields:
+        return f"Runtime process started at {_profile_path_value(safe_fields['profile_path'], settings, profile_id)}."
+    if event == "runtime.exited" and "exit_code" in safe_fields:
+        exit_code = safe_fields["exit_code"]
+        if isinstance(exit_code, bool) or not isinstance(exit_code, int) or not -1 <= exit_code <= 255:
+            raise ValueError("exit_code must be an integer between -1 and 255")
+        return f"Runtime exited with code {exit_code}."
+    return template
 
 
 def append_profile_log(
@@ -76,24 +80,19 @@ def append_profile_log(
     profile_id: str,
     level: str,
     event: str,
-    message: str,
     *,
+    fields: Mapping[str, object] | None = None,
     settings: ManagerSettings,
 ) -> ProfileLogEntry:
     if level not in _LEVELS:
         raise ValueError("profile log level is unsupported")
-    if len(event) > 80 or not _EVENT_RE.fullmatch(event):
-        raise ValueError("profile log event must be a stable dotted identifier of at most 80 characters")
-    if len(message) > 4000:
-        raise ValueError("profile log message must contain at most 4000 characters")
+    message = _message_for_event(event, fields, profile_id=profile_id, settings=settings)
 
     entry = ProfileLogEntry(
         profile_id=profile_id,
         level=level,
         event=event,
-        message=sanitize_profile_log_message(
-            message, profile_id=profile_id, settings=settings
-        ),
+        message=message,
     )
     session.add(entry)
     session.flush()

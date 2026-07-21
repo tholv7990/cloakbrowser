@@ -141,3 +141,57 @@ Observed exit code: `0`.
 ```
 
 The single warning remains FastAPI/TestClient's existing Starlette deprecation warning for `httpx`.
+
+## Security-first template correction
+
+### Design change
+
+- The Task 1 plan now documents `settings` as the trusted path authority; no interface accepts a caller-provided profile root.
+- `append_profile_log` no longer accepts a message argument. It persists only one of eight code-owned templates: `runtime.start_requested`, `runtime.preflight_failed`, `runtime.process_started`, `runtime.ready`, `runtime.stop_requested`, `runtime.exited`, `runtime.crashed`, or `runtime.reconciled`.
+- The only structured fields are `profile_path` for `runtime.process_started`, restricted to the manager-derived profile root or its `user-data` directory (all other paths render as `[REDACTED_PATH]`), and `exit_code` for `runtime.exited`, restricted to integers from `-1` through `255`.
+- Unknown events, fields, and any positional/free-form message input are rejected before an entry is added to the session.
+
+### RED
+
+Command:
+
+```powershell
+python -m pytest tests/manager/test_runtime_logs.py -q
+```
+
+Observed exit code: `1`.
+
+```text
+13 failed, 1 passed, 1 warning in 0.77s
+TypeError: append_profile_log() got an unexpected keyword argument 'fields'
+```
+
+The old service still accepted a positional message and did not expose the template/field API. The RED tests covered the full allowed-event set, untrusted structured paths, unsupported events, `cmd /c`, `python -m`, `pwsh -Command`, `os.environ["SECRET"]`, `os.getenv("SECRET")`, Authorization Bearer, refresh tokens, arbitrary message fields, and a direct positional free-form message.
+
+### GREEN
+
+Command:
+
+```powershell
+python -m pytest tests/manager/test_runtime_logs.py -q
+```
+
+Observed exit code: `0`.
+
+```text
+14 passed, 1 warning in 5.94s
+```
+
+Full regression command:
+
+```powershell
+python -m pytest tests/manager -q
+```
+
+Observed exit code: `0`.
+
+```text
+161 passed, 1 skipped, 1 warning in 22.26s
+```
+
+The warning remains the existing FastAPI/TestClient deprecation warning for `httpx`.
