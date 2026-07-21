@@ -61,6 +61,7 @@ class CloakPersistentLauncher:
             args=[f"--fingerprint={snapshot['fingerprint_seed']}"],
             browser_version=snapshot.get("browser_version"),
             user_agent=snapshot.get("custom_user_agent"),
+            proxy=snapshot.get("proxy_url"),
             locale=snapshot.get("locale"),
             timezone=snapshot.get("timezone"),
         )

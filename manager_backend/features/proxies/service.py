@@ -11,6 +11,8 @@ from ...errors import ManagerError
 from ...models import Profile, Proxy
 from .credentials import CredentialStore, ProxyCredential
 from .schemas import ProxyWrite
+from .testing import QuickTestResult
+from .testing import ProxyTestFailure
 
 
 def _not_found() -> ManagerError:
@@ -145,3 +147,39 @@ def resolve_proxy_url(session: Session, store: CredentialStore, proxy_id: str) -
 
         authority = f"{quote(credential.username, safe='')}:{quote(credential.password, safe='')}@{authority}"
     return f"{proxy.scheme}://{authority}"
+
+
+def cache_quick_test(session: Session, proxy: Proxy, result: QuickTestResult) -> None:
+    proxy.exit_ip = result.exit_ip
+    proxy.country = result.country
+    proxy.city = result.city
+    proxy.timezone = result.timezone
+    proxy.asn = result.asn
+    proxy.organization = result.organization
+    proxy.latency_ms = result.latency_ms
+    proxy.last_checked_at = result.checked_at
+    session.commit()
+
+
+def build_proxy_preflight(session_factory, store: CredentialStore, tester):
+    def preflight(snapshot: dict) -> str | None:
+        proxy_id = snapshot.get("proxy_id")
+        if not proxy_id:
+            return None
+        with session_factory() as session:
+            proxy = get_proxy(session, proxy_id)
+            proxy_url = resolve_proxy_url(session, store, proxy_id)
+            if proxy_url is None:
+                return None
+            try:
+                result = tester.run(proxy_url, timeout_seconds=20)
+            except ProxyTestFailure:
+                raise ManagerError(
+                    "proxy_preflight_failed",
+                    "The assigned proxy is unavailable.",
+                    409,
+                ) from None
+            cache_quick_test(session, proxy, result)
+            return proxy_url
+
+    return preflight

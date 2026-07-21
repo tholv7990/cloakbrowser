@@ -26,10 +26,12 @@ class RuntimeManager:
         *,
         launcher=None,
         lock_factory=None,
+        proxy_preflight=None,
     ):
         self._session_factory = session_factory
         self._settings = settings
         self._launcher = launcher or CloakPersistentLauncher()
+        self._proxy_preflight = proxy_preflight or (lambda _snapshot: None)
         self._instance_id = str(uuid4())
         self._process_id = os.getpid()
         self._process_created_at = datetime.fromtimestamp(
@@ -60,6 +62,7 @@ class RuntimeManager:
             "locale": location.get("locale"),
             "timezone": location.get("timezone"),
             "startup_urls": list(profile.startup_urls or []),
+            "proxy_id": profile.proxy_id,
         }
 
     def start(self, profile_id: str) -> RuntimeSession:
@@ -92,6 +95,7 @@ class RuntimeManager:
                 launcher=self._launcher,
                 launch_semaphore=self._launch_semaphore,
                 profile_lock=profile_lock,
+                proxy_preflight=self._proxy_preflight,
                 on_finished=self._worker_finished,
             )
             self._workers[profile_id] = worker

@@ -76,3 +76,18 @@ class ParsedProxyRead(StrictModel):
     port: int | None
     username: str | None
     has_password: bool
+
+
+class ProxyQuickTestRead(StrictModel):
+    ok: bool
+    connectivity: bool
+    exit_ip: str | None
+    exit_ip_matches: bool | None
+    latency_ms: int | None
+    country: str | None
+    city: str | None
+    timezone: str | None
+    asn: str | None
+    organization: str | None
+    checked_at: datetime
+    error: str | None

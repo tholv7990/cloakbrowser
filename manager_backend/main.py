@@ -22,6 +22,8 @@ from .auth.sessions import validate_session
 from .dependencies import SESSION_COOKIE
 from .models import RuntimeSession
 from .features.proxies.credentials import KeyringCredentialStore
+from .features.proxies.testing import ScannerQuickTester
+from .features.proxies.service import build_proxy_preflight
 
 
 def create_app(settings: ManagerSettings | None = None) -> FastAPI:
@@ -52,8 +54,17 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
     app.state.engine = create_engine_for(resolved)
     Base.metadata.create_all(app.state.engine)
     app.state.session_factory = create_session_factory(app.state.engine)
-    app.state.runtime_manager = RuntimeManager(app.state.session_factory, resolved)
     app.state.credential_store = KeyringCredentialStore()
+    app.state.proxy_quick_tester = ScannerQuickTester()
+    app.state.runtime_manager = RuntimeManager(
+        app.state.session_factory,
+        resolved,
+        proxy_preflight=build_proxy_preflight(
+            app.state.session_factory,
+            app.state.credential_store,
+            app.state.proxy_quick_tester,
+        ),
+    )
     app.state.login_failures = {}
     app.add_middleware(
         CORSMiddleware,

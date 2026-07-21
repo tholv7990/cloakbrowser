@@ -27,11 +27,13 @@ class FakeLauncher:
     def __init__(self):
         self.handles = {}
         self.launch_threads = {}
+        self.snapshots = {}
 
     def launch(self, snapshot):
         handle = FakeHandle()
         self.handles[snapshot["id"]] = handle
         self.launch_threads[snapshot["id"]] = threading.get_ident()
+        self.snapshots[snapshot["id"]] = dict(snapshot)
         return handle
 
 
@@ -168,3 +170,41 @@ def test_filesystem_lock_failure_does_not_create_runtime(db_session_factory, set
     assert error.value.code == "profile_locked"
     with db_session_factory() as session:
         assert session.query(RuntimeSession).count() == 0
+
+
+def test_proxy_preflight_failure_blocks_browser_launch(db_session_factory, settings):
+    launcher = FakeLauncher()
+
+    def reject(_snapshot):
+        raise ManagerError("proxy_preflight_failed", "The assigned proxy is unavailable.", 409)
+
+    manager = RuntimeManager(
+        db_session_factory,
+        settings,
+        launcher=launcher,
+        proxy_preflight=reject,
+    )
+    profile_id = _profile(db_session_factory, "proxy-blocked")
+    runtime = manager.start(profile_id)
+    _wait_state(db_session_factory, runtime.id, "crashed")
+    assert profile_id not in launcher.handles
+    with db_session_factory() as session:
+        assert session.get(RuntimeSession, runtime.id).last_message == "proxy_preflight_failed"
+
+
+def test_proxy_preflight_value_is_forwarded_only_in_worker_memory(
+    db_session_factory, settings
+):
+    launcher = FakeLauncher()
+    manager = RuntimeManager(
+        db_session_factory,
+        settings,
+        launcher=launcher,
+        proxy_preflight=lambda _snapshot: "socks5://alice:secret@proxy.example:1080",
+    )
+    profile_id = _profile(db_session_factory, "proxy-forwarded")
+    runtime = manager.start(profile_id)
+    _wait_state(db_session_factory, runtime.id, "running")
+    assert launcher.handles[profile_id]
+    assert launcher.snapshots[profile_id]["proxy_url"].endswith("@proxy.example:1080")
+    manager.shutdown()

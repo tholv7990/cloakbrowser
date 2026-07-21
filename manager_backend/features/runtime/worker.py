@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ...models import RuntimeSession
+from ...errors import ManagerError
 from .service import transition_runtime
 
 
@@ -19,6 +20,7 @@ class ProfileWorker(threading.Thread):
         launcher: Any,
         launch_semaphore: threading.BoundedSemaphore,
         profile_lock: Any,
+        proxy_preflight: Callable[[dict[str, Any]], str | None],
         on_finished: Callable[[str, "ProfileWorker"], None],
     ):
         super().__init__(name=f"profile-{snapshot['id']}", daemon=True)
@@ -28,6 +30,7 @@ class ProfileWorker(threading.Thread):
         self._launcher = launcher
         self._launch_semaphore = launch_semaphore
         self._profile_lock = profile_lock
+        self._proxy_preflight = proxy_preflight
         self._on_finished = on_finished
         self._commands: queue.SimpleQueue[str] = queue.SimpleQueue()
 
@@ -57,6 +60,7 @@ class ProfileWorker(threading.Thread):
         try:
             with self._launch_semaphore:
                 self._transition("starting")
+                self.snapshot["proxy_url"] = self._proxy_preflight(self.snapshot)
                 handle = self._launcher.launch(self.snapshot)
                 self._record_browser_ownership(handle)
                 self._transition("running")
@@ -71,11 +75,16 @@ class ProfileWorker(threading.Thread):
                     handle.close()
                     self._transition("stopped")
                     break
-        except Exception:
+        except Exception as error:
             try:
+                message = (
+                    error.code
+                    if isinstance(error, ManagerError) and error.code == "proxy_preflight_failed"
+                    else ("browser_launch_failed" if handle is None else "browser_crashed")
+                )
                 self._transition(
                     "crashed",
-                    "browser_launch_failed" if handle is None else "browser_crashed",
+                    message,
                 )
             except Exception:
                 pass
