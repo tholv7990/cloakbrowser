@@ -39,8 +39,6 @@ The backend is a foundation; these endpoints are absent from the OpenAPI, so the
 frontend serves them from the mock adapter and will switch to real when they
 ship. `capabilities.*` flags let the UI detect availability.
 
-- **Proxies** — `/proxies`, `/proxies/parse`, `/proxies/{id}/quick-test`,
-  `/quality-test`, `/reports` (flag: `proxy_management`).
 - **Diagnostics** — `/diagnostics*`, pixelscan, direct-Google control (flag:
   `fingerprint_diagnostics`).
 - **Runtime extras** — `/profiles/{id}/logs`, `/export`, `/profiles/import`,
@@ -68,15 +66,10 @@ The profiles table now supports inline editing (name, notes, tags) and an
 in-table proxy assign/add/edit popup. This raises the priority of a few backend
 items. **For the backend owner (Codex):**
 
-1. **Proxy management endpoints (highest priority now).** The in-table proxy
-   popup actively uses `GET /proxies`, `POST /proxies`, `PATCH /proxies/{id}`,
-   `POST /proxies/parse`, and `POST /proxies/{id}/quick-test` / `quality-test` /
-   `GET /reports`. These are still frontend-mock-only. Shipping them (flag
-   `proxy_management`) unblocks the whole assign/add/edit/test flow against the
-   real backend. Request/response shapes: see `src/types/api.ts` `Proxy`,
-   `ProxyWritePayload` (write-only `password`, response returns `has_password` +
-   `masked_endpoint`, never the raw secret), `ParsedProxy`, `ProxyQuickTest`,
-   `ProxyQualityReport`.
+1. **Proxy management is implemented.** The in-table popup uses the real
+   list/create/edit/parse/quick-test/quality-test/report routes. Creating inside
+   a profile saves the reusable proxy first; confirming Assign writes its ID
+   through the profile PATCH.
 2. **Consider a true partial PATCH for profiles.** `ProfilePatch` currently
    carries every field (with `ProfileCreate` defaults), so a partial body would
    reset omitted fields. To make one field editable, the frontend re-sends the

@@ -12,7 +12,7 @@ def test_foundation_routes_are_authenticated_and_typed(client, auth_headers):
             "authentication": True,
             "profiles": True,
             "catalogs": True,
-            "proxy_management": False,
+            "proxy_management": True,
             "browser_runtime": True,
             "fingerprint_diagnostics": False,
         },

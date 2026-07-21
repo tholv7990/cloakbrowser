@@ -54,8 +54,9 @@ Configured via `.env.local` (see `.env.example`). All are optional in mock mode.
 `VITE_API_BASE_URL` at the running manager. Nothing else changes — `mockApi` and
 `realApi` implement the same `ApiAdapter` (`src/api/adapter.ts`), selected in
 `src/api/index.ts`. The backend currently implements auth, profiles, folders,
-tags, and workflow-statuses; proxies, diagnostics, and settings are still served
-by the mock (see `docs/frontend-backend-contract-questions.md`).
+tags, workflow-statuses, reusable proxies, proxy quick tests, and proxy quality
+reports. Diagnostics and settings are still served by the mock (see
+`docs/frontend-backend-contract-questions.md`).
 
 ## Authentication
 
