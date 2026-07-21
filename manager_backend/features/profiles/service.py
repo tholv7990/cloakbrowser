@@ -1,0 +1,364 @@
+from __future__ import annotations
+
+import math
+from datetime import datetime, timezone
+from typing import Any
+
+from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, selectinload
+
+from ...errors import ManagerError
+from ...fingerprints import build_fingerprint_identity, generate_unique_seed
+from ...models import Folder, Profile, Tag, WorkflowStatus
+from .schemas import BulkProfileRequest, ProfileCreate, ProfilePatch
+
+
+_FINGERPRINT_FIELDS = {
+    "fingerprint_preset",
+    "browser_version_mode",
+    "browser_version",
+    "user_agent_mode",
+    "custom_user_agent",
+    "location",
+    "window",
+    "behavior",
+}
+_SORT_FIELDS = {
+    "name": Profile.name,
+    "created_at": Profile.created_at,
+    "updated_at": Profile.updated_at,
+    "last_opened_at": Profile.last_opened_at,
+}
+
+
+def _seed_is_taken(session: Session, seed: str) -> bool:
+    return session.scalar(
+        select(func.count(Profile.id)).where(Profile.fingerprint_seed == seed)
+    ) > 0
+
+
+def _new_seed(session: Session) -> str:
+    return generate_unique_seed(lambda seed: _seed_is_taken(session, seed))
+
+
+def _validate_references(
+    session: Session,
+    *,
+    folder_id: str | None,
+    status_id: str | None,
+    tag_ids: list[str],
+) -> list[Tag]:
+    errors: dict[str, str] = {}
+    if folder_id is not None and session.get(Folder, folder_id) is None:
+        errors["folder_id"] = "not_found"
+    if status_id is not None and session.get(WorkflowStatus, status_id) is None:
+        errors["workflow_status_id"] = "not_found"
+    unique_tag_ids = list(dict.fromkeys(tag_ids))
+    tags = (
+        list(session.scalars(select(Tag).where(Tag.id.in_(unique_tag_ids))))
+        if unique_tag_ids
+        else []
+    )
+    if len(tags) != len(unique_tag_ids):
+        errors["tag_ids"] = "contains_unknown_id"
+    if errors:
+        raise ManagerError(
+            "invalid_profile_reference",
+            "One or more profile references do not exist.",
+            422,
+            errors,
+        )
+    by_id = {tag.id: tag for tag in tags}
+    return [by_id[tag_id] for tag_id in unique_tag_ids]
+
+
+def _fingerprint_identity(seed: str, values: dict[str, Any]):
+    return build_fingerprint_identity(
+        seed=seed,
+        fingerprint_preset=values["fingerprint_preset"],
+        browser_version_mode=values["browser_version_mode"],
+        browser_version=values.get("browser_version"),
+        user_agent_mode=values["user_agent_mode"],
+        custom_user_agent=values.get("custom_user_agent"),
+        location=values["location"],
+        window=values["window"],
+        behavior=values["behavior"],
+    )
+
+
+def _profile_values(payload: ProfileCreate) -> tuple[dict[str, Any], list[str]]:
+    values = payload.model_dump()
+    tag_ids = values.pop("tag_ids")
+    values["status_id"] = values.pop("workflow_status_id")
+    values["location"] = payload.location.model_dump(mode="json")
+    values["window"] = payload.window.model_dump(mode="json")
+    values["behavior"] = payload.behavior.model_dump(mode="json")
+    return values, tag_ids
+
+
+def create_profile(session: Session, payload: ProfileCreate) -> Profile:
+    values, tag_ids = _profile_values(payload)
+    supplied_seed = values.pop("fingerprint_seed")
+    if supplied_seed is not None and _seed_is_taken(session, supplied_seed):
+        raise ManagerError(
+            "fingerprint_seed_conflict",
+            "This fingerprint seed is already assigned to another profile.",
+            409,
+            {"fingerprint_seed": "already_exists"},
+        )
+    seed = supplied_seed or _new_seed(session)
+    tags = _validate_references(
+        session,
+        folder_id=values.get("folder_id"),
+        status_id=values.get("status_id"),
+        tag_ids=tag_ids,
+    )
+    identity = _fingerprint_identity(seed, values)
+    profile = Profile(
+        **values,
+        fingerprint_seed=identity.seed,
+        fingerprint_revision=identity.revision,
+        fingerprint_config_hash=identity.config_hash,
+        tags=tags,
+    )
+    session.add(profile)
+    try:
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        raise ManagerError(
+            "profile_conflict",
+            "The profile could not be saved because a unique value is already in use.",
+            409,
+        ) from error
+    return get_profile(session, profile.id)
+
+
+def get_profile(session: Session, profile_id: str) -> Profile:
+    profile = session.scalar(
+        select(Profile)
+        .options(selectinload(Profile.tags))
+        .where(Profile.id == profile_id)
+    )
+    if profile is None:
+        raise ManagerError("profile_not_found", "The requested profile was not found.", 404)
+    return profile
+
+
+def profile_to_dict(profile: Profile) -> dict[str, Any]:
+    return {
+        "id": profile.id,
+        "name": profile.name,
+        "folder_id": profile.folder_id,
+        "workflow_status_id": profile.status_id,
+        "tag_ids": [tag.id for tag in profile.tags],
+        "notes": profile.notes,
+        "pinned": profile.pinned,
+        "startup_urls": profile.startup_urls,
+        "fingerprint_seed": profile.fingerprint_seed,
+        "fingerprint_preset": profile.fingerprint_preset,
+        "fingerprint_revision": profile.fingerprint_revision,
+        "fingerprint_config_hash": profile.fingerprint_config_hash,
+        "browser_version_mode": profile.browser_version_mode,
+        "browser_version": profile.browser_version,
+        "user_agent_mode": profile.user_agent_mode,
+        "custom_user_agent": profile.custom_user_agent,
+        "location": profile.location,
+        "window": profile.window,
+        "behavior": profile.behavior,
+        "proxy_id": profile.proxy_id,
+        "test_proxy_before_launch": profile.test_proxy_before_launch,
+        "runtime_state": "stopped",
+        "created_at": profile.created_at,
+        "updated_at": profile.updated_at,
+        "last_opened_at": profile.last_opened_at,
+        "total_runtime_seconds": profile.total_runtime_seconds,
+        "deleted_at": profile.deleted_at,
+    }
+
+
+def list_profiles(
+    session: Session,
+    *,
+    query: str | None,
+    folder_id: str | None,
+    tag_id: str | None,
+    workflow_status_id: str | None,
+    pinned: bool | None,
+    sort: str,
+    page: int,
+    page_size: int,
+) -> dict[str, Any]:
+    statement = select(Profile).options(selectinload(Profile.tags)).where(Profile.deleted_at.is_(None))
+    count_statement = select(func.count(func.distinct(Profile.id))).where(Profile.deleted_at.is_(None))
+    conditions = []
+    if query:
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        conditions.append(
+            or_(
+                Profile.name.ilike(f"%{escaped}%", escape="\\"),
+                Profile.notes.ilike(f"%{escaped}%", escape="\\"),
+            )
+        )
+    if folder_id:
+        conditions.append(Profile.folder_id == folder_id)
+    if workflow_status_id:
+        conditions.append(Profile.status_id == workflow_status_id)
+    if pinned is not None:
+        conditions.append(Profile.pinned == pinned)
+    if tag_id:
+        statement = statement.join(Profile.tags)
+        count_statement = count_statement.join(Profile.tags)
+        conditions.append(Tag.id == tag_id)
+    if conditions:
+        statement = statement.where(*conditions)
+        count_statement = count_statement.where(*conditions)
+    descending = sort.startswith("-")
+    sort_name = sort[1:] if descending else sort
+    column = _SORT_FIELDS.get(sort_name)
+    if column is None:
+        raise ManagerError(
+            "invalid_profile_sort",
+            "The requested profile sort field is not supported.",
+            422,
+            {"sort": "unsupported"},
+        )
+    order = column.desc() if descending else column.asc()
+    total = int(session.scalar(count_statement) or 0)
+    profiles = list(
+        session.scalars(
+            statement.order_by(Profile.pinned.desc(), order, Profile.id.asc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).unique()
+    )
+    return {
+        "items": [profile_to_dict(profile) for profile in profiles],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": math.ceil(total / page_size) if total else 0,
+    }
+
+
+def update_profile(session: Session, profile_id: str, payload: ProfilePatch) -> Profile:
+    profile = get_profile(session, profile_id)
+    changes = payload.model_dump(exclude_unset=True)
+    if "fingerprint_seed" in changes:
+        raise ManagerError(
+            "fingerprint_seed_read_only",
+            "Use the regenerate-fingerprint action to change the seed.",
+            422,
+            {"fingerprint_seed": "read_only"},
+        )
+    tag_ids = changes.pop("tag_ids", None)
+    if "workflow_status_id" in changes:
+        changes["status_id"] = changes.pop("workflow_status_id")
+    tags = None
+    if tag_ids is not None or "folder_id" in changes or "status_id" in changes:
+        tags = _validate_references(
+            session,
+            folder_id=changes.get("folder_id", profile.folder_id),
+            status_id=changes.get("status_id", profile.status_id),
+            tag_ids=tag_ids if tag_ids is not None else [tag.id for tag in profile.tags],
+        )
+    for nested in ("location", "window", "behavior"):
+        if nested in changes:
+            changes[nested] = getattr(payload, nested).model_dump(mode="json")
+    for field, value in changes.items():
+        setattr(profile, field, value)
+    if tags is not None:
+        profile.tags = tags
+    if _FINGERPRINT_FIELDS.intersection(changes):
+        values = profile_to_dict(profile)
+        identity = _fingerprint_identity(profile.fingerprint_seed, values)
+        profile.fingerprint_revision = identity.revision
+        profile.fingerprint_config_hash = identity.config_hash
+    session.commit()
+    return get_profile(session, profile.id)
+
+
+def duplicate_profile(session: Session, profile_id: str) -> Profile:
+    source = get_profile(session, profile_id)
+    payload = ProfileCreate(
+        name=f"{source.name} Copy"[:80],
+        folder_id=source.folder_id,
+        workflow_status_id=source.status_id,
+        tag_ids=[tag.id for tag in source.tags],
+        notes=source.notes,
+        pinned=False,
+        startup_urls=source.startup_urls,
+        fingerprint_preset=source.fingerprint_preset,
+        browser_version_mode=source.browser_version_mode,
+        browser_version=source.browser_version,
+        user_agent_mode=source.user_agent_mode,
+        custom_user_agent=source.custom_user_agent,
+        location=source.location,
+        window=source.window,
+        behavior=source.behavior,
+        proxy_id=source.proxy_id,
+        test_proxy_before_launch=source.test_proxy_before_launch,
+    )
+    return create_profile(session, payload)
+
+
+def regenerate_fingerprint(session: Session, profile_id: str) -> Profile:
+    profile = get_profile(session, profile_id)
+    profile.fingerprint_seed = _new_seed(session)
+    values = profile_to_dict(profile)
+    identity = _fingerprint_identity(profile.fingerprint_seed, values)
+    profile.fingerprint_revision = identity.revision
+    profile.fingerprint_config_hash = identity.config_hash
+    session.commit()
+    return get_profile(session, profile.id)
+
+
+def set_trash_state(session: Session, profile_id: str, deleted: bool) -> Profile:
+    profile = get_profile(session, profile_id)
+    profile.deleted_at = datetime.now(timezone.utc) if deleted else None
+    session.commit()
+    return get_profile(session, profile.id)
+
+
+def bulk_update(
+    session: Session, payload: BulkProfileRequest
+) -> tuple[list[str], int]:
+    unique_ids = list(dict.fromkeys(payload.ids))
+    profiles = list(session.scalars(select(Profile).where(Profile.id.in_(unique_ids))))
+    if len(profiles) != len(unique_ids):
+        raise ManagerError(
+            "profile_not_found",
+            "One or more requested profiles were not found.",
+            404,
+        )
+    if payload.action == "move_folder":
+        _validate_references(
+            session,
+            folder_id=payload.folder_id,
+            status_id=None,
+            tag_ids=[],
+        )
+    if payload.action == "set_status":
+        _validate_references(
+            session,
+            folder_id=None,
+            status_id=payload.workflow_status_id,
+            tag_ids=[],
+        )
+    now = datetime.now(timezone.utc)
+    for profile in profiles:
+        if payload.action == "trash":
+            profile.deleted_at = now
+        elif payload.action == "restore":
+            profile.deleted_at = None
+        elif payload.action == "pin":
+            profile.pinned = True
+        elif payload.action == "unpin":
+            profile.pinned = False
+        elif payload.action == "move_folder":
+            profile.folder_id = payload.folder_id
+        elif payload.action == "set_status":
+            profile.status_id = payload.workflow_status_id
+    session.commit()
+    return unique_ids, len(unique_ids)
