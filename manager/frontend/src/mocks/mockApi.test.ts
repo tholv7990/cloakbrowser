@@ -52,8 +52,8 @@ describe('mock profiles contract', () => {
   it('rejects a second start of the same profile', async () => {
     const stopped = await mockApi.listProfiles({ page: 1, page_size: 100 });
     const id = stopped.items.find((p) => p.runtime_state === 'stopped')!.id;
-    const started = await mockApi.startProfile(id);
-    expect(started.runtime_state).toBe('starting');
+    await mockApi.startProfile(id);
+    expect((await mockApi.getProfile(id)).runtime_state).toBe('starting');
     await expect(mockApi.startProfile(id)).rejects.toMatchObject({
       code: 'profile_already_running',
     });

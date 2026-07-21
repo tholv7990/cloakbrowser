@@ -423,7 +423,7 @@ export const mockApi: ApiAdapter = {
     return structuredClone(profile);
   },
 
-  async startProfile(id: string): Promise<ProfileRead> {
+  async startProfile(id: string): Promise<void> {
     await delay(120);
     const profile = mockStore.requireProfile(id);
     if (['starting', 'running', 'stopping'].includes(profile.runtime_state)) {
@@ -431,10 +431,9 @@ export const mockApi: ApiAdapter = {
     }
     transition(id, 'starting', profile.test_proxy_before_launch ? 'Testing proxy…' : 'Launching…');
     window.setTimeout(() => transition(id, 'running', 'Browser ready'), 900);
-    return structuredClone(mockStore.requireProfile(id));
   },
 
-  async stopProfile(id: string): Promise<ProfileRead> {
+  async stopProfile(id: string): Promise<void> {
     await delay(120);
     const profile = mockStore.requireProfile(id);
     if (!['running', 'starting', 'crashed'].includes(profile.runtime_state)) {
@@ -442,7 +441,6 @@ export const mockApi: ApiAdapter = {
     }
     transition(id, 'stopping', 'Closing browser…');
     window.setTimeout(() => transition(id, 'stopped', 'Ready'), 600);
-    return structuredClone(mockStore.requireProfile(id));
   },
 
   async focusWindow(id: string) {

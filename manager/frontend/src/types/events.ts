@@ -14,6 +14,7 @@ export type EventName =
   | 'profile.deleted'
   | 'profile.runtime.changed'
   | 'profile.runtime.message'
+  | 'runtime.snapshot'
   | 'proxy.updated'
   | 'proxy.test.progress'
   | 'proxy.test.completed'
@@ -78,6 +79,12 @@ export interface ReconciliationCompletedData {
   changed_profile_ids: string[];
 }
 
+/** Backend runtime snapshot (spec §14 real WS): the full set of owned sessions,
+ * re-sent whenever any changes. `state` uses the backend vocabulary. */
+export interface RuntimeSnapshotData {
+  runtimes: { profile_id: string; state: string; last_message: string | null }[];
+}
+
 export type AppEvent =
   | EventEnvelope<'profile.created', ProfileCreatedData>
   | EventEnvelope<'profile.updated', ProfileUpdatedData>
@@ -89,6 +96,7 @@ export type AppEvent =
   | EventEnvelope<'proxy.test.completed', ProxyTestCompletedData>
   | EventEnvelope<'diagnostic.progress', DiagnosticProgressData>
   | EventEnvelope<'diagnostic.completed', DiagnosticCompletedData>
-  | EventEnvelope<'manager.reconciliation.completed', ReconciliationCompletedData>;
+  | EventEnvelope<'manager.reconciliation.completed', ReconciliationCompletedData>
+  | EventEnvelope<'runtime.snapshot', RuntimeSnapshotData>;
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';

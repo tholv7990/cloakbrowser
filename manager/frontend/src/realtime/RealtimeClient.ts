@@ -84,8 +84,21 @@ export class RealtimeClient {
 
     socket.onmessage = (message) => {
       try {
-        const parsed = JSON.parse(message.data) as AppEvent;
-        if (parsed && typeof parsed.event === 'string') this.bus.emit(parsed);
+        const parsed = JSON.parse(message.data);
+        // Mock-style per-event envelope.
+        if (parsed && typeof parsed.event === 'string') {
+          this.bus.emit(parsed as AppEvent);
+          return;
+        }
+        // Real backend runtime snapshot: { sequence, type: "runtime.snapshot", runtimes: [...] }.
+        if (parsed && parsed.type === 'runtime.snapshot' && Array.isArray(parsed.runtimes)) {
+          this.bus.emit({
+            event: 'runtime.snapshot',
+            sequence: typeof parsed.sequence === 'number' ? parsed.sequence : 0,
+            timestamp: new Date().toISOString(),
+            data: { runtimes: parsed.runtimes },
+          });
+        }
       } catch {
         // Ignore malformed frames; the backend is authoritative on refetch.
       }

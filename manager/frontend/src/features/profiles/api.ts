@@ -42,9 +42,13 @@ function removeFromLists(queryClient: QueryClient, id: string): void {
   });
 }
 
-/** Optimistic runtime transition (safe: matches the immediate backend response; events confirm). */
+/**
+ * Optimistic runtime transition. Start/stop are fire-and-forget (the backend
+ * returns a runtime session, not a profile); the authoritative state arrives via
+ * the runtime snapshot over the WebSocket, with a refetch as a fallback.
+ */
 function useRuntimeTransition(
-  action: (id: string) => Promise<ProfileRead>,
+  action: (id: string) => Promise<void>,
   optimistic: RuntimeState,
   failureVerb: string,
 ) {
@@ -68,11 +72,7 @@ function useRuntimeTransition(
         tone: 'danger',
       });
     },
-    onSuccess: (profile) =>
-      patchInLists(queryClient, profile.id, (p) => ({
-        ...p,
-        runtime_state: profile.runtime_state,
-      })),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['profiles'] }),
   });
 }
 

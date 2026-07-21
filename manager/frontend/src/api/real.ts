@@ -72,8 +72,8 @@ export const realApi: ApiAdapter = {
     apiRequest<ProfileRead>(`/profiles/${id}/duplicate`, { method: 'POST' }),
   regenerateFingerprint: (id) =>
     apiRequest<ProfileRead>(`/profiles/${id}/regenerate-fingerprint`, { method: 'POST' }),
-  startProfile: (id) => apiRequest<ProfileRead>(`/profiles/${id}/start`, { method: 'POST' }),
-  stopProfile: (id) => apiRequest<ProfileRead>(`/profiles/${id}/stop`, { method: 'POST' }),
+  startProfile: (id) => apiRequest<void>(`/profiles/${id}/start`, { method: 'POST' }),
+  stopProfile: (id) => apiRequest<void>(`/profiles/${id}/stop`, { method: 'POST' }),
   focusWindow: (id) => apiRequest(`/profiles/${id}/focus-window`, { method: 'POST' }),
   moveProfileToTrash: (id) => apiRequest(`/profiles/${id}/move-to-trash`, { method: 'POST' }),
   restoreProfile: (id) => apiRequest<ProfileRead>(`/profiles/${id}/restore`, { method: 'POST' }),

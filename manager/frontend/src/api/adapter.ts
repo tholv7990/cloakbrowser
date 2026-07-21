@@ -57,8 +57,10 @@ export interface ApiAdapter {
   updateProfile(id: string, payload: ProfileUpdatePayload): Promise<ProfileRead>;
   duplicateProfile(id: string): Promise<ProfileRead>;
   regenerateFingerprint(id: string): Promise<ProfileRead>;
-  startProfile(id: string): Promise<ProfileRead>;
-  stopProfile(id: string): Promise<ProfileRead>;
+  // Start/stop return a runtime session (202); the row state arrives via the
+  // runtime snapshot / refetch, so callers treat these as fire-and-forget.
+  startProfile(id: string): Promise<void>;
+  stopProfile(id: string): Promise<void>;
   focusWindow(id: string): Promise<{ ok: boolean }>;
   moveProfileToTrash(id: string): Promise<{ ok: boolean }>;
   restoreProfile(id: string): Promise<ProfileRead>;

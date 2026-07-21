@@ -17,10 +17,27 @@ import type { ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import type { AppEvent, ConnectionState } from '@/types/events';
-import type { Paginated, ProfileRead } from '@/types/api';
+import type { Paginated, ProfileRead, RuntimeState } from '@/types/api';
 import { useRuntimeStore } from '@/app/runtimeStore';
 import { EventBus } from './eventBus';
 import { RealtimeClient } from './RealtimeClient';
+
+/** Map the backend runtime vocabulary onto the frontend RuntimeState enum. */
+function mapRuntimeState(state: string): RuntimeState {
+  switch (state) {
+    case 'queued':
+    case 'starting':
+      return 'starting';
+    case 'running':
+      return 'running';
+    case 'stopping':
+      return 'stopping';
+    case 'crashed':
+      return 'crashed';
+    default:
+      return 'stopped';
+  }
+}
 
 interface RealtimeContextValue {
   connectionState: ConnectionState;
@@ -82,6 +99,15 @@ function applyEvent(queryClient: QueryClient, event: AppEvent): void {
     case 'manager.reconciliation.completed': {
       queryClient.invalidateQueries({ queryKey: ['profiles'] });
       queryClient.invalidateQueries({ queryKey: ['bootstrap'] });
+      break;
+    }
+    case 'runtime.snapshot': {
+      const store = useRuntimeStore.getState();
+      for (const runtime of event.data.runtimes) {
+        const state = mapRuntimeState(runtime.state);
+        patchProfile(queryClient, runtime.profile_id, (p) => ({ ...p, runtime_state: state }));
+        if (runtime.last_message) store.setMessage(runtime.profile_id, runtime.last_message);
+      }
       break;
     }
     default:
