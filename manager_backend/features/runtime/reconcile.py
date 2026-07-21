@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from ...config import ManagerSettings
 from ...models import RuntimeSession
+from .logs import append_profile_log
 from .service import ACTIVE_STATES, transition_runtime
 
 
@@ -107,16 +108,44 @@ def reconcile_runtimes(
                 transition_runtime(
                     session, runtime, "crashed", message="manager_restarted"
                 )
+                append_profile_log(
+                    session,
+                    runtime.profile_id,
+                    "error",
+                    "runtime.crashed",
+                    settings=settings,
+                )
+                append_profile_log(
+                    session,
+                    runtime.profile_id,
+                    "info",
+                    "runtime.reconciled",
+                    settings=settings,
+                )
                 summary["crashed"] += 1
             elif inspection == "owned" and try_reconnect(runtime):
                 runtime.state = "running"
                 runtime.last_message = "browser_reconnected"
                 session.commit()
                 session.refresh(runtime)
+                append_profile_log(
+                    session,
+                    runtime.profile_id,
+                    "info",
+                    "runtime.reconciled",
+                    settings=settings,
+                )
                 summary["reconnected"] += 1
             else:
                 transition_runtime(
                     session, runtime, "detached", message="browser_detached"
+                )
+                append_profile_log(
+                    session,
+                    runtime.profile_id,
+                    "warning",
+                    "runtime.reconciled",
+                    settings=settings,
                 )
                 summary["detached"] += 1
     return summary

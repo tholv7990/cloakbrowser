@@ -6,7 +6,9 @@ from collections.abc import Callable
 from typing import Any
 
 from ...models import RuntimeSession
+from ...config import ManagerSettings
 from ...errors import ManagerError
+from .logs import append_profile_log
 from .service import transition_runtime
 
 
@@ -22,6 +24,7 @@ class ProfileWorker(threading.Thread):
         profile_lock: Any,
         proxy_preflight: Callable[[dict[str, Any]], str | None],
         on_finished: Callable[[str, "ProfileWorker"], None],
+        settings: ManagerSettings,
     ):
         super().__init__(name=f"profile-{snapshot['id']}", daemon=True)
         self.runtime_id = runtime_id
@@ -32,6 +35,7 @@ class ProfileWorker(threading.Thread):
         self._profile_lock = profile_lock
         self._proxy_preflight = proxy_preflight
         self._on_finished = on_finished
+        self._settings = settings
         self._commands: queue.SimpleQueue[str] = queue.SimpleQueue()
 
     def request_stop(self) -> None:
@@ -55,6 +59,23 @@ class ProfileWorker(threading.Thread):
                 runtime.browser_created_at = browser_created_at
                 session.commit()
 
+    def _append_log(
+        self,
+        event: str,
+        level: str = "info",
+        *,
+        fields: dict[str, object] | None = None,
+    ) -> None:
+        with self._session_factory() as session:
+            append_profile_log(
+                session,
+                self.snapshot["id"],
+                level,
+                event,
+                fields=fields,
+                settings=self._settings,
+            )
+
     def run(self) -> None:
         handle = None
         try:
@@ -63,7 +84,12 @@ class ProfileWorker(threading.Thread):
                 self.snapshot["proxy_url"] = self._proxy_preflight(self.snapshot)
                 handle = self._launcher.launch(self.snapshot)
                 self._record_browser_ownership(handle)
+                self._append_log(
+                    "runtime.process_started",
+                    fields={"profile_path": str(self.snapshot["profile_dir"])},
+                )
                 self._transition("running")
+                self._append_log("runtime.ready")
 
             while True:
                 try:
@@ -74,18 +100,26 @@ class ProfileWorker(threading.Thread):
                     self._transition("stopping")
                     handle.close()
                     self._transition("stopped")
+                    self._append_log("runtime.exited")
                     break
         except Exception as error:
             try:
+                preflight_failed = (
+                    isinstance(error, ManagerError)
+                    and error.code == "proxy_preflight_failed"
+                )
+                if preflight_failed:
+                    self._append_log("runtime.preflight_failed", "warning")
                 message = (
-                    error.code
-                    if isinstance(error, ManagerError) and error.code == "proxy_preflight_failed"
+                    "proxy_preflight_failed"
+                    if preflight_failed
                     else ("browser_launch_failed" if handle is None else "browser_crashed")
                 )
                 self._transition(
                     "crashed",
                     message,
                 )
+                self._append_log("runtime.crashed", "error")
             except Exception:
                 pass
         finally:

@@ -1,231 +1,99 @@
-# Task 2: Connectivity and cache primitives report
+# Task 2: Runtime observability report
 
 ## Scope
 
-Created only the Task 2 implementation and deterministic tests:
+Implemented authenticated, paginated profile runtime logs and wired the
+required stable events without weakening the existing trusted log boundary.
 
-- `benchmarks/proxy_intelligence.py`
-- `tests/test_proxy_intelligence.py`
+Changed files:
 
-The implementation imports and uses `redact_proxy` from
-`benchmarks.proxy_quality_models`.  It provides proxy URL validation, exit-IP
-resolution through alternating echo endpoints, credential-safe connectivity
-errors, SHA-256 hashing, and an atomic file cache with sanitized metadata.
+- `manager_backend/features/profiles/routes.py`
+- `manager_backend/features/profiles/schemas.py`
+- `manager_backend/features/runtime/manager.py`
+- `manager_backend/features/runtime/worker.py`
+- `manager_backend/features/runtime/reconcile.py`
+- `tests/manager/test_runtime_api.py`
+
+`worker.py` was added to the task's listed files because it owns the launch,
+ready, normal-exit, and crash transitions that must emit the required events.
 
 ## TDD evidence
 
-### RED: initial interfaces
+### RED: missing logs endpoint
 
 Command:
 
 ```powershell
-python -m pytest tests/test_proxy_intelligence.py -q
+python -m pytest tests/manager/test_runtime_api.py::test_runtime_preflight_and_crash_logs_do_not_expose_secrets -q
 ```
 
 Output (exit code 1):
 
 ```text
-ImportError while importing test module '...tests\\test_proxy_intelligence.py'.
-E   ModuleNotFoundError: No module named 'benchmarks.proxy_intelligence'
-1 error in 0.14s
+E       assert 404 == 200
+E        +  where 404 = <Response [404 Not Found]>.status_code
+1 failed, 1 warning in 0.61s
 ```
 
-This was the expected missing-module failure before production code existed.
+This confirmed the new API test failed for the intended reason: the profile
+logs route did not exist.
 
-### GREEN: initial implementation
+### GREEN: focused runtime observability tests
 
 Command:
 
 ```powershell
-python -m pytest tests/test_proxy_intelligence.py -q
+python -m pytest tests/manager/test_runtime_logs.py tests/manager/test_runtime_api.py tests/manager/test_runtime_manager.py tests/manager/test_runtime_reconcile.py -q
 ```
 
 Output (exit code 0):
 
 ```text
-...........                                                              [100%]
-11 passed in 1.47s
+36 passed, 1 warning in 9.44s
 ```
 
-### RED/GREEN: credential-safe cache failure
-
-A self-review test made the fake downloader raise an error containing
-`https://user:password@example.invalid/ipsum.txt`.  It proved the cache was
-initially propagating the unsafe exception text.
-
-Command:
-
-```powershell
-python -m pytest tests/test_proxy_intelligence.py -q
-```
-
-RED output (exit code 1):
-
-```text
-FAILED tests/test_proxy_intelligence.py::test_cache_removes_temporary_file_after_failure_and_keeps_existing_file
-AssertionError: assert 'user:password' not in 'download failed for https://user:password@example.invalid/ipsum.txt'
-1 failed, 10 passed in 1.41s
-```
-
-The cache now replaces download failures with the credential-free message
-`Dataset download failed` while still removing temporary files and preserving
-the prior cache entry.
-
-GREEN and compile command:
-
-```powershell
-python -m pytest tests/test_proxy_intelligence.py -q; if ($LASTEXITCODE -eq 0) { python -m py_compile benchmarks/proxy_intelligence.py }
-```
-
-Output (exit code 0):
-
-```text
-...........                                                              [100%]
-11 passed in 1.30s
-```
+The warning is FastAPI/TestClient's third-party deprecation notice for the
+installed `httpx` version; no Manager test emitted an application warning.
 
 ## Final verification
 
 Command:
 
 ```powershell
-python -m pytest tests/test_proxy_quality_models.py tests/test_proxy_intelligence.py -q; if ($LASTEXITCODE -eq 0) { python -m py_compile benchmarks/proxy_intelligence.py }
+python -m pytest tests/manager -q
 ```
 
 Output (exit code 0):
 
 ```text
-....................                                                     [100%]
-20 passed in 1.28s
+166 passed, 1 skipped, 1 warning in 46.80s
 ```
 
 ## Self-review
 
-- `resolve_exit_ip` validates inputs without including the raw proxy in errors,
-  constructs `httpx.Client(proxy=proxy, timeout=10.0, follow_redirects=False)`,
-  alternates the two required endpoints, normalizes values with
-  `ipaddress.ip_address`, requires two successes, and exposes agreement and
-  successful-call latency values.
-- SOCKS transport initialization errors explain the required
-  `pip install -e ".[geoip]"` command while redacting URI credentials.
-- Cache metadata contains only a credential-stripped URL, UTC retrieval time,
-  SHA-256, and byte count.  The downloaded `.tmp` is hashed before replacing
-  the target; failure cleanup removes temporary files and leaves an older cache
-  entry intact.
-- All Task 2 tests use monkeypatch/fakes and make no network request.
+- The read endpoint is under the existing authenticated API router, verifies
+  that the profile exists, returns the standard page envelope newest-first,
+  defaults to page 1 / 50 rows, and rejects page sizes over 200.
+- `ProfileLogRead` is strict and exposes only the persisted safe fields:
+  ID, profile ID, UTC timestamp, level, stable event name, and sanitized
+  message.
+- `RuntimeManager` records start and stop requests. `ProfileWorker` records
+  process start, ready, normal exit, preflight failure, and crash. Runtime
+  reconciliation records `runtime.reconciled` for each resolved active
+  runtime and `runtime.crashed` for a missing owned process.
+- All writes continue through `append_profile_log` with the trusted
+  `ManagerSettings`, fixed event names, and allowlisted structured fields;
+  no raw exception, command line, proxy, or environment value is logged.
+- API tests cover lifecycle, preflight failure, crash, reconciliation,
+  authentication, pagination bounds, and confirm the synthetic proxy secret
+  is absent from returned JSON.
+- `git diff --check` found no whitespace issue in Task 2 files. It reports a
+  pre-existing blank line at EOF in the user-modified
+  `.superpowers/sdd/task-2-brief.md`, which was not changed.
 
 ## Concerns
 
-None for Task 2.  Test values use documentation-only IP ranges and synthetic
-credentials.
-
-## Reviewer fix pass
-
-The following review findings were addressed only in Task 2 files:
-
-- Removed `socks4` and `socks4a` from accepted proxy schemes; httpx supports
-  only the SOCKS5 variants used by this scanner.
-- Client-construction failures are now converted to `ProxyConnectivityError`
-  with exception chaining suppressed.  SOCKS failures retain the required
-  `pip install -e ".[geoip]"` guidance but only show a redacted proxy.
-- Added a test that renders the complete exception traceback and confirms the
-  raw synthetic username and password never appear.
-- Made cache publication transactional.  Existing data and metadata are moved
-  to sibling backups before either new file is published, and are restored if
-  either replacement fails.  The new regression test fails the metadata
-  replacement after the data replacement and verifies both older files remain
-  unchanged.
-- Preserved brackets around IPv6 hosts when reconstructing credential-free
-  metadata URLs, with coverage for an IPv6 host and explicit port.
-- Removed the no-longer-needed `tests/fixtures/proxy_quality/ipify.json`.
-
-### RED: reviewer regression tests
-
-Command:
-
-```powershell
-python -m pytest tests/test_proxy_intelligence.py -q
-```
-
-Output (exit code 1):
-
-```text
-.FF...F......F.F                                                         [100%]
-5 failed, 11 passed in 1.50s
-```
-
-The failures demonstrated all requested defects: accepted SOCKS4 schemes,
-credential-bearing chained SOCKS initialization errors, unbracketed IPv6
-metadata URLs, and non-transactional cache replacement.
-
-During the first GREEN implementation, the pre-download failure cleanup test
-found one additional rollback edge case (it removed the existing cache before
-backups had been created):
-
-```text
-1 failed, 15 passed in 1.51s
-```
-
-Rollback cleanup was then limited to paths that had actually been replaced.
-
-### GREEN: final reviewer verification
-
-Command:
-
-```powershell
-python -m pytest tests/test_proxy_intelligence.py -q; if ($LASTEXITCODE -eq 0) { python -m py_compile benchmarks/proxy_intelligence.py }
-```
-
-Output (exit code 0):
-
-```text
-................                                                         [100%]
-16 passed in 1.45s
-```
-
-`python -m py_compile benchmarks/proxy_intelligence.py` completed with exit
-code 0 and emitted no output.
-
-## Post-commit cleanup fix
-
-Backup deletion is now explicitly best-effort after both new cache files have
-been published.  A cleanup failure leaves the complete new data/metadata pair
-in place and may retain an old backup for a later cleanup; it cannot enter the
-rollback path or delete the newly published files.
-
-### RED: backup cleanup regression
-
-Command:
-
-```powershell
-python -m pytest tests/test_proxy_intelligence.py -q
-```
-
-Output (exit code 1):
-
-```text
-................F                                                        [100%]
-1 failed, 16 passed in 1.43s
-```
-
-The new test simulated failure while removing the metadata backup after the
-new data and metadata files had been published.  The prior code entered its
-rollback path and raised `Dataset download failed`.
-
-### GREEN: final verification
-
-Command:
-
-```powershell
-python -m pytest tests/test_proxy_intelligence.py -q; if ($LASTEXITCODE -eq 0) { python -m py_compile benchmarks/proxy_intelligence.py }
-```
-
-Output (exit code 0):
-
-```text
-.................                                                        [100%]
-17 passed in 1.47s
-```
-
-`python -m py_compile benchmarks/proxy_intelligence.py` again completed with
-exit code 0 and emitted no output.
+None for the implementation. Run Manager tests as `python -m pytest`; the
+standalone `pytest` command in this environment initially loaded a different
+runtime import state, while the explicit interpreter command consistently
+used this worktree and produced the verification above.

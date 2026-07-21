@@ -14,6 +14,7 @@ from ...models import Profile, RuntimeSession
 from ..profiles.service import get_profile
 from .launcher import CloakPersistentLauncher
 from .locks import ProfileFileLock
+from .logs import append_profile_log
 from .service import create_runtime_session
 from .worker import ProfileWorker
 
@@ -83,6 +84,13 @@ class RuntimeManager:
                     runtime.manager_created_at = self._process_created_at
                     session.commit()
                     session.refresh(runtime)
+                    append_profile_log(
+                        session,
+                        profile.id,
+                        "info",
+                        "runtime.start_requested",
+                        settings=self._settings,
+                    )
                     snapshot = self._snapshot(profile)
                     runtime_id = runtime.id
             except Exception:
@@ -97,6 +105,7 @@ class RuntimeManager:
                 profile_lock=profile_lock,
                 proxy_preflight=self._proxy_preflight,
                 on_finished=self._worker_finished,
+                settings=self._settings,
             )
             self._workers[profile_id] = worker
             worker.start()
@@ -107,6 +116,14 @@ class RuntimeManager:
             worker = self._workers.get(profile_id)
         if worker is None or not worker.is_alive():
             return None
+        with self._session_factory() as session:
+            append_profile_log(
+                session,
+                profile_id,
+                "info",
+                "runtime.stop_requested",
+                settings=self._settings,
+            )
         worker.request_stop()
         with self._session_factory() as session:
             return session.get(RuntimeSession, worker.runtime_id)

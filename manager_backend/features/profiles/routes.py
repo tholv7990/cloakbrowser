@@ -7,11 +7,13 @@ from sqlalchemy.orm import Session
 
 from ...dependencies import get_session
 from ...errors import ManagerError
+from ..runtime.logs import MAX_PROFILE_LOG_PAGE_SIZE, list_profile_logs
 from ..runtime.routes import runtime_to_dict
 from .schemas import (
     BulkProfileRequest,
     BulkProfileResult,
     ProfileCreate,
+    ProfileLogPage,
     ProfilePage,
     ProfilePatch,
     ProfileRead,
@@ -81,6 +83,17 @@ def bulk(payload: BulkProfileRequest, session: SessionDependency):
 @router.get("/profiles/{profile_id}", response_model=ProfileRead)
 def get(profile_id: str, session: SessionDependency):
     return profile_to_dict(get_profile(session, profile_id))
+
+
+@router.get("/profiles/{profile_id}/logs", response_model=ProfileLogPage)
+def logs(
+    profile_id: str,
+    session: SessionDependency,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=MAX_PROFILE_LOG_PAGE_SIZE),
+):
+    get_profile(session, profile_id)
+    return list_profile_logs(session, profile_id, page=page, page_size=page_size)
 
 
 @router.patch("/profiles/{profile_id}", response_model=ProfileRead)

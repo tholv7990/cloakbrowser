@@ -208,6 +208,28 @@ class ProfilePage(Page[ProfileRead]):
     pass
 
 
+class ProfileLogRead(StrictModel):
+    id: str
+    profile_id: str
+    created_at: datetime
+    level: Literal["debug", "info", "warning", "error"]
+    event: Literal[
+        "runtime.start_requested",
+        "runtime.preflight_failed",
+        "runtime.process_started",
+        "runtime.ready",
+        "runtime.stop_requested",
+        "runtime.exited",
+        "runtime.crashed",
+        "runtime.reconciled",
+    ]
+    message: str
+
+
+class ProfileLogPage(Page[ProfileLogRead]):
+    pass
+
+
 class BulkProfileRequest(StrictModel):
     action: Literal["trash", "restore", "pin", "unpin", "move_folder", "set_status"]
     ids: list[str] = Field(min_length=1, max_length=100)

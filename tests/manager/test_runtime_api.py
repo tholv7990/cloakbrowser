@@ -4,6 +4,9 @@ import threading
 import time
 
 from manager_backend.features.runtime.manager import RuntimeManager
+from manager_backend.features.runtime.reconcile import reconcile_runtimes
+from manager_backend.features.runtime.service import create_runtime_session, transition_runtime
+from manager_backend.models import Profile, RuntimeSession
 
 
 class Handle:
@@ -30,6 +33,26 @@ def _profile(client, auth_headers):
     )
     assert response.status_code == 201
     return response.json()["id"]
+
+
+def _logs(client, auth_headers, profile_id):
+    response = client.get(
+        f"/api/v1/profiles/{profile_id}/logs",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def _wait_for_log_events(client, auth_headers, profile_id, expected_events):
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        payload = _logs(client, auth_headers, profile_id)
+        events = {entry["event"] for entry in payload["items"]}
+        if expected_events <= events:
+            return payload
+        time.sleep(0.01)
+    raise AssertionError(f"missing log events: {expected_events - events}")
 
 
 def test_runtime_start_detail_list_and_stop_are_authenticated(client, auth_headers):
@@ -59,6 +82,134 @@ def test_runtime_start_detail_list_and_stop_are_authenticated(client, auth_heade
     stopped = client.post(f"/api/v1/profiles/{profile_id}/stop", headers=auth_headers)
     assert stopped.status_code == 202
     client.app.state.runtime_manager.shutdown()
+
+
+def test_runtime_lifecycle_events_are_exposed_in_authenticated_profile_logs(
+    client, auth_headers
+):
+    client.app.state.runtime_manager = RuntimeManager(
+        client.app.state.session_factory,
+        client.app.state.settings,
+        launcher=Launcher(),
+    )
+    profile_id = _profile(client, auth_headers)
+
+    started = client.post(f"/api/v1/profiles/{profile_id}/start", headers=auth_headers)
+    assert started.status_code == 202
+    _wait_for_log_events(
+        client,
+        auth_headers,
+        profile_id,
+        {
+            "runtime.start_requested",
+            "runtime.process_started",
+            "runtime.ready",
+        },
+    )
+
+    stopped = client.post(f"/api/v1/profiles/{profile_id}/stop", headers=auth_headers)
+    assert stopped.status_code == 202
+    payload = _wait_for_log_events(
+        client,
+        auth_headers,
+        profile_id,
+        {"runtime.stop_requested", "runtime.exited"},
+    )
+    assert payload["total"] == 5
+    assert payload["page"] == 1
+    assert payload["page_size"] == 50
+    client.app.state.runtime_manager.shutdown()
+
+
+def test_runtime_preflight_and_crash_logs_do_not_expose_secrets(client, auth_headers):
+    secret = "socks5://alice:very-secret-password@proxy.example:1080"
+
+    def reject(_snapshot):
+        from manager_backend.errors import ManagerError
+
+        raise ManagerError("proxy_preflight_failed", secret, 409)
+
+    client.app.state.runtime_manager = RuntimeManager(
+        client.app.state.session_factory,
+        client.app.state.settings,
+        launcher=Launcher(),
+        proxy_preflight=reject,
+    )
+    preflight_profile_id = _profile(client, auth_headers)
+    started = client.post(
+        f"/api/v1/profiles/{preflight_profile_id}/start", headers=auth_headers
+    )
+    assert started.status_code == 202
+    preflight_payload = _wait_for_log_events(
+        client,
+        auth_headers,
+        preflight_profile_id,
+        {"runtime.start_requested", "runtime.preflight_failed", "runtime.crashed"},
+    )
+    assert secret not in str(preflight_payload)
+
+    class BrokenLauncher:
+        def launch(self, _snapshot):
+            raise RuntimeError(secret)
+
+    client.app.state.runtime_manager = RuntimeManager(
+        client.app.state.session_factory,
+        client.app.state.settings,
+        launcher=BrokenLauncher(),
+    )
+    crash_profile_id = _profile(client, auth_headers)
+    started = client.post(
+        f"/api/v1/profiles/{crash_profile_id}/start", headers=auth_headers
+    )
+    assert started.status_code == 202
+    crash_payload = _wait_for_log_events(
+        client,
+        auth_headers,
+        crash_profile_id,
+        {"runtime.start_requested", "runtime.crashed"},
+    )
+    assert secret not in str(crash_payload)
+    client.app.state.runtime_manager.shutdown()
+
+
+def test_runtime_reconciliation_events_are_exposed_in_profile_logs(client, auth_headers):
+    with client.app.state.session_factory() as session:
+        profile = Profile(
+            name="Reconciled profile",
+            fingerprint_seed="123456",
+            fingerprint_config_hash="a" * 64,
+        )
+        session.add(profile)
+        session.commit()
+        runtime = create_runtime_session(session, profile)
+        transition_runtime(session, runtime, "starting")
+        transition_runtime(session, runtime, "running")
+        profile_id = profile.id
+
+    class MissingProcess:
+        def inspect(self, _runtime, _profile_dir):
+            return "missing"
+
+    reconcile_runtimes(
+        client.app.state.session_factory,
+        client.app.state.settings,
+        inspector=MissingProcess(),
+    )
+    payload = _wait_for_log_events(
+        client, auth_headers, profile_id, {"runtime.reconciled"}
+    )
+    assert payload["items"][0]["event"] == "runtime.reconciled"
+
+
+def test_profile_logs_require_login_and_limit_page_size(client, auth_headers):
+    profile_id = _profile(client, auth_headers)
+    response = client.get(
+        f"/api/v1/profiles/{profile_id}/logs?page_size=201",
+        headers=auth_headers,
+    )
+    assert response.status_code == 422
+    client.cookies.clear()
+    assert client.get(f"/api/v1/profiles/{profile_id}/logs").status_code == 401
 
 
 def test_runtime_routes_require_login(client):
