@@ -84,6 +84,15 @@ describe('mock profiles contract', () => {
   });
 });
 
+describe('mock settings contract', () => {
+  it('checks for a browser update and returns refreshed binary facts', async () => {
+    const settings = await mockApi.checkBrowserUpdate();
+    expect(settings.browser.version).toBeTruthy();
+    expect(settings.browser.tier).toBe('free');
+    expect(settings.license.configured).toBe(false);
+  });
+});
+
 describe('mock catalog: tag create-and-apply', () => {
   it('creates a tag and dedupes by name', async () => {
     const before = await mockApi.listTags();

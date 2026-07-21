@@ -24,6 +24,7 @@ def bootstrap(request: Request) -> AppBootstrap:
             "proxy_management": True,
             "browser_runtime": True,
             "fingerprint_diagnostics": False,
+            "settings": True,
         },
     )
 

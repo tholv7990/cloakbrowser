@@ -29,3 +29,21 @@ export function useUpdateSettings() {
       }),
   });
 }
+
+export function useCheckBrowserUpdate() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  return useMutation({
+    mutationFn: () => api.checkBrowserUpdate(),
+    onSuccess: (settings) => {
+      queryClient.setQueryData(queryKeys.settings, settings);
+      toast({ title: 'Browser information refreshed', tone: 'success' });
+    },
+    onError: (error) =>
+      toast({
+        title: 'Update check failed',
+        description: (error as Error).message,
+        tone: 'danger',
+      }),
+  });
+}

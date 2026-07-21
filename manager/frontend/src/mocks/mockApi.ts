@@ -301,6 +301,7 @@ export const mockApi: ApiAdapter = {
         proxy_management: true,
         browser_runtime: true,
         fingerprint_diagnostics: true,
+        settings: true,
       },
     };
   },
@@ -864,6 +865,10 @@ export const mockApi: ApiAdapter = {
   async updateSettings(patch: Partial<Settings>): Promise<Settings> {
     await delay(140);
     mockStore.settings = { ...mockStore.settings, ...patch };
+    return structuredClone(mockStore.settings);
+  },
+  async checkBrowserUpdate(): Promise<Settings> {
+    await delay(80);
     return structuredClone(mockStore.settings);
   },
 };

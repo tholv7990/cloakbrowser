@@ -25,6 +25,7 @@ from .features.proxies.credentials import KeyringCredentialStore
 from .features.proxies.testing import ScannerQuickTester
 from .features.proxies.service import build_proxy_preflight
 from .features.proxies.quality import ProxyQualityManager, recover_orphan_quality_runs
+from .features.settings.store import SettingsStore
 
 
 def create_app(settings: ManagerSettings | None = None) -> FastAPI:
@@ -55,6 +56,7 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
         title="CloakBrowser Manager API", version="1.0.0", lifespan=lifespan
     )
     app.state.settings = resolved
+    app.state.settings_store = SettingsStore(resolved.data_root / "settings.json")
     app.state.install_token = resolved.resolved_install_token()
     app.state.engine = create_engine_for(resolved)
     Base.metadata.create_all(app.state.engine)

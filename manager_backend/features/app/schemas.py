@@ -10,6 +10,7 @@ class AppCapabilities(StrictModel):
     proxy_management: bool
     browser_runtime: bool
     fingerprint_diagnostics: bool
+    settings: bool
 
 
 class AppBootstrap(StrictModel):

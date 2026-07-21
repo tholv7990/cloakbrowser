@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Download, RefreshCw, Upload } from 'lucide-react';
 import type { Settings } from '@/types/api';
 import { useUiStore, type ThemePreference } from '@/app/uiStore';
-import { useVersion } from '@/hooks/useAppData';
 import { Button } from '@/components/ui/Button';
 import { Field } from '@/components/ui/Field';
 import { Input, Textarea } from '@/components/ui/Input';
@@ -12,7 +11,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { LoadingBlock, ErrorState } from '@/components/ui/states';
 import { useToast } from '@/components/ui/Toast';
-import { useSettings, useUpdateSettings } from './api';
+import { useCheckBrowserUpdate, useSettings, useUpdateSettings } from './api';
 
 function Section({
   title,
@@ -35,7 +34,7 @@ function Section({
 export function SettingsPage() {
   const settings = useSettings();
   const update = useUpdateSettings();
-  const version = useVersion();
+  const checkBrowserUpdate = useCheckBrowserUpdate();
   const setTheme = useUiStore((state) => state.setTheme);
   const setRowsPerPage = useUiStore((state) => state.setRowsPerPage);
   const { toast } = useToast();
@@ -70,8 +69,11 @@ export function SettingsPage() {
   };
 
   const exportSettings = () => {
-    const { browser, ...safe } = draft;
+    const { browser, license, profile_root, report_root, ...safe } = draft;
     void browser;
+    void license;
+    void profile_root;
+    void report_root;
     const blob = new Blob([JSON.stringify(safe, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -166,6 +168,11 @@ export function SettingsPage() {
               {draft.browser.name} {draft.browser.version}
             </p>
             <p className="data text-2xs text-ink-faint">{draft.browser.path}</p>
+            <p className="mt-1 text-2xs text-ink-muted">
+              {draft.browser.tier === 'pro' ? `Pro · ${draft.license.plan ?? 'licensed'}` : 'Free'}
+              {draft.license.session_limit != null &&
+                ` · Sessions ${draft.license.active_sessions ?? '—'} / ${draft.license.session_limit}`}
+            </p>
           </div>
           {draft.browser.update_available ? (
             <Badge tone="warning">Update available: {draft.browser.latest_version}</Badge>
@@ -173,7 +180,12 @@ export function SettingsPage() {
             <Badge tone="success">Up to date</Badge>
           )}
         </div>
-        <Button variant="secondary" size="sm" onClick={() => version.refetch()}>
+        <Button
+          variant="secondary"
+          size="sm"
+          loading={checkBrowserUpdate.isPending}
+          onClick={() => checkBrowserUpdate.mutate()}
+        >
           <RefreshCw className="h-3.5 w-3.5" /> Check for updates
         </Button>
       </Section>
