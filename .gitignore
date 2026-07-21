@@ -72,10 +72,10 @@ manager.db-*
 *.sqlite
 *.sqlite3
 install-token
-profiles/
-reports/
-trash/
-runtime-logs/
+/profiles/
+/reports/
+/trash/
+/runtime-logs/
 proxy-credentials*
 *.har
 
