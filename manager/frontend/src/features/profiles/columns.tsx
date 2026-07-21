@@ -1,15 +1,15 @@
 import type { ColumnDef } from '@tanstack/react-table';
 import { Pin } from 'lucide-react';
 import type { ProfileView } from '@/types/api';
-import { FingerprintGlyph } from '@/components/FingerprintGlyph';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { IconButton } from '@/components/ui/IconButton';
-import { Badge, TagChip } from '@/components/ui/Badge';
+import { Badge } from '@/components/ui/Badge';
 import { ProxyHealthDot, ReputationBadge, RuntimeBadge } from '@/components/domain/StatusBadges';
-import { relativeTime, shortId } from '@/lib/format';
+import { relativeTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { StartStopButton } from './StartStopButton';
 import { ProfileRowActions, type RowDialog } from './ProfileRowActions';
+import { EditableNameCell, EditableNotesCell, TagsCell } from './EditableCells';
 import { proxyHealth } from './view';
 
 export interface ColumnMeta {
@@ -90,18 +90,7 @@ export function buildColumns(
     {
       id: 'name',
       header: () => 'Name',
-      cell: ({ row }) => {
-        const profile = row.original;
-        return (
-          <div className="flex items-center gap-2.5">
-            <FingerprintGlyph seed={profile.fingerprint_seed} />
-            <div className="min-w-0">
-              <div className="truncate text-[13px] font-medium text-ink">{profile.name}</div>
-              <div className="data truncate text-[11px] text-ink-faint">{shortId(profile.id)}</div>
-            </div>
-          </div>
-        );
-      },
+      cell: ({ row }) => <EditableNameCell profile={row.original} />,
     },
     {
       id: 'browser',
@@ -121,52 +110,46 @@ export function buildColumns(
       id: 'proxy',
       header: () => 'Proxy',
       cell: ({ row }) => {
-        const proxy = row.original.proxy;
-        if (!proxy) return <span className="text-ink-faint">Direct / none</span>;
+        const profile = row.original;
+        const proxy = profile.proxy;
         return (
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-[13px] text-ink">
-                {proxy.country ?? proxy.scheme.toUpperCase()}
-              </span>
-              <ProxyHealthDot health={proxyHealth(proxy)} />
-            </div>
-            <div className="data truncate text-[11px] text-ink-faint" title={proxy.masked_endpoint}>
-              {proxy.masked_endpoint}
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={() => onDialog('assign-proxy', profile)}
+            title="Click to assign or edit proxy"
+            className="group min-w-0 text-left"
+          >
+            {proxy ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="text-[13px] text-ink group-hover:text-accent">
+                    {proxy.country ?? proxy.scheme.toUpperCase()}
+                  </span>
+                  <ProxyHealthDot health={proxyHealth(proxy)} />
+                </div>
+                <div
+                  className="data truncate text-[11px] text-ink-faint"
+                  title={proxy.masked_endpoint}
+                >
+                  {proxy.masked_endpoint}
+                </div>
+              </>
+            ) : (
+              <span className="text-ink-faint group-hover:text-ink">Direct / none — assign</span>
+            )}
+          </button>
         );
       },
     },
     {
       id: 'tags',
       header: () => 'Tags',
-      cell: ({ row }) => {
-        const tags = row.original.tags;
-        if (tags.length === 0) return <span className="text-ink-faint">—</span>;
-        return (
-          <div className="flex flex-wrap gap-1">
-            {tags.slice(0, 3).map((tag) => (
-              <TagChip key={tag.id} name={tag.name} color={tag.color} />
-            ))}
-            {tags.length > 3 && <span className="text-2xs text-ink-faint">+{tags.length - 3}</span>}
-          </div>
-        );
-      },
+      cell: ({ row }) => <TagsCell profile={row.original} />,
     },
     {
       id: 'notes',
       header: () => 'Notes',
-      cell: ({ row }) => {
-        const notes = row.original.notes;
-        return notes ? (
-          <span className="line-clamp-2 text-[12px] text-ink-muted" title={notes}>
-            {notes}
-          </span>
-        ) : (
-          <span className="text-ink-faint">—</span>
-        );
-      },
+      cell: ({ row }) => <EditableNotesCell profile={row.original} />,
     },
     {
       id: 'reputation',

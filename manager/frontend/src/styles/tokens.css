@@ -1,49 +1,51 @@
 /*
- * CloakBrowser Profile Manager — original color system.
- * Dark is the default operational theme; light is a first-class alternate.
- * Values are space-separated RGB channels so Tailwind opacity modifiers work.
- * The theme store sets data-theme="dark|light" on <html> (system resolves to one).
+ * CloakBrowser Profile Manager — original color system, refreshed toward a clean
+ * Microsoft Fluent 2 register (apt for a Windows-only tool): neutral layered
+ * surfaces (not blue-tinted), a crisp azure accent, and quiet hairlines that let
+ * soft elevation do the work. Original CloakBrowser identity — no third-party
+ * palettes. Values are space-separated RGB channels so Tailwind opacity
+ * modifiers keep working. The theme store sets data-theme="dark|light".
  */
 
 :root,
 :root[data-theme='dark'] {
-  --cb-canvas: 11 14 20;
-  --cb-surface: 17 22 33;
-  --cb-surface-raised: 22 28 41;
-  --cb-surface-sunken: 29 37 52;
-  --cb-line: 35 44 61;
-  --cb-line-strong: 51 64 90;
-  --cb-ink: 231 236 243;
-  --cb-ink-muted: 154 166 188;
-  --cb-ink-faint: 103 114 138;
-  --cb-accent: 110 99 242;
-  --cb-accent-hover: 126 116 245;
-  --cb-accent-fg: 255 255 255;
-  --cb-success: 53 200 142;
-  --cb-warning: 231 180 80;
-  --cb-danger: 242 109 109;
-  --cb-info: 79 176 230;
-  --cb-neutral: 107 118 136;
+  --cb-canvas: 23 24 26;
+  --cb-surface: 32 33 36;
+  --cb-surface-raised: 41 42 46;
+  --cb-surface-sunken: 27 28 31;
+  --cb-line: 46 48 52;
+  --cb-line-strong: 62 65 71;
+  --cb-ink: 242 243 245;
+  --cb-ink-muted: 168 173 181;
+  --cb-ink-faint: 113 118 126;
+  --cb-accent: 91 155 245;
+  --cb-accent-hover: 116 174 250;
+  --cb-accent-fg: 10 21 38;
+  --cb-success: 53 176 110;
+  --cb-warning: 224 160 46;
+  --cb-danger: 228 96 118;
+  --cb-info: 92 168 240;
+  --cb-neutral: 122 127 135;
   color-scheme: dark;
 }
 
 :root[data-theme='light'] {
-  --cb-canvas: 245 246 249;
+  --cb-canvas: 244 245 247;
   --cb-surface: 255 255 255;
   --cb-surface-raised: 255 255 255;
-  --cb-surface-sunken: 239 241 246;
-  --cb-line: 226 230 238;
-  --cb-line-strong: 203 210 223;
-  --cb-ink: 16 21 31;
-  --cb-ink-muted: 90 100 120;
-  --cb-ink-faint: 138 147 166;
-  --cb-accent: 91 80 224;
-  --cb-accent-hover: 79 68 209;
+  --cb-surface-sunken: 237 239 242;
+  --cb-line: 228 230 234;
+  --cb-line-strong: 205 209 215;
+  --cb-ink: 27 28 30;
+  --cb-ink-muted: 90 94 102;
+  --cb-ink-faint: 139 144 153;
+  --cb-accent: 47 111 235;
+  --cb-accent-hover: 39 95 209;
   --cb-accent-fg: 255 255 255;
-  --cb-success: 23 150 106;
-  --cb-warning: 183 121 31;
-  --cb-danger: 209 67 67;
-  --cb-info: 44 130 201;
-  --cb-neutral: 107 118 136;
+  --cb-success: 16 124 65;
+  --cb-warning: 178 106 0;
+  --cb-danger: 196 49 75;
+  --cb-info: 14 111 194;
+  --cb-neutral: 107 112 120;
   color-scheme: light;
 }

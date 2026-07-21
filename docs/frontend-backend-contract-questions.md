@@ -61,3 +61,34 @@ ship. `capabilities.*` flags let the UI detect availability.
   "Refresh GeoIP" runs the assigned proxy's quick-test.
 - Proxy report `screenshot_path`/`report_path` render as text until a static
   reports route exists.
+
+## Requests to the backend — table-editing iteration (2026-07-21)
+
+The profiles table now supports inline editing (name, notes, tags) and an
+in-table proxy assign/add/edit popup. This raises the priority of a few backend
+items. **For the backend owner (Codex):**
+
+1. **Proxy management endpoints (highest priority now).** The in-table proxy
+   popup actively uses `GET /proxies`, `POST /proxies`, `PATCH /proxies/{id}`,
+   `POST /proxies/parse`, and `POST /proxies/{id}/quick-test` / `quality-test` /
+   `GET /reports`. These are still frontend-mock-only. Shipping them (flag
+   `proxy_management`) unblocks the whole assign/add/edit/test flow against the
+   real backend. Request/response shapes: see `src/types/api.ts` `Proxy`,
+   `ProxyWritePayload` (write-only `password`, response returns `has_password` +
+   `masked_endpoint`, never the raw secret), `ParsedProxy`, `ProxyQuickTest`,
+   `ProxyQualityReport`.
+2. **Consider a true partial PATCH for profiles.** `ProfilePatch` currently
+   carries every field (with `ProfileCreate` defaults), so a partial body would
+   reset omitted fields. To make one field editable, the frontend re-sends the
+   **whole** profile object with the field changed (`readToWrite` +
+   `useUpdateProfileInline`). That works, but a real partial update (fields
+   optional with an "unset" sentinel, only provided fields changed) would be
+   safer for concurrent edits and lighter on the wire. Not blocking — just a
+   quality/safety improvement.
+3. **Tag create-and-apply** uses the existing `POST /tags` (`{ name, color? }`).
+   The frontend sends a color from a small palette; please confirm the server
+   default/uniqueness (we dedupe by name client-side too). `POST /workflow-statuses`
+   is available for the same pattern when the UI needs it.
+4. Still deferred and mock-backed (unchanged): diagnostics, settings, profile
+   logs/export/import, cookies import/export, extensions list, running-session
+   count, and profile root path.

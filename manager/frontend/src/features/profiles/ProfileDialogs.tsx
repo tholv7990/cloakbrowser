@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Download, ExternalLink } from 'lucide-react';
+import { AlertTriangle, Download, ExternalLink, Pencil, Plus } from 'lucide-react';
 import type { CookieFormat, Folder, ProfileView, Proxy, ProfileWrite } from '@/types/api';
 import { api } from '@/api';
 import { Modal } from '@/components/ui/Modal';
@@ -15,6 +15,7 @@ import { useToast } from '@/components/ui/Toast';
 import { relativeTime } from '@/lib/format';
 import { useProxyReports, useQuickTest } from '@/features/proxies/api';
 import { ProxyQualityReportView, ProxyQuickResult } from '@/features/proxies/ProxyResultViews';
+import { ProxyEditorDrawer } from '@/features/proxies/ProxyEditorDrawer';
 import type { RowDialog } from './ProfileRowActions';
 import { useImportCookies, useMoveToTrash, useProfileLogs, useRegenerateFingerprint } from './api';
 import { readToWrite } from './view';
@@ -74,6 +75,10 @@ export function ProfileDialogs({
   const [proxyId, setProxyId] = useState('');
   const [cookieFormat, setCookieFormat] = useState<CookieFormat>('playwright');
   const [cookieContent, setCookieContent] = useState('');
+  const [proxyEditor, setProxyEditor] = useState<{ open: boolean; proxy: Proxy | null }>({
+    open: false,
+    proxy: null,
+  });
 
   useEffect(() => {
     if (!dialog) return;
@@ -81,6 +86,7 @@ export function ProfileDialogs({
     setProxyId(dialog.profile.proxy?.id ?? '');
     setCookieFormat('playwright');
     setCookieContent('');
+    setProxyEditor({ open: false, proxy: null });
     importCookies.reset();
     quickTest.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -186,18 +192,38 @@ export function ProfileDialogs({
       >
         <div className="space-y-3">
           <Field label="Reusable proxy">
-            <Select
-              value={proxyId}
-              onChange={(e) => setProxyId(e.target.value)}
-              options={[
-                { value: '', label: 'Direct connection (no proxy)' },
-                ...proxies.map((p) => ({
-                  value: p.id,
-                  label: `${p.label} · ${p.masked_endpoint}`,
-                })),
-              ]}
-            />
+            <div className="flex items-center gap-2">
+              <Select
+                className="flex-1"
+                value={proxyId}
+                onChange={(e) => setProxyId(e.target.value)}
+                options={[
+                  { value: '', label: 'Direct connection (no proxy)' },
+                  ...proxies.map((p) => ({
+                    value: p.id,
+                    label: `${p.label} · ${p.masked_endpoint}`,
+                  })),
+                ]}
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={!selectedProxy}
+                onClick={() =>
+                  selectedProxy && setProxyEditor({ open: true, proxy: selectedProxy })
+                }
+              >
+                <Pencil className="h-3.5 w-3.5" /> Edit
+              </Button>
+            </div>
           </Field>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setProxyEditor({ open: true, proxy: null })}
+          >
+            <Plus className="h-3.5 w-3.5" /> Add new proxy
+          </Button>
           {multiAssigned && (
             <p className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-2.5 text-2xs text-warning">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -223,6 +249,12 @@ export function ProfileDialogs({
             </div>
           )}
         </div>
+        <ProxyEditorDrawer
+          open={proxyEditor.open}
+          proxy={proxyEditor.proxy}
+          onClose={() => setProxyEditor({ open: false, proxy: null })}
+          onSaved={(saved) => setProxyId(saved.id)}
+        />
       </Modal>
     );
   }

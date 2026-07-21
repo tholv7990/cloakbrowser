@@ -637,6 +637,15 @@ export const mockApi: ApiAdapter = {
     await delay(60);
     return structuredClone(mockStore.tags);
   },
+  async createTag(payload: { name: string; color?: string }) {
+    await delay(100);
+    const name = payload.name.trim();
+    const existing = mockStore.tags.find((t) => t.name.toLowerCase() === name.toLowerCase());
+    if (existing) return structuredClone(existing);
+    const tag = { id: newId('tag'), name, color: payload.color ?? '#64748B' };
+    mockStore.tags.push(tag);
+    return structuredClone(tag);
+  },
   async listWorkflowStatuses() {
     await delay(60);
     return structuredClone(mockStore.statuses);

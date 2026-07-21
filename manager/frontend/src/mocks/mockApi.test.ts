@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { mockApi } from './mockApi';
 import { mockStore } from './store';
 import { ApiError } from '@/api/http';
-import { emptyProfileWrite } from '@/features/profiles/view';
+import { emptyProfileWrite, readToWrite } from '@/features/profiles/view';
 
 beforeEach(() => mockStore.reset());
 
@@ -67,6 +67,34 @@ describe('mock profiles contract', () => {
     expect(result.updated_ids).toEqual(ids);
     const pinned = await mockApi.listProfiles({ pinned: true, page: 1, page_size: 100 });
     expect(ids.every((id) => pinned.items.some((p) => p.id === id))).toBe(true);
+  });
+
+  it('inline-edits a single field via a full-object PATCH (name + tags)', async () => {
+    const { items } = await mockApi.listProfiles({ page: 1, page_size: 1 });
+    const read = await mockApi.getProfile(items[0].id);
+    const updated = await mockApi.updateProfile(read.id, {
+      ...readToWrite(read),
+      name: 'renamed-inline',
+      tag_ids: ['tag-us'],
+    });
+    expect(updated.name).toBe('renamed-inline');
+    expect(updated.tag_ids).toEqual(['tag-us']);
+    // Unchanged grouped settings survive the full-object replace.
+    expect(updated.location).toEqual(read.location);
+  });
+});
+
+describe('mock catalog: tag create-and-apply', () => {
+  it('creates a tag and dedupes by name', async () => {
+    const before = await mockApi.listTags();
+    const created = await mockApi.createTag({ name: 'fresh-tag', color: '#2F6FEB' });
+    expect(created.id).toBeTruthy();
+    expect(created.name).toBe('fresh-tag');
+    const after = await mockApi.listTags();
+    expect(after).toHaveLength(before.length + 1);
+    const dup = await mockApi.createTag({ name: 'fresh-tag' });
+    expect(dup.id).toBe(created.id);
+    expect(await mockApi.listTags()).toHaveLength(before.length + 1);
   });
 });
 

@@ -59,13 +59,13 @@ export default {
         sm: '4px',
         DEFAULT: '6px',
         md: '8px',
-        lg: '10px',
-        xl: '14px',
+        lg: '12px',
+        xl: '16px',
       },
       boxShadow: {
-        panel: '0 1px 2px 0 rgb(0 0 0 / 0.28), 0 12px 32px -12px rgb(0 0 0 / 0.45)',
-        pop: '0 8px 28px -8px rgb(0 0 0 / 0.55), 0 2px 6px -2px rgb(0 0 0 / 0.4)',
-        focus: '0 0 0 3px rgb(var(--cb-accent) / 0.35)',
+        panel: '0 1px 2px 0 rgb(0 0 0 / 0.10), 0 6px 16px -6px rgb(0 0 0 / 0.20)',
+        pop: '0 10px 30px -8px rgb(0 0 0 / 0.30), 0 3px 8px -3px rgb(0 0 0 / 0.18)',
+        focus: '0 0 0 3px rgb(var(--cb-accent) / 0.30)',
       },
       keyframes: {
         'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },

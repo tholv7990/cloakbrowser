@@ -6,10 +6,11 @@ import type {
   Paginated,
   ProfileListParams,
   ProfileRead,
+  ProfileWrite,
   RuntimeState,
 } from '@/types/api';
 import { useToast } from '@/components/ui/Toast';
-import { emptyProfileWrite } from './view';
+import { emptyProfileWrite, readToWrite } from './view';
 
 export function useProfiles(params: ProfileListParams) {
   return useQuery({
@@ -135,6 +136,37 @@ export function useMoveToTrash() {
       queryClient.invalidateQueries({ queryKey: ['profiles'] });
       queryClient.invalidateQueries({ queryKey: ['folders'] });
     },
+  });
+}
+
+/**
+ * Inline edit of one or more profile fields from the table. PATCH replaces the
+ * whole profile, so we re-send the full object with the changed fields merged.
+ * Optimistic so the cell updates instantly.
+ */
+export function useUpdateProfileInline() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  return useMutation({
+    mutationFn: ({ read, changes }: { read: ProfileRead; changes: Partial<ProfileWrite> }) =>
+      api.updateProfile(read.id, { ...readToWrite(read), ...changes }),
+    onMutate: async ({ read, changes }) => {
+      await queryClient.cancelQueries({ queryKey: ['profiles'] });
+      const snapshot = queryClient.getQueriesData<Paginated<ProfileRead>>({
+        queryKey: ['profiles'],
+      });
+      patchInLists(queryClient, read.id, (p) => ({ ...p, ...changes }) as ProfileRead);
+      return { snapshot };
+    },
+    onError: (error, _vars, context) => {
+      context?.snapshot?.forEach(([key, data]) => queryClient.setQueryData(key, data));
+      toast({
+        title: 'Could not save change',
+        description: (error as Error).message,
+        tone: 'danger',
+      });
+    },
+    onSuccess: (profile) => patchInLists(queryClient, profile.id, () => profile),
   });
 }
 

@@ -75,6 +75,7 @@ export interface ApiAdapter {
   reorderFolders(orderedIds: string[]): Promise<Folder[]>;
   deleteFolder(id: string): Promise<{ ok: boolean }>;
   listTags(): Promise<Tag[]>;
+  createTag(payload: { name: string; color?: string }): Promise<Tag>;
   listWorkflowStatuses(): Promise<WorkflowStatus[]>;
 
   // Proxies

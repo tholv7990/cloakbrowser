@@ -97,6 +97,7 @@ export const realApi: ApiAdapter = {
     apiRequest<Folder[]>('/folders/reorder', { method: 'POST', body: { ids: orderedIds } }),
   deleteFolder: (id) => apiRequest(`/folders/${id}`, { method: 'DELETE' }),
   listTags: () => apiRequest<Tag[]>('/tags'),
+  createTag: (payload) => apiRequest<Tag>('/tags', { method: 'POST', body: payload }),
   listWorkflowStatuses: () => apiRequest<WorkflowStatus[]>('/workflow-statuses'),
 
   listProxies: () => apiRequest<Proxy[]>('/proxies'),

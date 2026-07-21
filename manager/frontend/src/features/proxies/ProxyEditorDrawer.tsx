@@ -41,10 +41,12 @@ export function ProxyEditorDrawer({
   open,
   proxy,
   onClose,
+  onSaved,
 }: {
   open: boolean;
   proxy: Proxy | null;
   onClose: () => void;
+  onSaved?: (proxy: Proxy) => void;
 }) {
   const { toast } = useToast();
   const [current, setCurrent] = useState<Proxy | null>(proxy);
@@ -104,6 +106,7 @@ export function ProxyEditorDrawer({
       : await createProxy.mutateAsync(payload);
     setCurrent(saved);
     reset(defaults(saved)); // clears the write-only password field
+    onSaved?.(saved);
   });
 
   const runQuick = async () => {
