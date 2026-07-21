@@ -4,12 +4,14 @@ import { Popover } from '@/components/ui/Popover';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { IconButton } from '@/components/ui/IconButton';
 import { useUiStore } from '@/app/uiStore';
+import { useT } from '@/i18n';
 import { COLUMN_META } from './columns';
 
 const LOCKED_FIRST = 'select';
 const LOCKED_LAST = 'actions';
 
 export function ColumnSettings() {
+  const t = useT();
   const columnVisibility = useUiStore((state) => state.columnVisibility);
   const setColumnVisible = useUiStore((state) => state.setColumnVisible);
   const columnOrder = useUiStore((state) => state.columnOrder);
@@ -39,15 +41,16 @@ export function ColumnSettings() {
       align="end"
       width={264}
       trigger={
-        <IconButton label="Column settings">
+        <IconButton label={t('col.settings')}>
           <Columns3 className="h-4 w-4" />
         </IconButton>
       }
     >
       <div className="space-y-1">
-        <p className="px-1 pb-1 text-[13px] font-semibold text-ink">Columns</p>
+        <p className="px-1 pb-1 text-[13px] font-semibold text-ink">{t('col.columns')}</p>
         {order.map((id) => {
           const column = meta.get(id)!;
+          const label = t(column.labelKey);
           const locked = id === LOCKED_FIRST || id === LOCKED_LAST;
           const reorderable = !locked;
           return (
@@ -58,7 +61,7 @@ export function ColumnSettings() {
               <div className="flex flex-col">
                 <button
                   type="button"
-                  aria-label={`Move ${column.label} up`}
+                  aria-label={t('col.moveUp', { label })}
                   disabled={!reorderable}
                   onClick={() => move(id, -1)}
                   className="text-ink-faint hover:text-ink disabled:opacity-30"
@@ -67,7 +70,7 @@ export function ColumnSettings() {
                 </button>
                 <button
                   type="button"
-                  aria-label={`Move ${column.label} down`}
+                  aria-label={t('col.moveDown', { label })}
                   disabled={!reorderable}
                   onClick={() => move(id, 1)}
                   className="text-ink-faint hover:text-ink disabled:opacity-30"
@@ -75,9 +78,9 @@ export function ColumnSettings() {
                   <ChevronDown className="h-3 w-3" />
                 </button>
               </div>
-              <span className="flex-1 text-[13px] text-ink">{column.label}</span>
+              <span className="flex-1 text-[13px] text-ink">{label}</span>
               <label className="flex items-center">
-                <span className="sr-only">Show {column.label}</span>
+                <span className="sr-only">{t('col.show', { label })}</span>
                 <Checkbox
                   checked={column.canHide ? columnVisibility[id] !== false : true}
                   disabled={!column.canHide}

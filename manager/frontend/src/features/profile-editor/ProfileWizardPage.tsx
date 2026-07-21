@@ -20,8 +20,10 @@ import {
 } from '@/schemas/profile';
 import { WIZARD_STEPS, type WizardRefs } from './steps';
 import { useCreateProfile, useProfile, useUpdateProfile } from './api';
+import { useT } from '@/i18n';
 
 export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
+  const t = useT();
   const params = useParams();
   const navigate = useNavigate();
   const editingId = mode === 'edit' ? (params.id ?? null) : null;
@@ -69,19 +71,19 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
   );
 
   if (app.isLoading || (mode === 'edit' && profileQuery.isLoading)) {
-    return <LoadingBlock label="Loading profile editor…" />;
+    return <LoadingBlock label={t('editor.loading')} />;
   }
   if (app.isError) {
     return (
       <ErrorState
-        message="Could not load the profile editor."
+        message={t('editor.loadError')}
         onRetry={() => window.location.reload()}
       />
     );
   }
   if (mode === 'edit' && profileQuery.isError) {
     return (
-      <ErrorState message="Could not load this profile." onRetry={() => profileQuery.refetch()} />
+      <ErrorState message={t('editor.loadProfileError')} onRetry={() => profileQuery.refetch()} />
     );
   }
 
@@ -138,13 +140,17 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
         <div className="flex items-center justify-between border-b border-line px-5 py-3">
           <div>
             <h2 className="font-display text-[15px] font-semibold text-ink">
-              {mode === 'edit' ? 'Edit profile' : 'New profile'}
+              {t(mode === 'edit' ? 'title.editProfile' : 'title.newProfile')}
             </h2>
             <p className="text-2xs text-ink-faint">
-              Step {step + 1} of {WIZARD_STEPS.length} — {WIZARD_STEPS[step].title}
+              {t('editor.stepProgress', {
+                current: step + 1,
+                total: WIZARD_STEPS.length,
+                title: t(WIZARD_STEPS[step].titleKey),
+              })}
             </p>
           </div>
-          <IconButton label="Close editor" onClick={() => navigate('/profiles')}>
+          <IconButton label={t('editor.close')} onClick={() => navigate('/profiles')}>
             <X className="h-4 w-4" />
           </IconButton>
         </div>
@@ -152,7 +158,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
         <div className="flex min-h-0 flex-1">
           <nav
             className="hidden w-56 shrink-0 overflow-y-auto border-r border-line p-3 md:block"
-            aria-label="Wizard steps"
+            aria-label={t('editor.steps')}
           >
             <ol className="space-y-0.5">
               {WIZARD_STEPS.map((wizardStep, index) => {
@@ -187,10 +193,10 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
                             active ? 'text-ink' : 'text-ink-muted',
                           )}
                         >
-                          {wizardStep.title}
+                          {t(wizardStep.titleKey)}
                         </span>
                         <span className="block truncate text-2xs text-ink-faint">
-                          {wizardStep.description}
+                          {t(wizardStep.descKey)}
                         </span>
                       </span>
                     </button>
@@ -204,9 +210,9 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
             <div className="mx-auto max-w-2xl px-5 py-6">
               <div className="mb-4">
                 <h3 className="font-display text-base font-semibold text-ink">
-                  {WIZARD_STEPS[step].title}
+                  {t(WIZARD_STEPS[step].titleKey)}
                 </h3>
-                <p className="text-[13px] text-ink-muted">{WIZARD_STEPS[step].description}</p>
+                <p className="text-[13px] text-ink-muted">{t(WIZARD_STEPS[step].descKey)}</p>
               </div>
               <CurrentStep refs={refs} />
             </div>
@@ -219,18 +225,18 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
             onClick={() => setStep((s) => Math.max(0, s - 1))}
             disabled={step === 0}
           >
-            <ArrowLeft className="h-4 w-4" /> Back
+            <ArrowLeft className="h-4 w-4" /> {t('common.back')}
           </Button>
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={onSave} loading={saving}>
-              <Save className="h-4 w-4" /> Save
+              <Save className="h-4 w-4" /> {t('common.save')}
             </Button>
             <Button variant="secondary" onClick={onSaveAndRun} loading={saving}>
-              <Play className="h-4 w-4" /> Save &amp; run
+              <Play className="h-4 w-4" /> {t('editor.saveRun')}
             </Button>
             {!isLast && (
               <Button variant="primary" onClick={goNext}>
-                Next <ArrowRight className="h-4 w-4" />
+                {t('common.next')} <ArrowRight className="h-4 w-4" />
               </Button>
             )}
           </div>

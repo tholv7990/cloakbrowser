@@ -11,6 +11,7 @@ import { Badge, TagChip } from '@/components/ui/Badge';
 import { ProxyHealthDot } from '@/components/domain/StatusBadges';
 import { FingerprintGlyph } from '@/components/FingerprintGlyph';
 import type { ProfileWizardValues } from '@/schemas/profile';
+import { useT, type TranslationKey } from '@/i18n';
 
 export interface WizardRefs {
   folders: Folder[];
@@ -91,20 +92,15 @@ function ToggleField({
   );
 }
 
-const PERMISSION_OPTIONS = [
-  { value: 'ask', label: 'Ask' },
-  { value: 'allow', label: 'Allow' },
-  { value: 'block', label: 'Block' },
-];
-
 // --- Step 1: General ---------------------------------------------------------
 
 const GeneralStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
+  const t = useT();
   const { register, control, formState, watch } = useFormContext<ProfileWizardValues>();
   return (
     <div className="space-y-4">
       <Field
-        label="Profile name"
+        label={t('editor.name')}
         required
         error={formState.errors.name?.message}
         htmlFor="wiz-name"
@@ -119,17 +115,17 @@ const GeneralStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
       <div className="grid grid-cols-2 gap-4">
         <SelectField
           name="folder_id"
-          label="Folder"
+          label={t('editor.folder')}
           options={[
-            { value: '', label: 'Unfiled' },
+            { value: '', label: t('common.unfiled') },
             ...refs.folders.map((f) => ({ value: f.id, label: f.name })),
           ]}
         />
         <SelectField
           name="workflow_status_id"
-          label="Workflow status"
+          label={t('editor.workflowStatus')}
           options={[
-            { value: '', label: 'No status' },
+            { value: '', label: t('editor.noStatus') },
             ...refs.statuses.map((s) => ({ value: s.id, label: s.name })),
           ]}
         />
@@ -138,7 +134,7 @@ const GeneralStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
         control={control}
         name="tag_ids"
         render={({ field }) => (
-          <Field label="Tags">
+          <Field label={t('editor.tags')}>
             <div className="flex flex-wrap gap-1.5">
               {refs.tags.map((tag) => {
                 const active = field.value.includes(tag.id);
@@ -161,22 +157,22 @@ const GeneralStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
                 );
               })}
               {refs.tags.length === 0 && (
-                <span className="text-2xs text-ink-faint">No tags defined.</span>
+                <span className="text-2xs text-ink-faint">{t('editor.noTags')}</span>
               )}
             </div>
           </Field>
         )}
       />
       <Field
-        label="Notes"
+        label={t('editor.notes')}
         hint={`${watch('notes')?.length ?? 0} / 4,000`}
         error={formState.errors.notes?.message}
       >
-        <Textarea rows={3} placeholder="Context for this identity…" {...register('notes')} />
+        <Textarea rows={3} placeholder={t('editor.notesPlaceholder')} {...register('notes')} />
       </Field>
       <Field
-        label="Startup URLs"
-        hint="One per line. http, https, or an approved chrome-extension URL."
+        label={t('editor.startupUrls')}
+        hint={t('editor.startupUrlsHint')}
         error={formState.errors.startup_urls_text?.message}
       >
         <Textarea
@@ -186,10 +182,7 @@ const GeneralStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
           className="font-mono text-[12px]"
         />
       </Field>
-      <p className="text-2xs text-ink-faint">
-        The manager never stores website usernames, passwords, or 2FA secrets. Login state lives in
-        the profile&apos;s browser data, not here.
-      </p>
+      <p className="text-2xs text-ink-faint">{t('editor.noCredsNote')}</p>
     </div>
   );
 };
@@ -197,6 +190,7 @@ const GeneralStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
 // --- Step 2: Proxy and location ---------------------------------------------
 
 const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
+  const t = useT();
   const { register, formState } = useFormContext<ProfileWizardValues>();
   const proxyId = useWatch<ProfileWizardValues>({ name: 'proxy_id' }) as string;
   const geoMode = useWatch<ProfileWizardValues>({ name: 'geolocation_mode' }) as string;
@@ -205,10 +199,10 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
     <div className="space-y-4">
       <SelectField
         name="proxy_id"
-        label="Proxy"
-        hint="Reusable proxy records are managed on the Proxies screen."
+        label={t('editor.proxy')}
+        hint={t('editor.proxyHint')}
         options={[
-          { value: '', label: 'Direct connection (no proxy)' },
+          { value: '', label: t('editor.directNoProxy') },
           ...refs.proxies.map((p) => ({ value: p.id, label: `${p.label} · ${p.masked_endpoint}` })),
         ]}
       />
@@ -230,64 +224,63 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
           </div>
           {selected.assigned_profile_count > (refs.isEdit ? 1 : 0) && (
             <Warning>
-              This proxy is already assigned to {selected.assigned_profile_count} profile(s).
-              Sharing one exit across identities can link them.
+              {t('editor.proxyShared', { count: selected.assigned_profile_count })}
             </Warning>
           )}
         </div>
       )}
       <ToggleField
         name="test_proxy_before_launch"
-        label="Test proxy before every launch"
-        hint="Quick connectivity check before the browser starts."
+        label={t('editor.testProxy')}
+        hint={t('editor.testProxyHint')}
       />
       <div className="grid grid-cols-2 gap-4">
         <SelectField
           name="geo_mode"
-          label="Geo source"
+          label={t('editor.geoSource')}
           options={[
-            { value: 'proxy', label: 'From proxy' },
-            { value: 'system', label: 'System' },
-            { value: 'manual', label: 'Manual' },
+            { value: 'proxy', label: t('opt.fromProxy') },
+            { value: 'system', label: t('opt.system') },
+            { value: 'manual', label: t('opt.manual') },
           ]}
         />
         <SelectField
           name="webrtc_mode"
-          label="WebRTC"
+          label={t('editor.webrtc')}
           options={[
-            { value: 'proxy', label: 'Proxy' },
-            { value: 'direct', label: 'Direct' },
-            { value: 'disabled', label: 'Disabled' },
+            { value: 'proxy', label: t('opt.proxy') },
+            { value: 'direct', label: t('opt.direct') },
+            { value: 'disabled', label: t('opt.disabled') },
           ]}
         />
       </div>
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Locale" error={formState.errors.locale?.message}>
+        <Field label={t('editor.locale')} error={formState.errors.locale?.message}>
           <Input placeholder="en-US" {...register('locale')} />
         </Field>
-        <Field label="Timezone" error={formState.errors.timezone?.message}>
+        <Field label={t('editor.timezone')} error={formState.errors.timezone?.message}>
           <Input mono placeholder="America/New_York" {...register('timezone')} />
         </Field>
       </div>
       <SelectField
         name="geolocation_mode"
-        label="Geolocation permission"
+        label={t('editor.geoPermission')}
         options={[
-          { value: 'ask', label: 'Ask' },
-          { value: 'proxy', label: 'From proxy' },
-          { value: 'manual', label: 'Manual coordinates' },
-          { value: 'block', label: 'Block' },
+          { value: 'ask', label: t('opt.ask') },
+          { value: 'proxy', label: t('opt.fromProxy') },
+          { value: 'manual', label: t('editor.manualCoords') },
+          { value: 'block', label: t('opt.block') },
         ]}
       />
       {geoMode === 'manual' && (
         <div className="grid grid-cols-3 gap-4">
-          <Field label="Latitude" error={formState.errors.latitude?.message}>
+          <Field label={t('editor.latitude')} error={formState.errors.latitude?.message}>
             <Input {...register('latitude')} />
           </Field>
-          <Field label="Longitude" error={formState.errors.longitude?.message}>
+          <Field label={t('editor.longitude')} error={formState.errors.longitude?.message}>
             <Input {...register('longitude')} />
           </Field>
-          <Field label="Accuracy (m)">
+          <Field label={t('editor.accuracy')}>
             <Input {...register('accuracy')} />
           </Field>
         </div>
@@ -299,6 +292,7 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
 // --- Step 3: Browser identity ------------------------------------------------
 
 const IdentityStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
+  const t = useT();
   const { register, setValue, formState } = useFormContext<ProfileWizardValues>();
   const seed = useWatch<ProfileWizardValues>({ name: 'fingerprint_seed' }) as string;
   const versionMode = useWatch<ProfileWizardValues>({ name: 'browser_version_mode' }) as string;
@@ -307,14 +301,14 @@ const IdentityStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
     <div className="space-y-4">
       <SelectField
         name="fingerprint_preset"
-        label="Fingerprint preset"
-        hint="Consistent keeps every derived surface coherent across sessions."
+        label={t('editor.fpPreset')}
+        hint={t('editor.fpPresetHint')}
         options={[
-          { value: 'consistent', label: 'Consistent (recommended)' },
-          { value: 'default', label: 'Default' },
+          { value: 'consistent', label: t('editor.fpConsistent') },
+          { value: 'default', label: t('opt.default') },
         ]}
       />
-      <Field label="Fingerprint seed" required error={formState.errors.fingerprint_seed?.message}>
+      <Field label={t('editor.fpSeed')} required error={formState.errors.fingerprint_seed?.message}>
         <div className="flex items-center gap-2">
           <FingerprintGlyph seed={seed || '0'} size={34} />
           <Input
@@ -333,49 +327,41 @@ const IdentityStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
               })
             }
           >
-            <RefreshCw className="h-3.5 w-3.5" /> Generate
+            <RefreshCw className="h-3.5 w-3.5" /> {t('common.generate')}
           </Button>
         </div>
       </Field>
-      {refs.isEdit && (
-        <Warning>
-          Generating a new fingerprint changes this profile&apos;s stable identity. Websites may
-          recognize it as a new device.
-        </Warning>
-      )}
+      {refs.isEdit && <Warning>{t('editor.fpSeedWarn')}</Warning>}
       <div className="grid grid-cols-2 gap-4">
         <SelectField
           name="browser_version_mode"
-          label="Browser version"
+          label={t('editor.browserVersion')}
           options={[
-            { value: 'installed', label: `Installed (${refs.browserVersion})` },
-            { value: 'pinned', label: 'Pinned' },
+            { value: 'installed', label: t('editor.installed', { version: refs.browserVersion }) },
+            { value: 'pinned', label: t('editor.pinned') },
           ]}
         />
         {versionMode === 'pinned' && (
-          <Field label="Pinned version" error={formState.errors.browser_version?.message}>
+          <Field label={t('editor.pinnedVersion')} error={formState.errors.browser_version?.message}>
             <Input mono placeholder="146.0.7680.177" {...register('browser_version')} />
           </Field>
         )}
       </div>
       <SelectField
         name="user_agent_mode"
-        label="User agent"
-        hint="Automatic is derived from the persona and build."
+        label={t('editor.userAgent')}
+        hint={t('editor.userAgentHint')}
         options={[
-          { value: 'automatic', label: 'Automatic' },
-          { value: 'custom', label: 'Custom (advanced)' },
+          { value: 'automatic', label: t('opt.automatic') },
+          { value: 'custom', label: t('editor.customAdvanced') },
         ]}
       />
       {uaMode === 'custom' && (
-        <Field label="Custom user agent" error={formState.errors.custom_user_agent?.message}>
+        <Field label={t('editor.customUserAgent')} error={formState.errors.custom_user_agent?.message}>
           <Textarea rows={2} className="font-mono text-[12px]" {...register('custom_user_agent')} />
         </Field>
       )}
-      <p className="text-2xs text-ink-faint">
-        Platform is fixed to Windows and the browser to CloakBrowser Chromium. The engine exposes
-        one Windows fingerprint platform, not separate Windows 10/11 personas.
-      </p>
+      <p className="text-2xs text-ink-faint">{t('editor.platformNote')}</p>
     </div>
   );
 };
@@ -383,65 +369,61 @@ const IdentityStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
 // --- Step 4: Window and appearance ------------------------------------------
 
 const WindowStep: FC<{ refs: WizardRefs }> = () => {
+  const t = useT();
   const { register, formState } = useFormContext<ProfileWizardValues>();
   const mode = useWatch<ProfileWizardValues>({ name: 'window_mode' }) as string;
   return (
     <div className="space-y-4">
       <SelectField
         name="window_mode"
-        label="Window mode"
+        label={t('editor.windowMode')}
         options={[
-          { value: 'maximized', label: 'Maximized (recommended)' },
-          { value: 'custom', label: 'Custom size' },
+          { value: 'maximized', label: t('editor.maximizedRec') },
+          { value: 'custom', label: t('editor.customSize') },
         ]}
       />
       {mode === 'custom' && (
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Width" error={formState.errors.window_width?.message}>
+          <Field label={t('editor.width')} error={formState.errors.window_width?.message}>
             <Input {...register('window_width')} placeholder="1920" />
           </Field>
-          <Field label="Height" error={formState.errors.window_height?.message}>
+          <Field label={t('editor.height')} error={formState.errors.window_height?.message}>
             <Input {...register('window_height')} placeholder="1080" />
           </Field>
         </div>
       )}
       <SelectField
         name="color_scheme"
-        label="Color scheme"
+        label={t('editor.colorScheme')}
         options={[
-          { value: 'system', label: 'System' },
-          { value: 'light', label: 'Light' },
-          { value: 'dark', label: 'Dark' },
+          { value: 'system', label: t('opt.system') },
+          { value: 'light', label: t('opt.light') },
+          { value: 'dark', label: t('opt.dark') },
         ]}
       />
-      <p className="text-2xs text-ink-faint">
-        CloakBrowser uses real headed window geometry so screen, outer-window, and inner-window
-        dimensions stay coherent. Screen resolution is not spoofed independently.
-      </p>
+      <p className="text-2xs text-ink-faint">{t('editor.windowNote')}</p>
     </div>
   );
 };
 
 // --- Step 5: Cookies and storage --------------------------------------------
 
-const CookiesStep: FC<{ refs: WizardRefs }> = ({ refs }) => (
-  <div className="space-y-3">
-    <p className="text-[13px] text-ink-muted">
-      Version 1 supports importing and exporting cookies, not a cell-by-cell editor. Cookies, local
-      storage, and login state live inside the profile&apos;s dedicated user-data directory — never
-      in the profile database row.
-    </p>
-    <div className="rounded-md border border-line bg-surface-sunken p-3 text-2xs text-ink-muted">
-      {refs.isEdit
-        ? 'Use the row action “Import cookies” to load a cookie set into this profile.'
-        : 'Save the profile first, then use its row action “Import cookies”. New profiles start with an empty cookie jar.'}
+const CookiesStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
+  const t = useT();
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] text-ink-muted">{t('editor.cookiesNote')}</p>
+      <div className="rounded-md border border-line bg-surface-sunken p-3 text-2xs text-ink-muted">
+        {refs.isEdit ? t('editor.cookiesEdit') : t('editor.cookiesNew')}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 // --- Step 6: Extensions ------------------------------------------------------
 
 const ExtensionsStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
+  const t = useT();
   const { control } = useFormContext<ProfileWizardValues>();
   return (
     <div className="space-y-3">
@@ -451,7 +433,7 @@ const ExtensionsStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
         render={({ field }) => (
           <div className="space-y-2">
             {refs.extensions.length === 0 && (
-              <p className="text-2xs text-ink-faint">No local extensions registered.</p>
+              <p className="text-2xs text-ink-faint">{t('editor.noExtensions')}</p>
             )}
             {refs.extensions.map((ext) => {
               const active = field.value.includes(ext.id);
@@ -482,10 +464,7 @@ const ExtensionsStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
           </div>
         )}
       />
-      <Warning>
-        Identical uncommon extensions across profiles can link their identities. Prefer common,
-        widely-used extensions.
-      </Warning>
+      <Warning>{t('editor.extWarn')}</Warning>
     </div>
   );
 };
@@ -493,49 +472,55 @@ const ExtensionsStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
 // --- Step 7: Advanced behavior ----------------------------------------------
 
 const AdvancedStep: FC<{ refs: WizardRefs }> = () => {
+  const t = useT();
   const { register, formState } = useFormContext<ProfileWizardValues>();
   const downloadMode = useWatch<ProfileWizardValues>({ name: 'download_directory_mode' }) as string;
   const hwMode = useWatch<ProfileWizardValues>({ name: 'hardware_concurrency_mode' }) as string;
   const gpuMode = useWatch<ProfileWizardValues>({ name: 'gpu_mode' }) as string;
+  const permissionOptions = [
+    { value: 'ask', label: t('opt.ask') },
+    { value: 'allow', label: t('opt.allow') },
+    { value: 'block', label: t('opt.block') },
+  ];
   const permissions: { name: keyof ProfileWizardValues; label: string }[] = [
-    { name: 'permission_geolocation', label: 'Geolocation' },
-    { name: 'permission_notifications', label: 'Notifications' },
-    { name: 'permission_camera', label: 'Camera' },
-    { name: 'permission_microphone', label: 'Microphone' },
-    { name: 'permission_clipboard', label: 'Clipboard' },
+    { name: 'permission_geolocation', label: t('editor.perm.geolocation') },
+    { name: 'permission_notifications', label: t('editor.perm.notifications') },
+    { name: 'permission_camera', label: t('editor.perm.camera') },
+    { name: 'permission_microphone', label: t('editor.perm.microphone') },
+    { name: 'permission_clipboard', label: t('editor.perm.clipboard') },
   ];
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <ToggleField
           name="humanize_enabled"
-          label="Humanize interactions"
-          hint="Human-like mouse, typing, scroll."
+          label={t('editor.humanize')}
+          hint={t('editor.humanizeHint')}
         />
         <SelectField
           name="humanize_preset"
-          label="Humanize preset"
+          label={t('editor.humanizePreset')}
           options={[
-            { value: 'default', label: 'Default' },
-            { value: 'careful', label: 'Careful' },
+            { value: 'default', label: t('opt.default') },
+            { value: 'careful', label: t('opt.careful') },
           ]}
         />
       </div>
       <div className="grid grid-cols-2 gap-4">
-        <ToggleField name="clear_cache_before_launch" label="Clear cache before launch" />
-        <ToggleField name="restore_previous_tabs" label="Restore previous tabs" />
+        <ToggleField name="clear_cache_before_launch" label={t('editor.clearCache')} />
+        <ToggleField name="restore_previous_tabs" label={t('editor.restoreTabs')} />
       </div>
       <SelectField
         name="download_directory_mode"
-        label="Downloads"
+        label={t('editor.downloads')}
         options={[
-          { value: 'profile', label: 'Profile download directory' },
-          { value: 'custom', label: 'Custom directory' },
+          { value: 'profile', label: t('editor.profileDownloadDir') },
+          { value: 'custom', label: t('editor.customDir') },
         ]}
       />
       {downloadMode === 'custom' && (
         <Field
-          label="Custom download directory"
+          label={t('editor.customDownloadDir')}
           error={formState.errors.custom_download_directory?.message}
         >
           <Input
@@ -545,32 +530,32 @@ const AdvancedStep: FC<{ refs: WizardRefs }> = () => {
           />
         </Field>
       )}
-      <Field label="Browser permissions">
+      <Field label={t('editor.browserPermissions')}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {permissions.map((permission) => (
             <label key={permission.name} className="flex flex-col gap-1">
               <span className="text-2xs text-ink-muted">{permission.label}</span>
-              <Select {...register(permission.name)} options={PERMISSION_OPTIONS} />
+              <Select {...register(permission.name)} options={permissionOptions} />
             </label>
           ))}
         </div>
       </Field>
       <ToggleField
         name="ignore_https_errors"
-        label="Ignore HTTPS errors"
-        hint="Off by default. Lowers security — use only when necessary."
+        label={t('editor.ignoreHttps')}
+        hint={t('editor.ignoreHttpsHint')}
       />
       <div className="grid grid-cols-2 gap-4">
         <SelectField
           name="hardware_concurrency_mode"
-          label="Hardware concurrency"
+          label={t('editor.hwConcurrency')}
           options={[
-            { value: 'automatic', label: 'Automatic' },
-            { value: 'custom', label: 'Custom' },
+            { value: 'automatic', label: t('opt.automatic') },
+            { value: 'custom', label: t('opt.custom') },
           ]}
         />
         {hwMode === 'custom' && (
-          <Field label="Cores (2–64)" error={formState.errors.hardware_concurrency?.message}>
+          <Field label={t('editor.cores')} error={formState.errors.hardware_concurrency?.message}>
             <Input {...register('hardware_concurrency')} placeholder="12" />
           </Field>
         )}
@@ -578,26 +563,26 @@ const AdvancedStep: FC<{ refs: WizardRefs }> = () => {
       <div className="grid grid-cols-2 gap-4">
         <SelectField
           name="gpu_mode"
-          label="GPU"
+          label={t('editor.gpu')}
           options={[
-            { value: 'automatic', label: 'Automatic' },
-            { value: 'custom_vendor', label: 'Custom vendor' },
+            { value: 'automatic', label: t('opt.automatic') },
+            { value: 'custom_vendor', label: t('editor.customVendor') },
           ]}
         />
         {gpuMode === 'custom_vendor' && (
-          <Field label="GPU vendor" error={formState.errors.gpu_vendor?.message}>
+          <Field label={t('editor.gpuVendor')} error={formState.errors.gpu_vendor?.message}>
             <Input {...register('gpu_vendor')} placeholder="Google Inc. (Intel)" />
           </Field>
         )}
       </div>
       <Field
-        label="Additional Chromium arguments"
-        hint="Space-separated. Manager-owned and unsafe flags are rejected."
+        label={t('editor.additionalArgs')}
+        hint={t('editor.additionalArgsHint')}
         error={formState.errors.additional_args?.message}
       >
         <Input mono placeholder="--disable-features=Foo" {...register('additional_args')} />
       </Field>
-      <p className="text-2xs text-ink-faint">Profiles run headed, one instance at a time.</p>
+      <p className="text-2xs text-ink-faint">{t('editor.headedNote')}</p>
     </div>
   );
 };
@@ -605,6 +590,7 @@ const AdvancedStep: FC<{ refs: WizardRefs }> = () => {
 // --- Step 8: Review ----------------------------------------------------------
 
 const ReviewStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
+  const t = useT();
   const values = useWatch<ProfileWizardValues>() as ProfileWizardValues;
   const proxy = refs.proxies.find((p) => p.id === values.proxy_id);
   const urls = values.startup_urls_text
@@ -612,43 +598,43 @@ const ReviewStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
     .map((l) => l.trim())
     .filter(Boolean);
   const rows: [string, string][] = [
-    ['Name', values.name || '—'],
-    ['Fingerprint preset', values.fingerprint_preset],
-    ['Fingerprint seed', values.fingerprint_seed],
+    [t('editor.review.name'), values.name || '—'],
+    [t('editor.review.fpPreset'), values.fingerprint_preset],
+    [t('editor.review.fpSeed'), values.fingerprint_seed],
     [
-      'Browser',
+      t('editor.review.browser'),
       values.browser_version_mode === 'pinned'
-        ? `Pinned ${values.browser_version}`
-        : `Installed (${refs.browserVersion})`,
+        ? t('editor.review.pinnedVersion', { version: values.browser_version })
+        : t('editor.installed', { version: refs.browserVersion }),
     ],
-    ['Locale / timezone', `${values.locale || '—'} · ${values.timezone || '—'}`],
-    ['Proxy', proxy ? `${proxy.label} (${proxy.masked_endpoint})` : 'Direct connection'],
+    [t('editor.review.localeTz'), `${values.locale || '—'} · ${values.timezone || '—'}`],
     [
-      'Window',
+      t('editor.review.proxy'),
+      proxy ? `${proxy.label} (${proxy.masked_endpoint})` : t('editor.review.directConnection'),
+    ],
+    [
+      t('editor.review.window'),
       values.window_mode === 'custom'
         ? `${values.window_width}×${values.window_height}`
-        : 'Maximized',
+        : t('editor.review.maximized'),
     ],
-    ['Startup URLs', urls.length ? `${urls.length}` : 'None'],
+    [t('editor.review.startupUrls'), urls.length ? `${urls.length}` : t('editor.review.none')],
   ];
   const warnings: string[] = [];
-  if (values.geo_mode === 'proxy' && !values.proxy_id)
-    warnings.push('Geo source is "from proxy" but no proxy is assigned.');
-  if (proxy && proxy.reputation === 'malicious')
-    warnings.push('The assigned proxy has a malicious reputation.');
+  if (values.geo_mode === 'proxy' && !values.proxy_id) warnings.push(t('editor.warn.geoNoProxy'));
+  if (proxy && proxy.reputation === 'malicious') warnings.push(t('editor.warn.maliciousProxy'));
   if (proxy && proxy.assigned_profile_count > (refs.isEdit ? 1 : 0))
-    warnings.push('The assigned proxy is shared with other profiles.');
-  if (values.ignore_https_errors)
-    warnings.push('Ignore-HTTPS-errors is enabled; this lowers security.');
+    warnings.push(t('editor.warn.sharedProxy'));
+  if (values.ignore_https_errors) warnings.push(t('editor.warn.ignoreHttps'));
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <FingerprintGlyph seed={values.fingerprint_seed || '0'} size={40} />
         <div>
           <p className="font-display text-base font-semibold text-ink">
-            {values.name || 'Untitled profile'}
+            {values.name || t('editor.untitled')}
           </p>
-          <p className="text-2xs text-ink-faint">Review before saving.</p>
+          <p className="text-2xs text-ink-faint">{t('editor.reviewBeforeSaving')}</p>
         </div>
       </div>
       <dl className="divide-y divide-line rounded-md border border-line">
@@ -674,53 +660,58 @@ const ReviewStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
 
 export interface WizardStep {
   id: string;
-  title: string;
-  description: string;
+  titleKey: TranslationKey;
+  descKey: TranslationKey;
   Component: FC<{ refs: WizardRefs }>;
 }
 
 export const WIZARD_STEPS: WizardStep[] = [
   {
     id: 'general',
-    title: 'General',
-    description: 'Name, folder, tags, startup URLs',
+    titleKey: 'editor.step.general',
+    descKey: 'editor.step.general.desc',
     Component: GeneralStep,
   },
   {
     id: 'proxy-location',
-    title: 'Proxy & location',
-    description: 'Connection, geo, WebRTC',
+    titleKey: 'editor.step.proxyLocation',
+    descKey: 'editor.step.proxyLocation.desc',
     Component: ProxyLocationStep,
   },
   {
     id: 'identity',
-    title: 'Browser identity',
-    description: 'Fingerprint, version, user agent',
+    titleKey: 'editor.step.identity',
+    descKey: 'editor.step.identity.desc',
     Component: IdentityStep,
   },
   {
     id: 'window',
-    title: 'Window & appearance',
-    description: 'Window mode, color scheme',
+    titleKey: 'editor.step.window',
+    descKey: 'editor.step.window.desc',
     Component: WindowStep,
   },
   {
     id: 'cookies',
-    title: 'Cookies & storage',
-    description: 'Import and export',
+    titleKey: 'editor.step.cookies',
+    descKey: 'editor.step.cookies.desc',
     Component: CookiesStep,
   },
   {
     id: 'extensions',
-    title: 'Extensions',
-    description: 'Local unpacked extensions',
+    titleKey: 'editor.step.extensions',
+    descKey: 'editor.step.extensions.desc',
     Component: ExtensionsStep,
   },
   {
     id: 'advanced',
-    title: 'Advanced behavior',
-    description: 'Humanize, downloads, hardware',
+    titleKey: 'editor.step.advanced',
+    descKey: 'editor.step.advanced.desc',
     Component: AdvancedStep,
   },
-  { id: 'review', title: 'Review', description: 'Confirm and save', Component: ReviewStep },
+  {
+    id: 'review',
+    titleKey: 'editor.step.review',
+    descKey: 'editor.step.review.desc',
+    Component: ReviewStep,
+  },
 ];

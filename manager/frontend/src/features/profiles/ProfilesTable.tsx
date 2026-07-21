@@ -9,6 +9,7 @@ import {
 import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
 import type { ProfileSort, ProfileView } from '@/types/api';
 import { useUiStore } from '@/app/uiStore';
+import { useT } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { buildColumns, COLUMN_META, SORTABLE } from './columns';
 import type { RowDialog } from './ProfileRowActions';
@@ -50,10 +51,11 @@ export function ProfilesTable({
 }) {
   const columnVisibility = useUiStore((state) => state.columnVisibility);
   const columnOrder = useUiStore((state) => state.columnOrder);
+  const t = useT();
 
   const columns = useMemo(
-    () => buildColumns(onDialog, onTogglePin, profileRoot),
-    [onDialog, onTogglePin, profileRoot],
+    () => buildColumns(onDialog, onTogglePin, profileRoot, t),
+    [onDialog, onTogglePin, profileRoot, t],
   );
 
   const meta = useMemo(() => new Map(COLUMN_META.map((c) => [c.id, c])), []);

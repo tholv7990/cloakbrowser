@@ -25,6 +25,7 @@ import { Menu, MenuGroup, MenuItem, MenuSeparator } from '@/components/ui/Menu';
 import { useClipboard } from '@/hooks/useClipboard';
 import { useToast } from '@/components/ui/Toast';
 import { api } from '@/api';
+import { useT } from '@/i18n';
 import type { ProfileView } from '@/types/api';
 import {
   useDuplicateProfile,
@@ -54,6 +55,7 @@ export function ProfileRowActions({
   onDialog: (dialog: RowDialog, profile: ProfileView) => void;
 }) {
   const navigate = useNavigate();
+  const t = useT();
   const copy = useClipboard();
   const { toast } = useToast();
   const start = useStartProfile();
@@ -72,13 +74,13 @@ export function ProfileRowActions({
     try {
       await api.quickTestProxy(profile.proxy.id);
       toast({
-        title: 'GeoIP refresh requested',
-        description: 'Re-tested the assigned proxy.',
+        title: t('row.geoipRequested'),
+        description: t('row.geoipRetested'),
         tone: 'success',
       });
     } catch (error) {
       toast({
-        title: 'Could not refresh GeoIP',
+        title: t('row.geoipFailed'),
         description: (error as Error).message,
         tone: 'danger',
       });
@@ -90,103 +92,103 @@ export function ProfileRowActions({
       align="end"
       width={248}
       trigger={
-        <IconButton label={`Actions for ${profile.name}`} size="sm">
+        <IconButton label={t('row.actionsFor', { name: profile.name })} size="sm">
           <MoreHorizontal className="h-4 w-4" />
         </IconButton>
       }
     >
-      <MenuGroup label="Profile">
+      <MenuGroup label={t('row.group.profile')}>
         <MenuItem
           icon={<Settings2 className="h-4 w-4" />}
           onSelect={() => navigate(`/profiles/${profile.id}/edit`)}
         >
-          Edit profile
+          {t('row.edit')}
         </MenuItem>
         <MenuItem
           icon={profile.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
           onSelect={() => pin.mutate({ id: profile.id, pinned: !profile.pinned })}
         >
-          {profile.pinned ? 'Unpin' : 'Pin'} profile
+          {t(profile.pinned ? 'row.unpin' : 'row.pin')}
         </MenuItem>
         <MenuItem
           icon={<FolderInput className="h-4 w-4" />}
           onSelect={() => onDialog('move-folder', profile)}
         >
-          {profile.folder_id ? 'Move to another folder' : 'Add to folder'}
+          {t(profile.folder_id ? 'row.moveFolder' : 'row.addFolder')}
         </MenuItem>
         <MenuItem
           icon={<CopyPlus className="h-4 w-4" />}
           onSelect={() => duplicate.mutate(profile.id)}
         >
-          Duplicate profile
+          {t('row.duplicate')}
         </MenuItem>
         <MenuItem
           icon={<Fingerprint className="h-4 w-4" />}
           onSelect={() => onDialog('regenerate', profile)}
         >
-          Change fingerprint
+          {t('row.changeFingerprint')}
         </MenuItem>
       </MenuGroup>
 
       <MenuSeparator />
-      <MenuGroup label="Data">
+      <MenuGroup label={t('row.group.data')}>
         <MenuItem
           icon={<Upload className="h-4 w-4" />}
           onSelect={() => onDialog('import-cookies', profile)}
         >
-          Import cookies
+          {t('row.importCookies')}
         </MenuItem>
         <MenuItem
           icon={<Download className="h-4 w-4" />}
           onSelect={() => onDialog('export', profile)}
         >
-          Export configuration
+          {t('row.exportConfig')}
         </MenuItem>
         <MenuItem
           icon={<FolderOpen className="h-4 w-4" />}
           onSelect={() => copy(path, 'profile path')}
         >
-          Open profile folder
+          {t('row.openFolder')}
         </MenuItem>
       </MenuGroup>
 
       <MenuSeparator />
-      <MenuGroup label="Proxy &amp; diagnostics">
+      <MenuGroup label={t('row.group.proxyDiag')}>
         <MenuItem
           icon={<Globe2 className="h-4 w-4" />}
           onSelect={() => onDialog('assign-proxy', profile)}
         >
-          Assign / edit proxy
+          {t('row.assignProxy')}
         </MenuItem>
         <MenuItem
           icon={<FileJson className="h-4 w-4" />}
           disabled={!profile.proxy?.id}
           onSelect={() => onDialog('proxy-report', profile)}
         >
-          View proxy-quality report
+          {t('row.viewProxyReport')}
         </MenuItem>
         <MenuItem
           icon={<MapPin className="h-4 w-4" />}
           disabled={!profile.proxy?.id}
           onSelect={refreshGeoip}
         >
-          Refresh GeoIP alignment
+          {t('row.refreshGeoip')}
         </MenuItem>
       </MenuGroup>
 
       <MenuSeparator />
-      <MenuGroup label="Runtime">
+      <MenuGroup label={t('row.group.runtime')}>
         {running || busy ? (
           <MenuItem
             icon={<Square className="h-4 w-4" />}
             disabled={busy}
             onSelect={() => stop.mutate(profile.id)}
           >
-            Stop profile
+            {t('row.stop')}
           </MenuItem>
         ) : (
           <MenuItem icon={<Play className="h-4 w-4" />} onSelect={() => start.mutate(profile.id)}>
-            Start profile
+            {t('row.start')}
           </MenuItem>
         )}
         <MenuItem
@@ -194,57 +196,57 @@ export function ProfileRowActions({
           disabled={!running}
           onSelect={() => focus.mutate(profile.id)}
         >
-          Bring window to front
+          {t('row.bringFront')}
         </MenuItem>
         <MenuItem
           icon={<ScrollText className="h-4 w-4" />}
           onSelect={() => onDialog('logs', profile)}
         >
-          View runtime logs
+          {t('row.viewLogs')}
         </MenuItem>
       </MenuGroup>
 
       <MenuSeparator />
-      <MenuGroup label="Copy">
+      <MenuGroup label={t('row.group.copy')}>
         <MenuItem
           icon={<Copy className="h-4 w-4" />}
           onSelect={() => copy(profile.id, 'profile ID')}
         >
-          Profile ID
+          {t('row.copyId')}
         </MenuItem>
         <MenuItem icon={<Copy className="h-4 w-4" />} onSelect={() => copy(path, 'profile path')}>
-          Profile path
+          {t('row.copyPath')}
         </MenuItem>
         <MenuItem
           icon={<Copy className="h-4 w-4" />}
           disabled={!profile.proxy?.masked_endpoint}
           onSelect={() => copy(profile.proxy?.masked_endpoint ?? '', 'masked proxy endpoint')}
         >
-          Masked proxy endpoint
+          {t('row.copyEndpoint')}
         </MenuItem>
         <MenuItem
           icon={<Copy className="h-4 w-4" />}
           onSelect={() => copy(profile.fingerprint_seed, 'fingerprint seed')}
         >
-          Fingerprint seed
+          {t('row.copySeed')}
         </MenuItem>
         <MenuItem
           icon={<Copy className="h-4 w-4" />}
           onSelect={() => copy(launchExample, 'launch example')}
         >
-          Credential-free launch example
+          {t('row.copyLaunch')}
         </MenuItem>
       </MenuGroup>
 
       <MenuSeparator />
       {/* No Share / Transfer actions in v1 (spec §6). */}
-      <MenuGroup label="Danger zone">
+      <MenuGroup label={t('row.group.danger')}>
         <MenuItem
           tone="danger"
           icon={<Trash2 className="h-4 w-4" />}
           onSelect={() => onDialog('trash', profile)}
         >
-          Move profile to trash
+          {t('row.trash')}
         </MenuItem>
       </MenuGroup>
     </Menu>

@@ -1,6 +1,7 @@
 import type { ColumnDef } from '@tanstack/react-table';
 import { Pin } from 'lucide-react';
 import type { ProfileView } from '@/types/api';
+import type { TranslationKey } from '@/i18n';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { IconButton } from '@/components/ui/IconButton';
 import { Badge } from '@/components/ui/Badge';
@@ -14,26 +15,32 @@ import { proxyHealth } from './view';
 
 export interface ColumnMeta {
   id: string;
-  label: string;
+  labelKey: TranslationKey;
   canHide: boolean;
   headClassName?: string;
   cellClassName?: string;
 }
 
 export const COLUMN_META: ColumnMeta[] = [
-  { id: 'select', label: 'Selection', canHide: false, headClassName: 'w-9', cellClassName: 'w-9' },
-  { id: 'pinned', label: 'Pin', canHide: false, headClassName: 'w-8', cellClassName: 'w-8' },
-  { id: 'name', label: 'Name', canHide: false, headClassName: 'min-w-[220px]' },
-  { id: 'browser', label: 'Browser', canHide: true, headClassName: 'w-[150px]' },
-  { id: 'proxy', label: 'Proxy', canHide: true, headClassName: 'min-w-[210px]' },
-  { id: 'tags', label: 'Tags', canHide: true, headClassName: 'w-[150px]' },
-  { id: 'notes', label: 'Notes', canHide: true, headClassName: 'min-w-[150px]' },
-  { id: 'reputation', label: 'Reputation', canHide: true, headClassName: 'w-[110px]' },
-  { id: 'last_opened', label: 'Last opened', canHide: true, headClassName: 'w-[130px]' },
-  { id: 'status', label: 'Status', canHide: true, headClassName: 'w-[130px]' },
-  { id: 'message', label: 'Message', canHide: true, headClassName: 'min-w-[150px]' },
-  { id: 'runtime', label: 'Start / Stop', canHide: false, headClassName: 'w-[92px]' },
-  { id: 'actions', label: 'Actions', canHide: false, headClassName: 'w-12' },
+  {
+    id: 'select',
+    labelKey: 'col.selection',
+    canHide: false,
+    headClassName: 'w-9',
+    cellClassName: 'w-9',
+  },
+  { id: 'pinned', labelKey: 'col.pin', canHide: false, headClassName: 'w-8', cellClassName: 'w-8' },
+  { id: 'name', labelKey: 'col.name', canHide: false, headClassName: 'min-w-[220px]' },
+  { id: 'browser', labelKey: 'col.browser', canHide: true, headClassName: 'w-[150px]' },
+  { id: 'proxy', labelKey: 'col.proxy', canHide: true, headClassName: 'min-w-[210px]' },
+  { id: 'tags', labelKey: 'col.tags', canHide: true, headClassName: 'w-[150px]' },
+  { id: 'notes', labelKey: 'col.notes', canHide: true, headClassName: 'min-w-[150px]' },
+  { id: 'reputation', labelKey: 'col.reputation', canHide: true, headClassName: 'w-[110px]' },
+  { id: 'last_opened', labelKey: 'col.lastOpened', canHide: true, headClassName: 'w-[130px]' },
+  { id: 'status', labelKey: 'col.status', canHide: true, headClassName: 'w-[130px]' },
+  { id: 'message', labelKey: 'col.message', canHide: true, headClassName: 'min-w-[150px]' },
+  { id: 'runtime', labelKey: 'col.startStop', canHide: false, headClassName: 'w-[92px]' },
+  { id: 'actions', labelKey: 'col.actions', canHide: false, headClassName: 'w-12' },
 ];
 
 export const SORTABLE: Record<string, string> = {
@@ -45,6 +52,7 @@ export function buildColumns(
   onDialog: (dialog: RowDialog, profile: ProfileView) => void,
   onTogglePin: (profile: ProfileView) => void,
   profileRoot: string,
+  t: (key: TranslationKey, vars?: Record<string, string | number>) => string,
 ): ColumnDef<ProfileView>[] {
   return [
     {
@@ -89,26 +97,26 @@ export function buildColumns(
     },
     {
       id: 'name',
-      header: () => 'Name',
+      header: () => t('col.name'),
       cell: ({ row }) => <EditableNameCell profile={row.original} />,
     },
     {
       id: 'browser',
-      header: () => 'Browser',
+      header: () => t('col.browser'),
       cell: ({ row }) => (
         <div className="flex flex-col gap-0.5">
           <Badge tone="neutral">Windows</Badge>
           <span className="data text-[11px] text-ink-faint">
             {row.original.browser_version_mode === 'pinned' && row.original.browser_version
-              ? `pinned ${row.original.browser_version}`
-              : 'installed'}
+              ? t('col.pinnedVersion', { version: row.original.browser_version })
+              : t('col.installed')}
           </span>
         </div>
       ),
     },
     {
       id: 'proxy',
-      header: () => 'Proxy',
+      header: () => t('col.proxy'),
       cell: ({ row }) => {
         const profile = row.original;
         const proxy = profile.proxy;
@@ -116,7 +124,7 @@ export function buildColumns(
           <button
             type="button"
             onClick={() => onDialog('assign-proxy', profile)}
-            title="Click to assign or edit proxy"
+            title={t('col.clickAssignProxy')}
             className="group min-w-0 text-left"
           >
             {proxy ? (
@@ -135,7 +143,7 @@ export function buildColumns(
                 </div>
               </>
             ) : (
-              <span className="text-ink-faint group-hover:text-ink">Direct / none — assign</span>
+              <span className="text-ink-faint group-hover:text-ink">{t('col.assignProxy')}</span>
             )}
           </button>
         );
@@ -143,22 +151,22 @@ export function buildColumns(
     },
     {
       id: 'tags',
-      header: () => 'Tags',
+      header: () => t('col.tags'),
       cell: ({ row }) => <TagsCell profile={row.original} />,
     },
     {
       id: 'notes',
-      header: () => 'Notes',
+      header: () => t('col.notes'),
       cell: ({ row }) => <EditableNotesCell profile={row.original} />,
     },
     {
       id: 'reputation',
-      header: () => 'Reputation',
+      header: () => t('col.reputation'),
       cell: ({ row }) => <ReputationBadge reputation={row.original.proxy?.reputation ?? null} />,
     },
     {
       id: 'last_opened',
-      header: () => 'Last opened',
+      header: () => t('col.lastOpened'),
       cell: ({ row }) => (
         <span className="text-[12px] text-ink-muted">
           {relativeTime(row.original.last_opened_at)}
@@ -167,7 +175,7 @@ export function buildColumns(
     },
     {
       id: 'status',
-      header: () => 'Status',
+      header: () => t('col.status'),
       cell: ({ row }) => {
         const status = row.original.workflow_status;
         return status ? (
@@ -182,16 +190,16 @@ export function buildColumns(
             {status.name}
           </span>
         ) : (
-          <span className="text-ink-faint">No status</span>
+          <span className="text-ink-faint">{t('col.noStatus')}</span>
         );
       },
     },
     {
       id: 'message',
-      header: () => 'Message',
+      header: () => t('col.message'),
       cell: ({ row }) => {
         const isError = row.original.runtime_state === 'crashed';
-        const message = row.original.runtime_message ?? (isError ? 'Crashed' : '—');
+        const message = row.original.runtime_message ?? (isError ? t('col.crashed') : '—');
         return (
           <div className="flex flex-col gap-1">
             <RuntimeBadge state={row.original.runtime_state} />

@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { LoadingBlock, ErrorState } from '@/components/ui/states';
 import { useToast } from '@/components/ui/Toast';
+import { useT } from '@/i18n';
 import { useCheckBrowserUpdate, useSettings, useUpdateSettings } from './api';
 
 function Section({
@@ -32,6 +33,7 @@ function Section({
 }
 
 export function SettingsPage() {
+  const t = useT();
   const settings = useSettings();
   const update = useUpdateSettings();
   const checkBrowserUpdate = useCheckBrowserUpdate();
@@ -47,7 +49,7 @@ export function SettingsPage() {
     if (settings.data) setDraft(settings.data);
   }, [settings.data]);
 
-  if (settings.isLoading || !draft) return <LoadingBlock label="Loading settings…" />;
+  if (settings.isLoading || !draft) return <LoadingBlock label={t('settings.loading')} />;
   if (settings.isError)
     return (
       <ErrorState message={(settings.error as Error).message} onRetry={() => settings.refetch()} />
@@ -88,40 +90,37 @@ export function SettingsPage() {
       const parsed = JSON.parse(importText) as Partial<Settings>;
       update.mutate(parsed, { onSuccess: () => setImportOpen(false) });
     } catch {
-      toast({ title: 'Invalid settings JSON', tone: 'danger' });
+      toast({ title: t('settings.import.invalid'), tone: 'danger' });
     }
   };
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 px-5 py-6">
-      <Section
-        title="Storage"
-        description="Roots are assigned by the backend; changing them requires a migration."
-      >
-        <Field label="Profile root">
+      <Section title={t('settings.storage')} description={t('settings.storage.desc')}>
+        <Field label={t('settings.profileRoot')}>
           <Input readOnly value={draft.profile_root} className="data text-[12px] opacity-80" />
         </Field>
-        <Field label="Report root">
+        <Field label={t('settings.reportRoot')}>
           <Input readOnly value={draft.report_root} className="data text-[12px] opacity-80" />
         </Field>
       </Section>
 
-      <Section title="Profile defaults">
+      <Section title={t('settings.profileDefaults')}>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Default locale">
+          <Field label={t('settings.defaultLocale')}>
             <Input
               value={draft.default_locale}
               onChange={(e) => patch({ default_locale: e.target.value })}
             />
           </Field>
-          <Field label="Default timezone">
+          <Field label={t('settings.defaultTimezone')}>
             <Input
               mono
               value={draft.default_timezone}
               onChange={(e) => patch({ default_timezone: e.target.value })}
             />
           </Field>
-          <Field label="Rows per page">
+          <Field label={t('settings.rowsPerPage')}>
             <Select
               value={String(draft.rows_per_page)}
               onChange={(e) => {
@@ -134,17 +133,17 @@ export function SettingsPage() {
           </Field>
         </div>
         <div className="flex items-center justify-between rounded-md border border-line bg-surface-sunken px-3 py-2.5">
-          <span className="text-[13px] text-ink">Test proxy before launch by default</span>
+          <span className="text-[13px] text-ink">{t('settings.testBeforeLaunch')}</span>
           <Toggle
             checked={draft.default_test_before_launch}
             onChange={(value) => patch({ default_test_before_launch: value })}
-            label="Test proxy before launch by default"
+            label={t('settings.testBeforeLaunch')}
           />
         </div>
       </Section>
 
-      <Section title="Appearance">
-        <Field label="Theme" hint="Also available from the header. Applies immediately.">
+      <Section title={t('settings.appearance')}>
+        <Field label={t('settings.theme')} hint={t('settings.theme.hint')}>
           <Select
             value={draft.theme}
             onChange={(e) => {
@@ -153,15 +152,15 @@ export function SettingsPage() {
               setTheme(value);
             }}
             options={[
-              { value: 'system', label: 'Match system' },
-              { value: 'dark', label: 'Dark' },
-              { value: 'light', label: 'Light' },
+              { value: 'system', label: t('settings.theme.matchSystem') },
+              { value: 'dark', label: t('opt.dark') },
+              { value: 'light', label: t('opt.light') },
             ]}
           />
         </Field>
       </Section>
 
-      <Section title="Browser binary">
+      <Section title={t('settings.browserBinary')}>
         <div className="flex items-center justify-between">
           <div>
             <p className="text-[13px] text-ink">
@@ -169,15 +168,22 @@ export function SettingsPage() {
             </p>
             <p className="data text-2xs text-ink-faint">{draft.browser.path}</p>
             <p className="mt-1 text-2xs text-ink-muted">
-              {draft.browser.tier === 'pro' ? `Pro · ${draft.license.plan ?? 'licensed'}` : 'Free'}
+              {draft.browser.tier === 'pro'
+                ? t('settings.proPlan', { plan: draft.license.plan ?? t('settings.licensed') })
+                : t('settings.free')}
               {draft.license.session_limit != null &&
-                ` · Sessions ${draft.license.active_sessions ?? '—'} / ${draft.license.session_limit}`}
+                ` · ${t('settings.sessions', {
+                  active: draft.license.active_sessions ?? '—',
+                  limit: draft.license.session_limit,
+                })}`}
             </p>
           </div>
           {draft.browser.update_available ? (
-            <Badge tone="warning">Update available: {draft.browser.latest_version}</Badge>
+            <Badge tone="warning">
+              {t('settings.updateAvailable', { version: draft.browser.latest_version ?? '' })}
+            </Badge>
           ) : (
-            <Badge tone="success">Up to date</Badge>
+            <Badge tone="success">{t('settings.upToDate')}</Badge>
           )}
         </div>
         <Button
@@ -186,20 +192,20 @@ export function SettingsPage() {
           loading={checkBrowserUpdate.isPending}
           onClick={() => checkBrowserUpdate.mutate()}
         >
-          <RefreshCw className="h-3.5 w-3.5" /> Check for updates
+          <RefreshCw className="h-3.5 w-3.5" /> {t('settings.checkUpdates')}
         </Button>
       </Section>
 
-      <Section title="Retention">
+      <Section title={t('settings.retention')}>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Log retention (days)">
+          <Field label={t('settings.logRetention')}>
             <Input
               type="number"
               value={draft.log_retention_days}
               onChange={(e) => patch({ log_retention_days: Number(e.target.value) })}
             />
           </Field>
-          <Field label="Trash retention (days)">
+          <Field label={t('settings.trashRetention')}>
             <Input
               type="number"
               value={draft.trash_retention_days}
@@ -209,35 +215,32 @@ export function SettingsPage() {
         </div>
       </Section>
 
-      <Section
-        title="Backup"
-        description="Manager settings only — never includes proxy passwords or tokens."
-      >
+      <Section title={t('settings.backup')} description={t('settings.backup.desc')}>
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={exportSettings}>
-            <Download className="h-3.5 w-3.5" /> Export settings
+            <Download className="h-3.5 w-3.5" /> {t('settings.export')}
           </Button>
           <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
-            <Upload className="h-3.5 w-3.5" /> Import settings
+            <Upload className="h-3.5 w-3.5" /> {t('settings.import')}
           </Button>
         </div>
       </Section>
 
       <div className="sticky bottom-0 flex justify-end gap-2 border-t border-line bg-canvas/80 py-3 backdrop-blur">
         <Button variant="primary" onClick={save} loading={update.isPending}>
-          Save settings
+          {t('settings.save')}
         </Button>
       </div>
 
       <Modal
         open={importOpen}
         onClose={() => setImportOpen(false)}
-        title="Import settings"
-        description="Paste an exported settings file. Secrets are never included."
+        title={t('settings.import.title')}
+        description={t('settings.import.desc')}
         footer={
           <>
             <Button variant="ghost" onClick={() => setImportOpen(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="primary"
@@ -245,7 +248,7 @@ export function SettingsPage() {
               disabled={!importText.trim()}
               loading={update.isPending}
             >
-              Import
+              {t('settings.import')}
             </Button>
           </>
         }

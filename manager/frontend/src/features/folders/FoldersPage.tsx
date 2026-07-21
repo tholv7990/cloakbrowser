@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/Badge';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/states';
 import { StatusDot } from '@/components/ui/Badge';
+import { useT } from '@/i18n';
 import {
   useCreateFolder,
   useDeleteFolder,
@@ -17,6 +18,7 @@ import {
 } from './api';
 
 export function FoldersPage() {
+  const t = useT();
   const folders = useFolders();
   const createFolder = useCreateFolder();
   const renameFolder = useRenameFolder();
@@ -44,18 +46,15 @@ export function FoldersPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-6">
-      <p className="mb-4 text-[13px] text-ink-muted">
-        Group profiles into folders. A profile belongs to one folder; deleting a folder keeps its
-        profiles and leaves them unfiled.
-      </p>
+      <p className="mb-4 text-[13px] text-ink-muted">{t('folders.desc')}</p>
 
       <div className="mb-5 flex gap-2">
         <Input
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && submitNew()}
-          placeholder="New folder name"
-          aria-label="New folder name"
+          placeholder={t('folders.newName')}
+          aria-label={t('folders.newName')}
         />
         <Button
           variant="primary"
@@ -63,19 +62,19 @@ export function FoldersPage() {
           loading={createFolder.isPending}
           disabled={!newName.trim()}
         >
-          <Plus className="h-4 w-4" /> Add folder
+          <Plus className="h-4 w-4" /> {t('folders.add')}
         </Button>
       </div>
 
       {folders.isLoading ? (
-        <LoadingBlock label="Loading folders…" />
+        <LoadingBlock label={t('folders.loading')} />
       ) : folders.isError ? (
         <ErrorState message={(folders.error as Error).message} onRetry={() => folders.refetch()} />
       ) : items.length === 0 ? (
         <EmptyState
           icon={<FolderClosed className="h-5 w-5" />}
-          title="No folders yet"
-          description="Create a folder above to start organizing profiles."
+          title={t('folders.empty.title')}
+          description={t('folders.empty.desc')}
         />
       ) : (
         <ul className="divide-y divide-line rounded-lg border border-line">
@@ -84,7 +83,7 @@ export function FoldersPage() {
               <div className="flex flex-col">
                 <button
                   type="button"
-                  aria-label={`Move ${folder.name} up`}
+                  aria-label={t('folders.moveUp', { name: folder.name })}
                   disabled={index === 0}
                   onClick={() => move(index, -1)}
                   className="text-ink-faint hover:text-ink disabled:opacity-30"
@@ -93,7 +92,7 @@ export function FoldersPage() {
                 </button>
                 <button
                   type="button"
-                  aria-label={`Move ${folder.name} down`}
+                  aria-label={t('folders.moveDown', { name: folder.name })}
                   disabled={index === items.length - 1}
                   onClick={() => move(index, 1)}
                   className="text-ink-faint hover:text-ink disabled:opacity-30"
@@ -119,11 +118,11 @@ export function FoldersPage() {
                       }
                       if (e.key === 'Escape') setEditing(null);
                     }}
-                    aria-label={`Rename ${folder.name}`}
+                    aria-label={t('folders.renameLabel', { name: folder.name })}
                   />
                   <IconButton
                     size="sm"
-                    label="Save name"
+                    label={t('folders.saveName')}
                     onClick={() =>
                       editing.name.trim() &&
                       renameFolder.mutate(
@@ -134,7 +133,7 @@ export function FoldersPage() {
                   >
                     <Check className="h-4 w-4" />
                   </IconButton>
-                  <IconButton size="sm" label="Cancel" onClick={() => setEditing(null)}>
+                  <IconButton size="sm" label={t('common.cancel')} onClick={() => setEditing(null)}>
                     <X className="h-4 w-4" />
                   </IconButton>
                 </div>
@@ -142,23 +141,24 @@ export function FoldersPage() {
                 <>
                   <span className="flex-1 text-[13px] font-medium text-ink">{folder.name}</span>
                   <div className="flex items-center gap-3 text-2xs text-ink-muted">
-                    <span>{folder.profile_count ?? 0} profiles</span>
+                    <span>{t('folders.profiles', { count: folder.profile_count ?? 0 })}</span>
                     {(folder.running_count ?? 0) > 0 && (
                       <Badge tone="success">
-                        <StatusDot tone="success" pulse /> {folder.running_count} running
+                        <StatusDot tone="success" pulse />{' '}
+                        {t('folders.running', { count: folder.running_count ?? 0 })}
                       </Badge>
                     )}
                   </div>
                   <IconButton
                     size="sm"
-                    label={`Rename ${folder.name}`}
+                    label={t('folders.renameLabel', { name: folder.name })}
                     onClick={() => setEditing({ id: folder.id, name: folder.name })}
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </IconButton>
                   <IconButton
                     size="sm"
-                    label={`Delete ${folder.name}`}
+                    label={t('folders.deleteLabel', { name: folder.name })}
                     onClick={() => setToDelete(folder)}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -176,9 +176,12 @@ export function FoldersPage() {
         onConfirm={() =>
           toDelete && deleteFolder.mutate(toDelete.id, { onSuccess: () => setToDelete(null) })
         }
-        title="Delete folder?"
-        message={`"${toDelete?.name}" will be removed. Its ${toDelete?.profile_count ?? 0} profile(s) are kept and become unfiled.`}
-        confirmLabel="Delete folder"
+        title={t('folders.delete.title')}
+        message={t('folders.delete.message', {
+          name: toDelete?.name ?? '',
+          count: toDelete?.profile_count ?? 0,
+        })}
+        confirmLabel={t('folders.delete.action')}
         tone="danger"
         loading={deleteFolder.isPending}
       />

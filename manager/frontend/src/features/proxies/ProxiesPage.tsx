@@ -8,10 +8,12 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/states';
 import { ReputationBadge } from '@/components/domain/StatusBadges';
 import { formatLatency, formatPercent, relativeTime } from '@/lib/format';
+import { useT } from '@/i18n';
 import { useDeleteProxy, useProxies, useQuickTest } from './api';
 import { ProxyEditorDrawer } from './ProxyEditorDrawer';
 
 export function ProxiesPage() {
+  const t = useT();
   const proxies = useProxies();
   const quickTest = useQuickTest();
   const deleteProxy = useDeleteProxy();
@@ -27,19 +29,16 @@ export function ProxiesPage() {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-line px-5 py-4">
         <div>
-          <p className="text-[13px] text-ink-muted">
-            Reusable proxy records. Assign them to profiles; passwords are stored in Windows
-            Credential Manager and never returned.
-          </p>
+          <p className="text-[13px] text-ink-muted">{t('proxies.desc')}</p>
         </div>
         <Button variant="primary" size="sm" onClick={() => setEditor({ open: true, proxy: null })}>
-          <Plus className="h-3.5 w-3.5" /> Add proxy
+          <Plus className="h-3.5 w-3.5" /> {t('proxies.add')}
         </Button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
         {proxies.isLoading ? (
-          <LoadingBlock label="Loading proxies…" />
+          <LoadingBlock label={t('proxies.loading')} />
         ) : proxies.isError ? (
           <ErrorState
             message={(proxies.error as Error).message}
@@ -48,15 +47,15 @@ export function ProxiesPage() {
         ) : items.length === 0 ? (
           <EmptyState
             icon={<Globe className="h-5 w-5" />}
-            title="No proxies yet"
-            description="Add a reusable proxy to assign it to one or more profiles."
+            title={t('proxies.empty.title')}
+            description={t('proxies.empty.desc')}
             action={
               <Button
                 variant="primary"
                 size="sm"
                 onClick={() => setEditor({ open: true, proxy: null })}
               >
-                Add proxy
+                {t('proxies.add')}
               </Button>
             }
           />
@@ -65,16 +64,16 @@ export function ProxiesPage() {
             <thead className="sticky top-0 z-10 bg-surface">
               <tr className="border-b border-line text-[11px] uppercase tracking-wide text-ink-faint">
                 {[
-                  'Label',
-                  'Protocol',
-                  'Endpoint',
-                  'Exit IP',
-                  'Location',
-                  'Type',
-                  'Reputation',
-                  'Latency',
-                  'Assigned',
-                  'Last checked',
+                  t('proxies.col.label'),
+                  t('proxies.col.protocol'),
+                  t('proxies.col.endpoint'),
+                  t('proxies.col.exitIp'),
+                  t('proxies.col.location'),
+                  t('proxies.col.type'),
+                  t('proxies.col.reputation'),
+                  t('proxies.col.latency'),
+                  t('proxies.col.assigned'),
+                  t('proxies.col.lastChecked'),
                   '',
                 ].map((heading) => (
                   <th
@@ -123,7 +122,7 @@ export function ProxiesPage() {
                     {proxy.assigned_profile_count > 1 ? (
                       <span
                         className="inline-flex items-center gap-1 text-2xs text-warning"
-                        title="Assigned to multiple profiles — a shared exit can link identities"
+                        title={t('proxies.sharedWarn')}
                       >
                         <AlertTriangle className="h-3.5 w-3.5" />
                         {proxy.assigned_profile_count}
@@ -141,7 +140,7 @@ export function ProxiesPage() {
                     <div className="flex items-center justify-end gap-0.5">
                       <IconButton
                         size="sm"
-                        label={`Quick-test ${proxy.label}`}
+                        label={t('proxies.quickTest', { label: proxy.label })}
                         disabled={
                           proxy.scheme === 'direct' ||
                           (quickTest.isPending && quickTest.variables === proxy.id)
@@ -152,7 +151,7 @@ export function ProxiesPage() {
                       </IconButton>
                       <IconButton
                         size="sm"
-                        label={`Full test ${proxy.label}`}
+                        label={t('proxies.fullTest', { label: proxy.label })}
                         disabled={proxy.scheme === 'direct'}
                         onClick={() => setEditor({ open: true, proxy })}
                       >
@@ -160,14 +159,14 @@ export function ProxiesPage() {
                       </IconButton>
                       <IconButton
                         size="sm"
-                        label={`Edit ${proxy.label}`}
+                        label={t('proxies.editLabel', { label: proxy.label })}
                         onClick={() => setEditor({ open: true, proxy })}
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </IconButton>
                       <IconButton
                         size="sm"
-                        label={`Delete ${proxy.label}`}
+                        label={t('proxies.deleteLabel', { label: proxy.label })}
                         onClick={() => setToDelete(proxy)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -193,13 +192,16 @@ export function ProxiesPage() {
         onConfirm={() => {
           if (toDelete) deleteProxy.mutate(toDelete.id, { onSuccess: () => setToDelete(null) });
         }}
-        title="Delete proxy?"
+        title={t('proxies.delete.title')}
         message={
           toDelete && toDelete.assigned_profile_count > 0
-            ? `"${toDelete.label}" is assigned to ${toDelete.assigned_profile_count} profile(s). Reassign them first.`
-            : `Delete "${toDelete?.label}"? This cannot be undone.`
+            ? t('proxies.delete.assigned', {
+                label: toDelete.label,
+                count: toDelete.assigned_profile_count,
+              })
+            : t('proxies.delete.confirm', { label: toDelete?.label ?? '' })
         }
-        confirmLabel="Delete proxy"
+        confirmLabel={t('proxies.delete.action')}
         tone="danger"
         loading={deleteProxy.isPending}
       />
