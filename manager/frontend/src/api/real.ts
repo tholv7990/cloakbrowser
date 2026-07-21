@@ -126,4 +126,6 @@ export const realApi: ApiAdapter = {
   getSettings: () => apiRequest<Settings>('/settings'),
   updateSettings: (patch: Partial<Settings>) =>
     apiRequest<Settings>('/settings', { method: 'PATCH', body: patch }),
+  checkBrowserUpdate: () =>
+    apiRequest<Settings>('/settings/browser/check-update', { method: 'POST' }),
 };

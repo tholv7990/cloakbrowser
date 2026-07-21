@@ -15,6 +15,7 @@ def test_foundation_routes_are_authenticated_and_typed(client, auth_headers):
             "proxy_management": True,
             "browser_runtime": True,
             "fingerprint_diagnostics": False,
+            "settings": True,
         },
     }
 
@@ -38,6 +39,7 @@ def test_openapi_has_stable_unique_operation_ids_and_error_envelope(client):
     assert "/api/v1/profiles" in paths
     assert "/api/v1/folders" in paths
     assert "/api/v1/app/bootstrap" in paths
+    assert "/api/v1/settings" in paths
     assert "ErrorEnvelope" in document["components"]["schemas"]
 
     operation_ids = [

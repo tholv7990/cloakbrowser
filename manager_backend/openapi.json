@@ -3016,6 +3016,191 @@
         }
       }
     },
+    "/api/v1/settings": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Get Settings",
+        "operationId": "settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Patch Settings",
+        "operationId": "settings_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/settings/browser/check-update": {
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Check Browser Update",
+        "operationId": "settings_check_browser_update",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      }
+    },
     "/api/v1/health": {
       "get": {
         "summary": "Health",
@@ -3127,6 +3312,10 @@
           "fingerprint_diagnostics": {
             "type": "boolean",
             "title": "Fingerprint Diagnostics"
+          },
+          "settings": {
+            "type": "boolean",
+            "title": "Settings"
           }
         },
         "additionalProperties": false,
@@ -3137,7 +3326,8 @@
           "catalogs",
           "proxy_management",
           "browser_runtime",
-          "fingerprint_diagnostics"
+          "fingerprint_diagnostics",
+          "settings"
         ],
         "title": "AppCapabilities"
       },
@@ -3299,6 +3489,66 @@
         "additionalProperties": false,
         "type": "object",
         "title": "BehaviorSettings"
+      },
+      "BrowserSettingsRead": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "platform": {
+            "type": "string",
+            "title": "Platform"
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "free",
+              "pro"
+            ],
+            "title": "Tier"
+          },
+          "installed": {
+            "type": "boolean",
+            "title": "Installed"
+          },
+          "update_available": {
+            "type": "boolean",
+            "title": "Update Available"
+          },
+          "latest_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "version",
+          "path",
+          "platform",
+          "tier",
+          "installed",
+          "update_available",
+          "latest_version"
+        ],
+        "title": "BrowserSettingsRead"
       },
       "BulkProfileRequest": {
         "properties": {
@@ -3523,6 +3773,80 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "LicenseSettingsRead": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "valid": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan"
+          },
+          "expires": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires"
+          },
+          "active_sessions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Sessions"
+          },
+          "session_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Limit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "configured",
+          "valid",
+          "plan",
+          "expires",
+          "active_sessions",
+          "session_limit"
+        ],
+        "title": "LicenseSettingsRead"
       },
       "LocationSettings": {
         "properties": {
@@ -5097,6 +5421,190 @@
           "updated_at"
         ],
         "title": "RuntimeRead"
+      },
+      "SettingsPatch": {
+        "properties": {
+          "default_locale": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 35,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Locale"
+          },
+          "default_timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 60,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Timezone"
+          },
+          "default_test_before_launch": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Test Before Launch"
+          },
+          "rows_per_page": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "enum": [
+                  10,
+                  25,
+                  50,
+                  100
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rows Per Page"
+          },
+          "theme": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "light",
+                  "dark",
+                  "system"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Theme"
+          },
+          "log_retention_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 3650.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Log Retention Days"
+          },
+          "trash_retention_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 3650.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trash Retention Days"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SettingsPatch"
+      },
+      "SettingsRead": {
+        "properties": {
+          "default_locale": {
+            "type": "string",
+            "maxLength": 35,
+            "minLength": 2,
+            "title": "Default Locale",
+            "default": "en-US"
+          },
+          "default_timezone": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Default Timezone",
+            "default": "America/New_York"
+          },
+          "default_test_before_launch": {
+            "type": "boolean",
+            "title": "Default Test Before Launch",
+            "default": true
+          },
+          "rows_per_page": {
+            "type": "integer",
+            "enum": [
+              10,
+              25,
+              50,
+              100
+            ],
+            "title": "Rows Per Page",
+            "default": 25
+          },
+          "theme": {
+            "type": "string",
+            "enum": [
+              "light",
+              "dark",
+              "system"
+            ],
+            "title": "Theme",
+            "default": "system"
+          },
+          "log_retention_days": {
+            "type": "integer",
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Log Retention Days",
+            "default": 14
+          },
+          "trash_retention_days": {
+            "type": "integer",
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Trash Retention Days",
+            "default": 30
+          },
+          "profile_root": {
+            "type": "string",
+            "title": "Profile Root"
+          },
+          "report_root": {
+            "type": "string",
+            "title": "Report Root"
+          },
+          "browser": {
+            "$ref": "#/components/schemas/BrowserSettingsRead"
+          },
+          "license": {
+            "$ref": "#/components/schemas/LicenseSettingsRead"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "profile_root",
+          "report_root",
+          "browser",
+          "license"
+        ],
+        "title": "SettingsRead"
       },
       "TagCreate": {
         "properties": {

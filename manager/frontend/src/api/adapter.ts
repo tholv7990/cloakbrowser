@@ -96,4 +96,5 @@ export interface ApiAdapter {
   runPixelscan(profileId: string): Promise<DiagnosticRun>;
   getSettings(): Promise<Settings>;
   updateSettings(patch: Partial<Settings>): Promise<Settings>;
+  checkBrowserUpdate(): Promise<Settings>;
 }

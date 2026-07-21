@@ -10,12 +10,13 @@
 
 const injected = typeof window !== 'undefined' ? window.__CLOAKBROWSER__ : undefined;
 
-export const API_MODE: 'mock' | 'real' = import.meta.env.VITE_API_MODE ?? 'mock';
+const defaultApiMode: 'mock' | 'real' = import.meta.env.MODE === 'test' ? 'mock' : 'real';
+export const API_MODE: 'mock' | 'real' = import.meta.env.VITE_API_MODE ?? defaultApiMode;
 
 export const API_BASE_URL: string = (
   injected?.apiBaseUrl ??
   import.meta.env.VITE_API_BASE_URL ??
-  'http://127.0.0.1:8799/api/v1'
+  '/api/v1'
 ).replace(/\/$/, '');
 
 /** Resolve a relative base (e.g. "/api/v1") against the page origin so a

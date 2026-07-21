@@ -225,8 +225,19 @@ export const settings: Settings = {
     name: 'CloakBrowser Chromium',
     version: BROWSER_VERSION,
     path: 'C:\\Users\\operator\\.cloakbrowser\\chromium-146.0.7680.177.5\\chrome.exe',
+    platform: 'windows-x64',
+    tier: 'free',
+    installed: true,
     update_available: false,
     latest_version: BROWSER_VERSION,
+  },
+  license: {
+    configured: false,
+    valid: null,
+    plan: null,
+    expires: null,
+    active_sessions: null,
+    session_limit: null,
   },
 };
 

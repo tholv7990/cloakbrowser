@@ -373,6 +373,7 @@ export interface AppCapabilities {
   proxy_management: boolean;
   browser_runtime: boolean;
   fingerprint_diagnostics: boolean;
+  settings: boolean;
 }
 
 export interface Settings {
@@ -389,8 +390,19 @@ export interface Settings {
     name: string;
     version: string;
     path: string;
+    platform: string;
+    tier: 'free' | 'pro';
+    installed: boolean;
     update_available: boolean;
     latest_version: string | null;
+  };
+  license: {
+    configured: boolean;
+    valid: boolean | null;
+    plan: string | null;
+    expires: string | null;
+    active_sessions: number | null;
+    session_limit: number | null;
   };
 }
 
