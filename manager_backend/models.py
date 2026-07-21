@@ -257,6 +257,26 @@ class RuntimeSession(Base):
     profile: Mapped[Profile] = relationship(back_populates="runtime_sessions")
 
 
+class ProfileLogEntry(Base):
+    __tablename__ = "profile_log_entries"
+    __table_args__ = (
+        CheckConstraint(
+            "level IN ('debug','info','warning','error')",
+            name="ck_profile_log_entries_level",
+        ),
+        Index("ix_profile_log_entries_profile_created_at", "profile_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    profile_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    level: Mapped[str] = mapped_column(String(16), nullable=False)
+    event: Mapped[str] = mapped_column(String(80), nullable=False)
+    message: Mapped[str] = mapped_column(String(4000), nullable=False)
+
+
 class Owner(TimestampMixin, Base):
     __tablename__ = "owners"
 

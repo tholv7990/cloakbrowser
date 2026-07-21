@@ -1,110 +1,78 @@
-# Task 1 report: deterministic report model and secret guard
+# Task 1 report: persisted and sanitized profile logs
 
-## Delivered files
+## Files changed
 
-- `benchmarks/proxy_quality_models.py`
-- `tests/test_proxy_quality_models.py`
-
-The implementation provides the requested string enums, deterministic network
-classification, report summarization, proxy credential redaction, and recursive
-secret detection. It performs no logging, serialization, network access, or
-other I/O.
+- `manager_backend/models.py`: adds `ProfileLogEntry` with a profile/created-at index, bounded fields, and an allowed-level check.
+- `manager_backend/migrations/versions/0008_runtime_observability.py`: creates and drops `profile_log_entries` and its index.
+- `manager_backend/features/runtime/logs.py`: provides append/list services, a single regex-driven sanitizer, newest-2,000 retention, and pagination limited to 200 entries.
+- `tests/manager/test_runtime_logs.py`: covers retention, newest-first pagination, manager-owned path allowance, and credential/license/token/path redaction.
 
 ## TDD evidence
 
-### RED 1: requested public interface
-
-I first added the requested tests (plus enum and security regression coverage)
-before creating the production module.
+### RED
 
 Command:
 
 ```powershell
-python -m pytest tests/test_proxy_quality_models.py -q
+python -m pytest tests/manager/test_runtime_logs.py -q
 ```
 
-Observed result:
+Observed exit code: `1`.
+
+Observed failure:
 
 ```text
-ModuleNotFoundError: No module named 'benchmarks.proxy_quality_models'
+ModuleNotFoundError: No module named 'manager_backend.features.runtime.logs'
 ```
 
-This was the expected failure: the requested module and interfaces did not yet
-exist.
+The new test module could not import the requested service because the module and ORM model did not yet exist.
 
-### GREEN 1: minimal model implementation
-
-After adding `benchmarks/proxy_quality_models.py`, I ran:
-
-```powershell
-python -m pytest tests/test_proxy_quality_models.py -q
-python -m py_compile benchmarks/proxy_quality_models.py
-```
-
-Observed result:
-
-```text
-8 passed in 0.03s
-```
-
-Compilation exited successfully.
-
-### RED 2: ASN-name fallback cannot outweigh structured evidence
-
-During self-review I added a regression test showing that two independent
-structured mobile signals must remain decisive when separate ASN organization
-names contain hosting terms. Before the correction, the test failed because the
-result was `unknown` with low confidence instead of `mobile` with high
-confidence.
+### GREEN
 
 Command:
 
 ```powershell
-python -m pytest tests/test_proxy_quality_models.py -q
+python -m pytest tests/manager/test_runtime_logs.py -q
 ```
 
-Observed result:
+Observed exit code: `0`.
 
 ```text
-1 failed, 8 passed
+4 passed, 1 warning in 6.27s
 ```
 
-### GREEN 2: heuristic evidence is fallback-only
+The warning is FastAPI/TestClient's existing Starlette deprecation warning for `httpx`.
 
-I changed the classifier so ASN-name terms are considered only when there is no
-structured classification evidence. They are still retained as a recorded
-conflict when appropriate, but cannot offset structured source votes.
-
-Final verification commands:
+## Additional verification
 
 ```powershell
-python -m pytest tests/test_proxy_quality_models.py -q
-python -m py_compile benchmarks/proxy_quality_models.py
+python -m py_compile manager_backend/models.py manager_backend/features/runtime/logs.py manager_backend/migrations/versions/0008_runtime_observability.py
+python -m pytest tests/manager -q
 ```
 
-Observed result:
+Both exited `0`; manager tests reported:
 
 ```text
-9 passed in 0.04s
+151 passed, 1 skipped, 1 warning in 23.73s
 ```
 
-Compilation exited successfully.
+Migration upgrade/downgrade/upgrade was verified against a dedicated temporary SQLite data root:
+
+```powershell
+python -m alembic -c manager_backend/alembic.ini upgrade head
+python -m alembic -c manager_backend/alembic.ini downgrade 0007_proxy_quality_runs
+python -m alembic -c manager_backend/alembic.ini upgrade head
+```
+
+All three commands exited `0`; Alembic ran revision `0008_runtime_observability` in both upgrade passes and downgraded it successfully.
 
 ## Self-review
 
-- Independent source IDs prevent multiple fields from one named source from
-  inflating confidence.
-- Mobile classification uses only the specified structured fields; an arbitrary
-  organization name containing `telecom` is not mobile evidence.
-- Hosting ASN-name terms are low-confidence fallback evidence only.
-- Summary precedence is ordered blocked, questionable, clean observed, then
-  unknown exactly as required.
-- Proxy redaction replaces URI and colon-format credentials without emitting
-  them.
-- The secret guard recursively checks nested mappings and containers, including
-  secret substrings in authorization-style strings, while avoiding arbitrary
-  object stringification.
+- Sanitization uses one compiled regex with named alternatives and never emits credentials, `cb_` values, session/cookie token values, or paths outside `<profile_root>/<profile_id>`.
+- Retention deletes only entries beyond the deterministic newest-first 2,000 selection for the current profile.
+- The paginated result is ordered by `created_at DESC, id DESC`, matching retention's ordering and making ties deterministic.
+- Migration names, field types, check constraint, index, foreign-key cascade, upgrade, and downgrade match the ORM model.
 
 ## Concerns
 
-None. The workspace is not a Git repository; no commit was attempted.
+None. The suite still reports the pre-existing FastAPI/TestClient deprecation warning noted above.
