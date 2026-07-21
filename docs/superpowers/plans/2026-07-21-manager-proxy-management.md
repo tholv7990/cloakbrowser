@@ -1,5 +1,7 @@
 # Manager Proxy Management Implementation Plan
 
+> Superseded before implementation by `2026-07-21-profile-owned-proxy.md`. No reusable proxy CRUD or paging API will be built.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add credential-safe reusable proxy CRUD, parsing, quick tests, and asynchronous quality reports to the authenticated Windows profile manager.

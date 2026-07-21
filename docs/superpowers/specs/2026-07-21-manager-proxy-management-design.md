@@ -1,5 +1,7 @@
 # Manager Proxy Management Design
 
+> Superseded by `2026-07-21-profile-owned-proxy-design.md`. Competitor research and product review showed that CloakBrowser does not need a separate reusable proxy inventory in version 1.
+
 ## Objective
 
 Add secure reusable proxy records to the local Windows profile manager. The owner can create, parse, edit, assign, test, and delete Direct, HTTP, HTTPS, SOCKS5, and SOCKS5H configurations without placing credentials in SQLite, API responses, logs, command lines, or report artifacts.
