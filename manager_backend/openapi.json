@@ -1768,6 +1768,163 @@
         }
       }
     },
+    "/api/v1/profiles/{profile_id}/open-directory": {
+      "post": {
+        "summary": "Open Directory",
+        "operationId": "open_directory_api_v1_profiles__profile_id__open_directory_post",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileDirectoryOpen"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/profiles/{profile_id}/logs": {
+      "get": {
+        "summary": "Logs",
+        "operationId": "logs_api_v1_profiles__profile_id__logs_get",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileLogPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/profiles/{profile_id}/duplicate": {
       "post": {
         "summary": "Duplicate",
@@ -3275,6 +3432,10 @@
           },
           "capabilities": {
             "$ref": "#/components/schemas/AppCapabilities"
+          },
+          "running_session_count": {
+            "type": "integer",
+            "title": "Running Session Count"
           }
         },
         "additionalProperties": false,
@@ -3283,7 +3444,8 @@
           "api_version",
           "platform",
           "owner_email",
-          "capabilities"
+          "capabilities",
+          "running_session_count"
         ],
         "title": "AppBootstrap"
       },
@@ -3748,6 +3910,14 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "profile_count": {
+            "type": "integer",
+            "title": "Profile Count"
+          },
+          "running_count": {
+            "type": "integer",
+            "title": "Running Count"
           }
         },
         "additionalProperties": false,
@@ -3757,7 +3927,9 @@
           "id",
           "position",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "profile_count",
+          "running_count"
         ],
         "title": "FolderRead"
       },
@@ -4218,6 +4390,118 @@
         ],
         "title": "ProfileCreate"
       },
+      "ProfileDirectoryOpen": {
+        "properties": {
+          "profile_directory": {
+            "type": "string",
+            "title": "Profile Directory"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "profile_directory"
+        ],
+        "title": "ProfileDirectoryOpen"
+      },
+      "ProfileLogPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileLogRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Page Size"
+          },
+          "pages": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Pages"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "pages"
+        ],
+        "title": "ProfileLogPage"
+      },
+      "ProfileLogRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "debug",
+              "info",
+              "warning",
+              "error"
+            ],
+            "title": "Level"
+          },
+          "event": {
+            "type": "string",
+            "enum": [
+              "runtime.start_requested",
+              "runtime.preflight_failed",
+              "runtime.process_started",
+              "runtime.ready",
+              "runtime.stop_requested",
+              "runtime.exited",
+              "runtime.crashed",
+              "runtime.reconciled"
+            ],
+            "title": "Event"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "profile_id",
+          "created_at",
+          "level",
+          "event",
+          "message"
+        ],
+        "title": "ProfileLogRead"
+      },
       "ProfilePage": {
         "properties": {
           "items": {
@@ -4557,6 +4841,10 @@
             "type": "string",
             "title": "Id"
           },
+          "profile_directory": {
+            "type": "string",
+            "title": "Profile Directory"
+          },
           "fingerprint_revision": {
             "type": "integer",
             "title": "Fingerprint Revision"
@@ -4625,6 +4913,7 @@
           "name",
           "fingerprint_seed",
           "id",
+          "profile_directory",
           "fingerprint_revision",
           "fingerprint_config_hash",
           "created_at",

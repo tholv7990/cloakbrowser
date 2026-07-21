@@ -191,6 +191,7 @@ class ProfilePatch(ProfileCreate):
 
 class ProfileRead(ProfileCreate):
     id: str
+    profile_directory: str
     fingerprint_seed: str
     fingerprint_revision: int
     fingerprint_config_hash: str
@@ -206,6 +207,10 @@ class ProfileRead(ProfileCreate):
 
 class ProfilePage(Page[ProfileRead]):
     pass
+
+
+class ProfileDirectoryOpen(StrictModel):
+    profile_directory: str
 
 
 class ProfileLogRead(StrictModel):

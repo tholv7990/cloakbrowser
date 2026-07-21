@@ -18,6 +18,9 @@ def test_create_generates_unique_stable_fingerprint_identity(client, auth_header
     assert len(first["fingerprint_config_hash"]) == 64
     assert first["fingerprint_preset"] == "consistent"
     assert first["runtime_state"] == "stopped"
+    assert first["profile_directory"] == str(
+        (client.app.state.settings.profile_root / first["id"]).resolve()
+    )
 
 
 def test_create_list_patch_and_trash_profile(client, auth_headers):

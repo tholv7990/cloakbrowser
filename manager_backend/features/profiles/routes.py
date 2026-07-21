@@ -13,11 +13,13 @@ from .schemas import (
     BulkProfileRequest,
     BulkProfileResult,
     ProfileCreate,
+    ProfileDirectoryOpen,
     ProfileLogPage,
     ProfilePage,
     ProfilePatch,
     ProfileRead,
 )
+from .directories import open_profile_directory, resolve_profile_directory
 from .service import (
     bulk_update,
     create_profile,
@@ -37,6 +39,7 @@ router = APIRouter()
 
 @router.get("/profiles", response_model=ProfilePage)
 def profiles(
+    request: Request,
     session: SessionDependency,
     query: str | None = Query(default=None, max_length=200),
     folder_id: str | None = None,
@@ -57,12 +60,13 @@ def profiles(
         sort=sort,
         page=page,
         page_size=page_size,
+        settings=request.app.state.settings,
     )
 
 
 @router.post("/profiles", response_model=ProfileRead, status_code=status.HTTP_201_CREATED)
-def create(payload: ProfileCreate, session: SessionDependency):
-    return profile_to_dict(create_profile(session, payload))
+def create(payload: ProfileCreate, request: Request, session: SessionDependency):
+    return profile_to_dict(create_profile(session, payload), settings=request.app.state.settings)
 
 
 @router.post(
@@ -70,8 +74,8 @@ def create(payload: ProfileCreate, session: SessionDependency):
     response_model=ProfileRead,
     status_code=status.HTTP_201_CREATED,
 )
-def quick_create(payload: ProfileCreate, session: SessionDependency):
-    return profile_to_dict(create_profile(session, payload))
+def quick_create(payload: ProfileCreate, request: Request, session: SessionDependency):
+    return profile_to_dict(create_profile(session, payload), settings=request.app.state.settings)
 
 
 @router.post("/profiles/bulk", response_model=BulkProfileResult)
@@ -81,8 +85,16 @@ def bulk(payload: BulkProfileRequest, session: SessionDependency):
 
 
 @router.get("/profiles/{profile_id}", response_model=ProfileRead)
-def get(profile_id: str, session: SessionDependency):
-    return profile_to_dict(get_profile(session, profile_id))
+def get(profile_id: str, request: Request, session: SessionDependency):
+    return profile_to_dict(get_profile(session, profile_id), settings=request.app.state.settings)
+
+
+@router.post("/profiles/{profile_id}/open-directory", response_model=ProfileDirectoryOpen)
+def open_directory(profile_id: str, request: Request, session: SessionDependency):
+    get_profile(session, profile_id)
+    directory = resolve_profile_directory(request.app.state.settings, profile_id)
+    open_profile_directory(directory)
+    return {"profile_directory": str(directory)}
 
 
 @router.get("/profiles/{profile_id}/logs", response_model=ProfileLogPage)
@@ -97,8 +109,8 @@ def logs(
 
 
 @router.patch("/profiles/{profile_id}", response_model=ProfileRead)
-def patch(profile_id: str, payload: ProfilePatch, session: SessionDependency):
-    return profile_to_dict(update_profile(session, profile_id, payload))
+def patch(profile_id: str, payload: ProfilePatch, request: Request, session: SessionDependency):
+    return profile_to_dict(update_profile(session, profile_id, payload), settings=request.app.state.settings)
 
 
 @router.post(
@@ -106,23 +118,23 @@ def patch(profile_id: str, payload: ProfilePatch, session: SessionDependency):
     response_model=ProfileRead,
     status_code=status.HTTP_201_CREATED,
 )
-def duplicate(profile_id: str, session: SessionDependency):
-    return profile_to_dict(duplicate_profile(session, profile_id))
+def duplicate(profile_id: str, request: Request, session: SessionDependency):
+    return profile_to_dict(duplicate_profile(session, profile_id), settings=request.app.state.settings)
 
 
 @router.post("/profiles/{profile_id}/regenerate-fingerprint", response_model=ProfileRead)
-def regenerate(profile_id: str, session: SessionDependency):
-    return profile_to_dict(regenerate_fingerprint(session, profile_id))
+def regenerate(profile_id: str, request: Request, session: SessionDependency):
+    return profile_to_dict(regenerate_fingerprint(session, profile_id), settings=request.app.state.settings)
 
 
 @router.post("/profiles/{profile_id}/move-to-trash", response_model=ProfileRead)
-def move_to_trash(profile_id: str, session: SessionDependency):
-    return profile_to_dict(set_trash_state(session, profile_id, True))
+def move_to_trash(profile_id: str, request: Request, session: SessionDependency):
+    return profile_to_dict(set_trash_state(session, profile_id, True), settings=request.app.state.settings)
 
 
 @router.post("/profiles/{profile_id}/restore", response_model=ProfileRead)
-def restore(profile_id: str, session: SessionDependency):
-    return profile_to_dict(set_trash_state(session, profile_id, False))
+def restore(profile_id: str, request: Request, session: SessionDependency):
+    return profile_to_dict(set_trash_state(session, profile_id, False), settings=request.app.state.settings)
 
 
 @router.post("/profiles/{profile_id}/start", status_code=status.HTTP_202_ACCEPTED)

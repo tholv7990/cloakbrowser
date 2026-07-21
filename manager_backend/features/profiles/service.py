@@ -8,9 +8,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from ...config import ManagerSettings
 from ...errors import ManagerError
 from ...fingerprints import build_fingerprint_identity, generate_unique_seed
 from ...models import Folder, Profile, Proxy, Tag, WorkflowStatus
+from .directories import resolve_profile_directory
 from .schemas import BulkProfileRequest, ProfileCreate, ProfilePatch
 
 
@@ -152,8 +154,10 @@ def get_profile(session: Session, profile_id: str) -> Profile:
     return profile
 
 
-def profile_to_dict(profile: Profile) -> dict[str, Any]:
-    return {
+def profile_to_dict(
+    profile: Profile, *, settings: ManagerSettings | None = None
+) -> dict[str, Any]:
+    values = {
         "id": profile.id,
         "name": profile.name,
         "folder_id": profile.folder_id,
@@ -182,6 +186,11 @@ def profile_to_dict(profile: Profile) -> dict[str, Any]:
         "total_runtime_seconds": profile.total_runtime_seconds,
         "deleted_at": profile.deleted_at,
     }
+    if settings is not None:
+        values["profile_directory"] = str(
+            resolve_profile_directory(settings, profile.id)
+        )
+    return values
 
 
 def list_profiles(
@@ -195,6 +204,7 @@ def list_profiles(
     sort: str,
     page: int,
     page_size: int,
+    settings: ManagerSettings | None = None,
 ) -> dict[str, Any]:
     statement = select(Profile).options(
         selectinload(Profile.tags), selectinload(Profile.runtime_sessions)
@@ -242,7 +252,7 @@ def list_profiles(
         ).unique()
     )
     return {
-        "items": [profile_to_dict(profile) for profile in profiles],
+        "items": [profile_to_dict(profile, settings=settings) for profile in profiles],
         "total": total,
         "page": page,
         "page_size": page_size,
