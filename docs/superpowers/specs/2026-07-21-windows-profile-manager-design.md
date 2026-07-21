@@ -188,77 +188,76 @@ No Share or Transfer actions exist in version 1.
 
 The wizard uses a left step rail and persistent footer actions: Back, Next, Save, and Save & Run.
 
-### Step 1: Base information
+### Step 1: General
 
 - Name, required, 1-80 characters.
 - Folder, optional.
 - Workflow status, optional.
 - Tags, zero or more.
 - Notes, optional, maximum 4,000 characters.
-- Optional startup URL.
+- Zero or more startup URLs. Supported schemes are `http`, `https`, and explicitly approved `chrome-extension` URLs belonging to an enabled local extension.
+- The manager does not capture website usernames, passwords, or 2FA secrets. Login state belongs in the persistent browser profile; the manager is not a password vault.
 
-### Step 2: Identity
-
-- Platform is fixed to Windows.
-- Persona version: Windows 10 or Windows 11.
-- Browser is fixed to CloakBrowser Chromium.
-- Browser/core version is read-only from the installed binary.
-- Fingerprint preset defaults to `consistent`.
-- Stable fingerprint seed is generated once.
-- “Generate new fingerprint” creates a complete configuration and displays a warning when editing an existing profile.
-- User agent is derived automatically; advanced manual override is behind a warning.
-
-Android, iOS, macOS, Linux, Firefox, Opera, Brave, Edge, Yandex, and WebView are not selectable in version 1.
-
-### Step 3: Location
-
-- Locale.
-- Timezone.
-- Geolocation permission/default coordinates.
-- WebRTC policy.
-- `Auto from proxy` defaults on when a proxy is assigned.
-- Explicit values override GeoIP and show consistency warnings.
-
-### Step 4: Proxy
+### Step 2: Proxy and location
 
 - Direct connection or reusable proxy record.
 - Inline quick-create proxy option.
 - Test-before-every-launch toggle.
-- Summary of latest connectivity and quality verdict.
-- Warn when one proxy is assigned to multiple profiles.
+- Geo mode: `proxy`, `manual`, or `system`; default to `proxy` when a proxy is assigned.
+- Locale and IANA timezone; explicit values override GeoIP.
+- WebRTC mode: `proxy`, `direct`, or `disabled`; default to `proxy` with a proxy.
+- Geolocation mode: `proxy`, `manual`, `ask`, or `block`; default to `ask`.
+- Manual latitude, longitude, and accuracy are accepted only in manual mode.
+- Display blocking errors for invalid values and warnings for proxy/location conflicts.
 
-### Step 5: Cookies
+### Step 3: Browser identity
 
-- Import Netscape, JSON, or Playwright storage-state cookies.
+- Platform is fixed to Windows and browser is fixed to CloakBrowser Chromium.
+- Browser version mode is `installed` or `pinned`; pinned versions must pass the CloakBrowser numeric version validator.
+- Fingerprint preset defaults to `consistent`.
+- Stable fingerprint seed is generated once.
+- “Generate new fingerprint” explicitly creates a new seed and warns that websites may recognize a new device.
+- User-agent mode is `automatic` or `custom`. Manual override is advanced and shows a consistency warning.
+
+The current engine exposes one `windows` fingerprint platform, not distinct Windows 10 and Windows 11 personas. Android, iOS, macOS, Linux, Firefox, Opera, Brave, Edge, Yandex, and WebView are not selectable in version 1.
+
+### Step 4: Window and appearance
+
+- Manager profiles are headed-only in version 1.
+- Window mode is `maximized` or `custom`; default to `maximized`.
+- Custom window width and height are allowed only in custom mode.
+- Color scheme is `system`, `light`, or `dark`.
+- Do not independently expose screen resolution and viewport by default. CloakBrowser uses real headed window geometry to keep screen, outer-window, and inner-window dimensions coherent.
+
+### Step 5: Cookies and storage
+
+- Import Netscape, JSON, or Playwright storage state.
 - Show import validation summary.
+- Store cookies, local storage, cache, and login state inside the profile's dedicated user-data directory, never inside the profile database row.
 - Version 1 supports import/export, not a full cell-by-cell cookie editor.
 
-### Step 6: Hardware
-
-- Screen resolution and device scale factor.
-- Hardware concurrency.
-- Device memory.
-- GPU vendor/renderer from a compatible Windows template.
-- Color scheme.
-- Fonts use a tested Windows set and are not individually randomized in version 1.
-
-Generated hardware fields must come from a coherent template; the UI must not independently randomize fields into impossible combinations.
-
-### Step 7: Extensions
+### Step 6: Extensions
 
 - Select zero or more unpacked local extension directories.
 - Backend validates extension manifests and stores normalized paths.
 - Clearly warn that identical uncommon extensions across profiles may link identities.
 
-### Step 8: Advanced
+### Step 7: Advanced behavior
 
-- Startup URL.
-- Download directory behavior.
-- Browser permissions.
+- Humanization toggle and preset: `default` or `careful`.
+- Clear-cache-before-launch toggle, off by default.
+- Restore-previous-tabs toggle.
+- Download directory mode: `profile` or `custom`.
+- Browser permissions with an allowlisted schema.
+- Ignore-HTTPS-errors toggle, off by default and visibly warned.
+- Hardware concurrency mode: `automatic` or `custom` and a validated custom value.
+- GPU mode: `automatic` or `custom_vendor` and an allowlisted compatible vendor.
 - Additional Chromium arguments with denylisted unsafe or manager-owned flags.
-- Headed only in version 1 manager UI.
+- Allowing multiple simultaneous instances is not configurable; it is always false.
 
-### Step 9: Review
+Do not expose independent controls for Canvas, WebGL image/renderer, AudioContext, ClientRects, fonts, speech voices, media-device IDs, plugins, device name, host LAN IP, MAC address, device memory, or SSL feature disabling. The current engine does not offer tested independent controls for those surfaces. Applicable fingerprint surfaces are derived coherently from the stable seed and binary.
+
+### Step 8: Review
 
 - Display profile summary.
 - Display blocking validation errors.
@@ -357,18 +356,24 @@ All IDs are UUID strings. All timestamps are UTC ISO-8601 in APIs and UTC-aware 
 - `status_id` nullable foreign key.
 - `notes`.
 - `pinned` boolean.
-- `startup_url` nullable.
-- `windows_persona` enum: `windows_10`, `windows_11`.
+- `startup_urls_json`, validated list of safe URLs.
+- Platform is implicit and fixed to `windows`; browser is implicit and fixed to CloakBrowser Chromium. Neither is stored as a user-controlled field.
 - `fingerprint_seed` unsigned integer stored as decimal text.
 - `fingerprint_preset` enum: `default`, `consistent`.
-- `identity_json` non-secret validated JSON.
-- `hardware_json` non-secret validated JSON.
-- `advanced_json` non-secret validated JSON.
+- `browser_version_mode` enum: `installed`, `pinned`.
+- `browser_version` nullable numeric version pin.
+- `user_agent_mode` enum: `automatic`, `custom`.
+- `custom_user_agent` nullable.
+- `location_json`, validated exact location schema containing geo, locale, timezone, WebRTC, and geolocation choices.
+- `window_json`, validated exact window-mode, dimensions, and color-scheme schema.
+- `behavior_json`, validated exact humanization, cache, tabs, downloads, permissions, HTTPS-error, hardware-concurrency, GPU, and additional-argument schema.
 - `proxy_id` nullable foreign key.
 - `test_proxy_before_launch` boolean.
 - `created_at`, `updated_at`, `last_opened_at`.
 - `total_runtime_seconds`.
 - `deleted_at` nullable.
+
+Profile rows never contain website credentials, 2FA secrets, cookies, local storage, proxy passwords, or raw authorization values.
 
 ### `folders`
 
