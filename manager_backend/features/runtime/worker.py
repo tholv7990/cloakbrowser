@@ -40,12 +40,25 @@ class ProfileWorker(threading.Thread):
             if runtime is not None:
                 transition_runtime(session, runtime, state, message=message)
 
+    def _record_browser_ownership(self, handle: Any) -> None:
+        browser_pid = getattr(handle, "browser_pid", None)
+        browser_created_at = getattr(handle, "browser_created_at", None)
+        if browser_pid is None or browser_created_at is None:
+            return
+        with self._session_factory() as session:
+            runtime = session.get(RuntimeSession, self.runtime_id)
+            if runtime is not None:
+                runtime.browser_pid = browser_pid
+                runtime.browser_created_at = browser_created_at
+                session.commit()
+
     def run(self) -> None:
         handle = None
         try:
             with self._launch_semaphore:
                 self._transition("starting")
                 handle = self._launcher.launch(self.snapshot)
+                self._record_browser_ownership(handle)
                 self._transition("running")
 
             while True:

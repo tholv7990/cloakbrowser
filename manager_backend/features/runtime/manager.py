@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import threading
+import os
+from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
+
+import psutil
 
 from ...config import ManagerSettings
 from ...errors import ManagerError
@@ -25,8 +30,15 @@ class RuntimeManager:
         self._session_factory = session_factory
         self._settings = settings
         self._launcher = launcher or CloakPersistentLauncher()
+        self._instance_id = str(uuid4())
+        self._process_id = os.getpid()
+        self._process_created_at = datetime.fromtimestamp(
+            psutil.Process(self._process_id).create_time(), timezone.utc
+        )
         self._lock_factory = lock_factory or (
-            lambda profile_id: ProfileFileLock(settings.profile_root / profile_id / ".runtime.lock")
+            lambda profile_id: ProfileFileLock(
+                settings.profile_root / profile_id / ".runtime.lock", profile_id
+            )
         )
         self._launch_semaphore = threading.BoundedSemaphore(settings.max_concurrent_launches)
         self._workers: dict[str, ProfileWorker] = {}
@@ -63,6 +75,11 @@ class RuntimeManager:
                 with self._session_factory() as session:
                     profile = get_profile(session, profile_id)
                     runtime = create_runtime_session(session, profile)
+                    runtime.manager_instance_id = self._instance_id
+                    runtime.manager_pid = self._process_id
+                    runtime.manager_created_at = self._process_created_at
+                    session.commit()
+                    session.refresh(runtime)
                     snapshot = self._snapshot(profile)
                     runtime_id = runtime.id
             except Exception:

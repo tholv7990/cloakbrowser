@@ -83,6 +83,12 @@ def test_start_and_stop_keep_launcher_on_worker_thread(db_session_factory, setti
     runtime = manager.start(profile_id)
     _wait_state(db_session_factory, runtime.id, "running")
 
+    with db_session_factory() as session:
+        stored = session.get(RuntimeSession, runtime.id)
+        assert stored.manager_instance_id
+        assert stored.manager_pid
+        assert stored.manager_created_at
+
     manager.stop(profile_id)
     _wait_state(db_session_factory, runtime.id, "stopped")
     assert launcher.launch_threads[profile_id] == launcher.handles[profile_id].close_thread

@@ -16,6 +16,7 @@ from .errors import install_error_handlers
 from .models import Base
 from .dependencies import require_authenticated_session
 from .features.runtime.manager import RuntimeManager
+from .features.runtime.reconcile import cleanup_stale_locks, reconcile_runtimes
 from .features.runtime.routes import runtime_to_dict
 from .auth.sessions import validate_session
 from .dependencies import SESSION_COOKIE
@@ -30,6 +31,13 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         try:
+            summary = reconcile_runtimes(
+                application.state.session_factory, application.state.settings
+            )
+            summary["stale_locks_removed"] = cleanup_stale_locks(
+                application.state.settings
+            )
+            application.state.runtime_reconciliation = summary
             yield
         finally:
             application.state.runtime_manager.shutdown()

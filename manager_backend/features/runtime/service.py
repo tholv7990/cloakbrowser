@@ -10,8 +10,8 @@ from ...models import Profile, RuntimeSession, utc_now
 
 ACTIVE_STATES = frozenset({"queued", "starting", "running", "stopping", "detached"})
 _TRANSITIONS = {
-    "queued": frozenset({"starting", "stopped", "crashed"}),
-    "starting": frozenset({"running", "stopping", "crashed"}),
+    "queued": frozenset({"starting", "stopped", "crashed", "detached"}),
+    "starting": frozenset({"running", "stopping", "crashed", "detached"}),
     "running": frozenset({"stopping", "crashed", "detached"}),
     "stopping": frozenset({"stopped", "crashed", "detached"}),
     "detached": frozenset({"stopping", "stopped", "crashed"}),
