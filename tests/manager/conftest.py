@@ -33,5 +33,17 @@ def client(settings):
 
 
 @pytest.fixture
-def auth_headers():
-    return {"Authorization": "Bearer test-local-token"}
+def auth_headers(client):
+    response = client.post(
+        "/api/v1/auth/setup",
+        headers={"Origin": "http://127.0.0.1:5173"},
+        json={
+            "email": "owner@example.com",
+            "password": "correct horse battery staple",
+        },
+    )
+    assert response.status_code == 201
+    return {
+        "Origin": "http://127.0.0.1:5173",
+        "X-CSRF-Token": response.json()["csrf_token"],
+    }

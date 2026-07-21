@@ -5,7 +5,7 @@ def test_health_rejects_missing_token(client):
     response = client.get("/api/v1/health")
 
     assert response.status_code == 401
-    assert response.json()["error"]["code"] == "invalid_local_token"
+    assert response.json()["error"]["code"] == "authentication_required"
     assert response.json()["error"]["request_id"]
 
 
