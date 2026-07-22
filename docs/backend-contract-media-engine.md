@@ -15,12 +15,20 @@ Add `media: bool` to `AppCapabilities` in `features/app/routes.py` (the frontend
 ## Endpoints (`features/media/routes.py`, prefix `/api/v1/media`)
 
 ```
-GET    /media/settings        -> 200 MediaSettings
-PATCH  /media/settings        -> 200 MediaSettings          # { enabled }
-GET    /media/assets          -> 200 MediaAsset[]
-POST   /media/assets          -> 201 MediaAsset             # register an asset
-DELETE /media/assets/{id}     -> 204
+GET    /media/settings                  -> 200 MediaSettings
+PATCH  /media/settings                  -> 200 MediaSettings   # { enabled }
+GET    /media/assets                    -> 200 MediaAsset[]
+POST   /media/assets                    -> 201 MediaAsset      # register an asset
+DELETE /media/assets/{id}               -> 204
+GET    /media/assets/{id}/assignments   -> 200 string[]        # assigned profile IDs
+PUT    /media/assets/{id}/assignments   -> 200 MediaAsset      # { profile_ids: string[] } → updated asset
 ```
+
+### Assignments (frontend built — `AssignMediaDialog.tsx`)
+
+- `GET /media/assets/{id}/assignments` returns the array of `profile_id`s currently assigned to the asset.
+- `PUT /media/assets/{id}/assignments` takes `{ "profile_ids": string[] }`, replaces the asset's assignment set, and returns the updated `MediaAsset` (with a recomputed `assigned_profile_count`). Validate that every id exists; ignore/prune unknown ids.
+- Back this with the `profile_media_asset` join table; `assigned_profile_count` is a COUNT over it. Deleting an asset (or a profile) must clear its rows.
 
 Same session/origin auth as other routes.
 
