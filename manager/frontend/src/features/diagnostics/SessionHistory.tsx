@@ -1,5 +1,8 @@
+import { useState } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { SessionExitReason } from '@/types/api';
 import { Badge, type Tone } from '@/components/ui/Badge';
+import { IconButton } from '@/components/ui/IconButton';
 import { LoadingBlock } from '@/components/ui/states';
 import { formatDuration, relativeTime } from '@/lib/format';
 import { useT, type TranslationKey } from '@/i18n';
@@ -13,10 +16,17 @@ const EXIT_TONE: Record<SessionExitReason, Tone> = {
   unknown: 'neutral',
 };
 
+const PAGE_SIZE = 8;
+
 export function SessionHistory() {
   const t = useT();
-  const sessions = useSessions();
+  const sessions = useSessions(100);
+  const [page, setPage] = useState(0);
   const rows = sessions.data ?? [];
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const current = Math.min(page, pageCount - 1); // clamp if the list shrank
+  const start = current * PAGE_SIZE;
+  const visible = rows.slice(start, start + PAGE_SIZE);
 
   return (
     <section className="rounded-lg border border-line bg-surface p-4">
@@ -42,7 +52,7 @@ export function SessionHistory() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((session) => (
+              {visible.map((session) => (
                 <tr key={session.id} className="border-b border-line/60">
                   <td className="max-w-[200px] truncate px-2 py-2 text-[13px] text-ink">
                     {session.profile_name}
@@ -71,6 +81,39 @@ export function SessionHistory() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {rows.length > PAGE_SIZE && (
+        <div className="mt-3 flex items-center justify-between border-t border-line pt-3 text-2xs text-ink-muted">
+          <span aria-live="polite">
+            {t('sess.page.showing', {
+              from: String(start + 1),
+              to: String(start + visible.length),
+              total: String(rows.length),
+            })}
+          </span>
+          <div className="flex items-center gap-2">
+            <IconButton
+              label={t('sess.page.prev')}
+              size="sm"
+              disabled={current <= 0}
+              onClick={() => setPage(current - 1)}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </IconButton>
+            <span className="min-w-[64px] text-center tabular-nums">
+              {current + 1} / {pageCount}
+            </span>
+            <IconButton
+              label={t('sess.page.next')}
+              size="sm"
+              disabled={current >= pageCount - 1}
+              onClick={() => setPage(current + 1)}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </IconButton>
+          </div>
         </div>
       )}
     </section>

@@ -2,11 +2,102 @@ from __future__ import annotations
 
 import json
 
+from manager_backend.features.runtime import launcher
 from manager_backend.features.runtime.launcher import (
     persistent_context_kwargs,
     seed_default_search_engine,
     urls_to_open,
 )
+
+
+class _FakeCDPSession:
+    def __init__(self, infos):
+        self._infos = infos
+        self.detached = False
+
+    def send(self, method, params=None):
+        assert method == "Target.getTargets"
+        return {"targetInfos": self._infos}
+
+    def detach(self):
+        self.detached = True
+
+
+class _FakeContext:
+    """Minimal stand-in for a Playwright persistent context.
+
+    Exposes `Target.getTargets` via a CDP session — the live source of truth for
+    open tabs that the handle snapshots — plus a non-empty `pages` list to bind to.
+    """
+
+    def __init__(self, target_urls, *, extra_infos=None):
+        self.target_infos = [{"type": "page", "url": u} for u in target_urls]
+        if extra_infos:
+            self.target_infos += list(extra_infos)
+        self.pages = [object()]
+        self.closed = False
+
+    def on(self, event, callback):
+        pass
+
+    def new_cdp_session(self, page):
+        return _FakeCDPSession(self.target_infos)
+
+    def close(self):
+        self.closed = True
+
+
+def _handle(monkeypatch, context, udd):
+    # Skip the real psutil process scan; we drive liveness via pid_exists below.
+    monkeypatch.setattr(
+        launcher._PersistentContextHandle, "_locate_browser", lambda self: False
+    )
+    handle = launcher._PersistentContextHandle(context, str(udd))
+    handle.browser_pid = 4242
+    handle._last_probe = -1e9  # force the throttled probe to run
+    return handle
+
+
+def test_direct_window_close_still_restores_tabs(tmp_path, monkeypatch):
+    # Reproduces the bug: user closes the window with the X (never the manager's
+    # Stop), so close() no-ops — yet the tabs must survive because a periodic
+    # snapshot captured them while the browser was alive.
+    udd = tmp_path / "user-data"
+    udd.mkdir(parents=True)
+    context = _FakeContext(
+        ["https://a.example/", "https://b.example/"],
+        extra_infos=[{"type": "page", "url": "chrome://newtab/"}],  # internal, filtered
+    )
+    handle = _handle(monkeypatch, context, udd)
+
+    monkeypatch.setattr(launcher.psutil, "pid_exists", lambda pid: True)
+    assert handle.is_closed() is False  # alive -> snapshots the live tabs
+    saved = json.loads((tmp_path / "last-session.json").read_text())
+    assert saved["urls"] == ["https://a.example/", "https://b.example/"]
+
+    # User closes the window directly: the process is gone.
+    monkeypatch.setattr(launcher.psutil, "pid_exists", lambda pid: False)
+    handle._last_probe = -1e9
+    assert handle.is_closed() is True
+    handle.close()  # no-op (already closed), must not wipe the snapshot
+    saved = json.loads((tmp_path / "last-session.json").read_text())
+    assert saved["urls"] == ["https://a.example/", "https://b.example/"]
+
+
+def test_snapshot_never_wipes_session_with_empty(tmp_path, monkeypatch):
+    # A snapshot that sees only internal tabs must never overwrite a good session
+    # (guards a close-race from blanking the restore list).
+    udd = tmp_path / "user-data"
+    udd.mkdir(parents=True)
+    (tmp_path / "last-session.json").write_text(
+        json.dumps({"urls": ["https://keep.example/"]}), encoding="utf-8"
+    )
+    context = _FakeContext([], extra_infos=[{"type": "page", "url": "chrome://newtab/"}])
+    handle = _handle(monkeypatch, context, udd)
+    monkeypatch.setattr(launcher.psutil, "pid_exists", lambda pid: True)
+    handle.is_closed()
+    saved = json.loads((tmp_path / "last-session.json").read_text())
+    assert saved["urls"] == ["https://keep.example/"]
 
 
 def _search(prefs):

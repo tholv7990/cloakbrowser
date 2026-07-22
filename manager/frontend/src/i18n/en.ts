@@ -712,6 +712,9 @@ export const en = {
   'sess.exit.crashed': 'Crashed',
   'sess.exit.timeout': 'Timed out',
   'sess.exit.unknown': 'Unknown',
+  'sess.page.showing': 'Showing {from}–{to} of {total}',
+  'sess.page.prev': 'Previous page',
+  'sess.page.next': 'Next page',
 
   'bkp.title': 'Backups',
   'bkp.desc':
