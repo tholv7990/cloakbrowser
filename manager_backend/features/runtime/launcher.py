@@ -196,6 +196,8 @@ class _PersistentContextHandle:
         self.browser_pid: int | None = None
         self.browser_created_at: datetime | None = None
         self._last_probe = 0.0
+        self._cdp_session: Any | None = None
+        self._last_saved_urls: list[str] | None = None
         self._locate_browser()
         context.on("close", self._mark_closed)
 
@@ -224,26 +226,55 @@ class _PersistentContextHandle:
     def _mark_closed(self, *_args: Any) -> None:
         self._closed = True
 
-    def _save_session(self) -> None:
-        """Persist the open tab URLs so the next launch reopens them."""
+    def _cdp(self) -> Any | None:
+        """A reusable CDP session bound to any live page (rebuilt if it dies)."""
+        if self._cdp_session is not None:
+            return self._cdp_session
+        pages = self._context.pages
+        if not pages:
+            return None
         try:
-            urls: list[str] = []
-            for page in self._context.pages:
-                try:
-                    url = page.url
-                except Exception:
-                    continue
-                if url and not url.startswith(_INTERNAL_URL_PREFIXES):
-                    urls.append(url)
-            (self._profile_dir / _SESSION_FILE).write_text(
-                json.dumps({"urls": urls}), encoding="utf-8"
-            )
+            self._cdp_session = self._context.new_cdp_session(pages[0])
         except Exception:
-            pass  # never let session capture block a clean stop
+            self._cdp_session = None
+        return self._cdp_session
+
+    def _snapshot_session(self) -> None:
+        """Capture the live tab URLs so a direct window close still restores them.
+
+        Reads them via CDP ``Target.getTargets`` — the browser's own list, fresh
+        every call — instead of Playwright's page cache, which the runtime worker
+        thread never pumps (so it would miss user-opened tabs and navigations).
+        Never writes an empty set, so a close-race can't wipe a good session.
+        """
+        try:
+            session = self._cdp()
+            if session is None:
+                return
+            infos = session.send("Target.getTargets").get("targetInfos", [])
+        except Exception:
+            self._cdp_session = None  # bound page likely gone — rebuild next probe
+            return
+        urls = [
+            info["url"]
+            for info in infos
+            if info.get("type") == "page"
+            and isinstance(info.get("url"), str)
+            and info["url"]
+            and not info["url"].startswith(_INTERNAL_URL_PREFIXES)
+        ]
+        if urls and urls != self._last_saved_urls:
+            try:
+                (self._profile_dir / _SESSION_FILE).write_text(
+                    json.dumps({"urls": urls}), encoding="utf-8"
+                )
+                self._last_saved_urls = urls
+            except OSError:
+                pass  # never let session capture block the run
 
     def close(self) -> None:
         if not self._closed:
-            self._save_session()
+            self._snapshot_session()  # final fresh capture (browser may still be up)
             try:
                 self._context.close()
             except Exception:
@@ -262,11 +293,13 @@ class _PersistentContextHandle:
         self._last_probe = now
         if self.browser_pid is not None:
             if psutil.pid_exists(self.browser_pid):
+                self._snapshot_session()  # alive: keep the tab list fresh on disk
                 return False
             self._closed = True
             return True
         # Never captured a pid — re-scan; if nothing owns the dir, it's gone.
         if self._locate_browser():
+            self._snapshot_session()
             return False
         self._closed = True
         return True
