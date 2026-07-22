@@ -6,7 +6,7 @@
  * docs/frontend-backend-contract-questions.md). Events are treated as
  * invalidation/status signals; on reconnect the client refetches server state.
  */
-import type { Proxy, ProfileRead, RuntimeState } from './api';
+import type { DiagnosticKind, DiagnosticStatus, Proxy, ProfileRead, RuntimeState } from './api';
 
 export type EventName =
   | 'profile.created'
@@ -67,14 +67,13 @@ export interface ProxyTestCompletedData {
 }
 export interface DiagnosticProgressData {
   diagnostic_id: string;
-  phase: string;
+  profile_id: string | null;
+  kind: DiagnosticKind;
+  status: DiagnosticStatus;
   progress: number;
-  message: string;
+  error_code: string | null;
 }
-export interface DiagnosticCompletedData {
-  diagnostic_id: string;
-  state: 'completed' | 'failed';
-}
+export type DiagnosticCompletedData = DiagnosticProgressData;
 export interface ReconciliationCompletedData {
   changed_profile_ids: string[];
 }
@@ -83,6 +82,7 @@ export interface ReconciliationCompletedData {
  * re-sent whenever any changes. `state` uses the backend vocabulary. */
 export interface RuntimeSnapshotData {
   runtimes: { profile_id: string; state: string; last_message: string | null }[];
+  running_session_count: number;
 }
 
 export type AppEvent =

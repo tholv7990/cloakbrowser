@@ -3,11 +3,13 @@ import { Badge, StatusDot, type Tone } from '@/components/ui/Badge';
 import { useT, type TranslationKey } from '@/i18n';
 
 const RUNTIME: Record<RuntimeState, { tone: Tone; labelKey: TranslationKey; pulse?: boolean }> = {
+  queued: { tone: 'info', labelKey: 'enum.runtime.queued', pulse: true },
   stopped: { tone: 'neutral', labelKey: 'enum.runtime.stopped' },
   starting: { tone: 'info', labelKey: 'enum.runtime.starting', pulse: true },
   running: { tone: 'success', labelKey: 'enum.runtime.running', pulse: true },
   stopping: { tone: 'warning', labelKey: 'enum.runtime.stopping', pulse: true },
   crashed: { tone: 'danger', labelKey: 'enum.runtime.crashed' },
+  detached: { tone: 'warning', labelKey: 'enum.runtime.detached' },
 };
 
 export function RuntimeBadge({ state }: { state: RuntimeState }) {

@@ -223,9 +223,7 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
             />
           </div>
           {selected.assigned_profile_count > (refs.isEdit ? 1 : 0) && (
-            <Warning>
-              {t('editor.proxyShared', { count: selected.assigned_profile_count })}
-            </Warning>
+            <Warning>{t('editor.proxyShared', { count: selected.assigned_profile_count })}</Warning>
           )}
         </div>
       )}
@@ -342,7 +340,10 @@ const IdentityStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
           ]}
         />
         {versionMode === 'pinned' && (
-          <Field label={t('editor.pinnedVersion')} error={formState.errors.browser_version?.message}>
+          <Field
+            label={t('editor.pinnedVersion')}
+            error={formState.errors.browser_version?.message}
+          >
             <Input mono placeholder="146.0.7680.177" {...register('browser_version')} />
           </Field>
         )}
@@ -357,7 +358,10 @@ const IdentityStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
         ]}
       />
       {uaMode === 'custom' && (
-        <Field label={t('editor.customUserAgent')} error={formState.errors.custom_user_agent?.message}>
+        <Field
+          label={t('editor.customUserAgent')}
+          error={formState.errors.custom_user_agent?.message}
+        >
           <Textarea rows={2} className="font-mono text-[12px]" {...register('custom_user_agent')} />
         </Field>
       )}
@@ -427,6 +431,7 @@ const ExtensionsStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
   const { control } = useFormContext<ProfileWizardValues>();
   return (
     <div className="space-y-3">
+      {refs.isEdit && <Warning>{t('editor.extensionAssignmentUnavailable')}</Warning>}
       <Controller
         control={control}
         name="extension_ids"
@@ -444,7 +449,7 @@ const ExtensionsStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
                 >
                   <div>
                     <p className="text-[13px] text-ink">{ext.name}</p>
-                    <p className="data text-2xs text-ink-faint">{ext.path}</p>
+                    <p className="data text-2xs text-ink-faint">{ext.directory}</p>
                   </div>
                   <input
                     type="checkbox"

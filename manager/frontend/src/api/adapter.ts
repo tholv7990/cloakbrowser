@@ -24,6 +24,10 @@ import type {
   CreatePlanPayload,
   CredentialPoolSummary,
   DiagnosticRun,
+  DiagnosticKind,
+  DiagnosticListParams,
+  DownloadFile,
+  Extension,
   MediaAsset,
   MediaSettings,
   ProductCatalog,
@@ -43,6 +47,7 @@ import type {
   ProfileListParams,
   ProfileLogs,
   ProfileRead,
+  ProfileImportResult,
   ProfileUpdatePayload,
   ParsedProxy,
   Proxy,
@@ -87,10 +92,12 @@ export interface ApiAdapter {
   focusWindow(id: string): Promise<{ ok: boolean }>;
   moveProfileToTrash(id: string): Promise<{ ok: boolean }>;
   restoreProfile(id: string): Promise<ProfileRead>;
-  getProfileLogs(id: string): Promise<ProfileLogs>;
-  exportProfile(id: string): Promise<Record<string, unknown>>;
-  importProfile(payload: Record<string, unknown>): Promise<ProfileRead>;
+  getProfileLogs(id: string, params?: { page?: number; page_size?: number }): Promise<ProfileLogs>;
+  exportProfile(id: string): Promise<DownloadFile>;
+  importProfile(payload: Record<string, unknown>): Promise<ProfileImportResult>;
   importCookies(id: string, payload: CookieImportPayload): Promise<CookieImportResult>;
+  exportCookies(id: string, format: 'playwright' | 'netscape'): Promise<DownloadFile>;
+  openProfileDirectory(id: string): Promise<{ profile_directory: string }>;
   bulkProfiles(request: BulkProfileRequest): Promise<BulkProfileResult>;
 
   // Folders / tags / statuses
@@ -102,6 +109,13 @@ export interface ApiAdapter {
   listTags(): Promise<Tag[]>;
   createTag(payload: { name: string; color?: string }): Promise<Tag>;
   listWorkflowStatuses(): Promise<WorkflowStatus[]>;
+
+  // Local unpacked extensions
+  listExtensions(): Promise<Extension[]>;
+  registerExtension(directory: string): Promise<Extension>;
+  updateExtension(id: string, patch: { enabled?: boolean; refresh?: boolean }): Promise<Extension>;
+  unregisterExtension(id: string): Promise<void>;
+  setProfileExtensions(id: string, extensionIds: string[]): Promise<{ extension_ids: string[] }>;
 
   // Proxies
   listProxies(): Promise<Proxy[]>;
@@ -115,10 +129,15 @@ export interface ApiAdapter {
   getProxyReports(id: string): Promise<ProxyQualityReport[]>;
 
   // Diagnostics / settings
-  listDiagnostics(): Promise<DiagnosticRun[]>;
+  listDiagnostics(params?: DiagnosticListParams): Promise<Paginated<DiagnosticRun>>;
   getDiagnostic(id: string): Promise<DiagnosticRun>;
   runDirectGoogleControl(): Promise<DiagnosticRun>;
   runPixelscan(profileId: string): Promise<DiagnosticRun>;
+  runDiagnostic(
+    kind: Exclude<DiagnosticKind, 'direct_google_control'>,
+    profileId: string,
+  ): Promise<DiagnosticRun>;
+  cancelDiagnostic(id: string): Promise<DiagnosticRun>;
   getSettings(): Promise<Settings>;
   updateSettings(patch: Partial<Settings>): Promise<Settings>;
   checkBrowserUpdate(): Promise<Settings>;
@@ -169,7 +188,9 @@ export interface ApiAdapter {
   updateStoreProfile(id: string, patch: Partial<StoreProfile>): Promise<StoreProfile>;
 
   getAiSettings(): Promise<AiImageSettings>;
-  updateAiSettings(patch: Partial<AiImageSettings> & { api_key?: string }): Promise<AiImageSettings>;
+  updateAiSettings(
+    patch: Partial<AiImageSettings> & { api_key?: string },
+  ): Promise<AiImageSettings>;
 
   getThemeLibrary(storeId: string): Promise<ThemeLibrary>;
   inspectProductCsv(storeId: string, content: string): Promise<ProductCsvInspection>;

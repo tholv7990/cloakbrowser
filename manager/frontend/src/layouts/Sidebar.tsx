@@ -7,6 +7,7 @@ import {
   Clapperboard,
   PanelLeftClose,
   PanelLeftOpen,
+  Puzzle,
   ShoppingBag,
   Users,
   Workflow,
@@ -20,17 +21,19 @@ import type { AppCapabilities } from '@/types/api';
 import { useT, type TranslationKey } from '@/i18n';
 import { cn } from '@/lib/cn';
 
-const NAV: { to: string; key: TranslationKey; icon: typeof Users; cap?: keyof AppCapabilities }[] = [
-  { to: '/profiles', key: 'nav.profiles', icon: Users },
-  { to: '/folders', key: 'nav.folders', icon: FolderClosed, cap: 'catalogs' },
-  { to: '/proxies', key: 'nav.proxies', icon: Globe, cap: 'proxy_management' },
-  { to: '/automation', key: 'nav.automation', icon: Workflow, cap: 'automation' },
-  { to: '/shopify', key: 'nav.shopify', icon: ShoppingBag, cap: 'shopify_builder' },
-  { to: '/media', key: 'nav.media', icon: Clapperboard, cap: 'media' },
-  { to: '/diagnostics', key: 'nav.diagnostics', icon: Activity, cap: 'fingerprint_diagnostics' },
-  { to: '/resources', key: 'nav.resources', icon: Gauge, cap: 'browser_runtime' },
-  { to: '/settings', key: 'nav.settings', icon: SettingsIcon, cap: 'settings' },
-];
+const NAV: { to: string; key: TranslationKey; icon: typeof Users; cap?: keyof AppCapabilities }[] =
+  [
+    { to: '/profiles', key: 'nav.profiles', icon: Users },
+    { to: '/folders', key: 'nav.folders', icon: FolderClosed, cap: 'catalogs' },
+    { to: '/proxies', key: 'nav.proxies', icon: Globe, cap: 'proxy_management' },
+    { to: '/extensions', key: 'nav.extensions', icon: Puzzle, cap: 'profiles' },
+    { to: '/automation', key: 'nav.automation', icon: Workflow, cap: 'automation' },
+    { to: '/shopify', key: 'nav.shopify', icon: ShoppingBag, cap: 'shopify_builder' },
+    { to: '/media', key: 'nav.media', icon: Clapperboard, cap: 'media' },
+    { to: '/diagnostics', key: 'nav.diagnostics', icon: Activity, cap: 'fingerprint_diagnostics' },
+    { to: '/resources', key: 'nav.resources', icon: Gauge, cap: 'browser_runtime' },
+    { to: '/settings', key: 'nav.settings', icon: SettingsIcon, cap: 'settings' },
+  ];
 
 export function Sidebar() {
   const collapsed = useUiStore((state) => state.sidebarCollapsed);

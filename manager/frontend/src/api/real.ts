@@ -16,6 +16,7 @@ import type {
   CookieImportResult,
   CredentialPoolSummary,
   DiagnosticRun,
+  Extension,
   MediaAsset,
   MediaSettings,
   ProductCatalog,
@@ -33,6 +34,7 @@ import type {
   ProfileListParams,
   ProfileLogs,
   ProfileRead,
+  ProfileImportResult,
   ProfileUpdatePayload,
   ParsedProxy,
   Proxy,
@@ -45,7 +47,7 @@ import type {
   WorkflowStatus,
 } from '@/types/api';
 import type { ApiAdapter } from './adapter';
-import { apiRequest } from './http';
+import { apiDownload, apiRequest } from './http';
 
 export const realApi: ApiAdapter = {
   mode: 'real',
@@ -94,14 +96,21 @@ export const realApi: ApiAdapter = {
   focusWindow: (id) => apiRequest(`/profiles/${id}/focus-window`, { method: 'POST' }),
   moveProfileToTrash: (id) => apiRequest(`/profiles/${id}/move-to-trash`, { method: 'POST' }),
   restoreProfile: (id) => apiRequest<ProfileRead>(`/profiles/${id}/restore`, { method: 'POST' }),
-  getProfileLogs: (id) => apiRequest<ProfileLogs>(`/profiles/${id}/logs`),
-  exportProfile: (id) => apiRequest<Record<string, unknown>>(`/profiles/${id}/export`),
+  getProfileLogs: (id, params = {}) =>
+    apiRequest<ProfileLogs>(`/profiles/${id}/logs`, { query: params }),
+  exportProfile: (id) => apiDownload(`/profiles/${id}/export`),
   importProfile: (payload) =>
-    apiRequest<ProfileRead>('/profiles/import', { method: 'POST', body: payload }),
+    apiRequest<ProfileImportResult>('/profiles/import', { method: 'POST', body: payload }),
   importCookies: (id, payload: CookieImportPayload) =>
     apiRequest<CookieImportResult>(`/profiles/${id}/cookies/import`, {
       method: 'POST',
       body: payload,
+    }),
+  exportCookies: (id, format) =>
+    apiDownload(`/profiles/${id}/cookies/export`, { query: { format } }),
+  openProfileDirectory: (id) =>
+    apiRequest<{ profile_directory: string }>(`/profiles/${id}/open-directory`, {
+      method: 'POST',
     }),
   bulkProfiles: (request: BulkProfileRequest) =>
     apiRequest<BulkProfileResult>('/profiles/bulk', { method: 'POST', body: request }),
@@ -117,6 +126,18 @@ export const realApi: ApiAdapter = {
   createTag: (payload) => apiRequest<Tag>('/tags', { method: 'POST', body: payload }),
   listWorkflowStatuses: () => apiRequest<WorkflowStatus[]>('/workflow-statuses'),
 
+  listExtensions: () => apiRequest<Extension[]>('/extensions'),
+  registerExtension: (directory) =>
+    apiRequest<Extension>('/extensions', { method: 'POST', body: { directory } }),
+  updateExtension: (id, patch) =>
+    apiRequest<Extension>(`/extensions/${id}`, { method: 'PATCH', body: patch }),
+  unregisterExtension: (id) => apiRequest<void>(`/extensions/${id}`, { method: 'DELETE' }),
+  setProfileExtensions: (id, extensionIds) =>
+    apiRequest<{ extension_ids: string[] }>(`/profiles/${id}/extensions`, {
+      method: 'PUT',
+      body: { extension_ids: extensionIds },
+    }),
+
   listProxies: () => apiRequest<Proxy[]>('/proxies'),
   getProxy: (id) => apiRequest<Proxy>(`/proxies/${id}`),
   createProxy: (payload: ProxyWritePayload) =>
@@ -131,7 +152,16 @@ export const realApi: ApiAdapter = {
     apiRequest<ProxyQualityReport>(`/proxies/${id}/quality-test`, { method: 'POST' }),
   getProxyReports: (id) => apiRequest<ProxyQualityReport[]>(`/proxies/${id}/reports`),
 
-  listDiagnostics: () => apiRequest<DiagnosticRun[]>('/diagnostics'),
+  listDiagnostics: (params = {}) =>
+    apiRequest<Paginated<DiagnosticRun>>('/diagnostics', {
+      query: {
+        profile: params.profile,
+        kind: params.kind,
+        status: params.status,
+        page: params.page,
+        page_size: params.page_size,
+      },
+    }),
   getDiagnostic: (id) => apiRequest<DiagnosticRun>(`/diagnostics/${id}`),
   runDirectGoogleControl: () =>
     apiRequest<DiagnosticRun>('/diagnostics/direct-google-control', { method: 'POST' }),
@@ -140,6 +170,13 @@ export const realApi: ApiAdapter = {
       method: 'POST',
       body: { profile_id: profileId },
     }),
+  runDiagnostic: (kind, profileId) =>
+    apiRequest<DiagnosticRun>(`/diagnostics/${kind === 'google_search' ? 'google-search' : kind}`, {
+      method: 'POST',
+      body: { profile_id: profileId },
+    }),
+  cancelDiagnostic: (id) =>
+    apiRequest<DiagnosticRun>(`/diagnostics/${id}/cancel`, { method: 'POST' }),
   getSettings: () => apiRequest<Settings>('/settings'),
   updateSettings: (patch: Partial<Settings>) =>
     apiRequest<Settings>('/settings', { method: 'PATCH', body: patch }),
@@ -155,8 +192,7 @@ export const realApi: ApiAdapter = {
       method: 'PUT',
       body: payload,
     }),
-  deleteTemplate: (id) =>
-    apiRequest<void>(`/automations/templates/${id}`, { method: 'DELETE' }),
+  deleteTemplate: (id) => apiRequest<void>(`/automations/templates/${id}`, { method: 'DELETE' }),
 
   startRecording: (payload) =>
     apiRequest<AutomationRecording>('/automations/recordings', { method: 'POST', body: payload }),
@@ -172,7 +208,8 @@ export const realApi: ApiAdapter = {
       body: payload,
     }),
   getRun: (id) => apiRequest<AutomationRun>(`/automations/runs/${id}`),
-  cancelRun: (id) => apiRequest<AutomationRun>(`/automations/runs/${id}/cancel`, { method: 'POST' }),
+  cancelRun: (id) =>
+    apiRequest<AutomationRun>(`/automations/runs/${id}/cancel`, { method: 'POST' }),
   continueRunProfile: (runId, profileId) =>
     apiRequest<AutomationRun>(`/automations/runs/${runId}/profiles/${profileId}/continue`, {
       method: 'POST',
@@ -210,8 +247,7 @@ export const realApi: ApiAdapter = {
       method: 'PUT',
       body: { proxy_id: proxyId },
     }),
-  deleteStore: (id) =>
-    apiRequest<void>(`/shopify-builder/stores/${id}`, { method: 'DELETE' }),
+  deleteStore: (id) => apiRequest<void>(`/shopify-builder/stores/${id}`, { method: 'DELETE' }),
   getStoreProfile: (id) => apiRequest<StoreProfile>(`/shopify-builder/stores/${id}/profile`),
   updateStoreProfile: (id, patch) =>
     apiRequest<StoreProfile>(`/shopify-builder/stores/${id}/profile`, {

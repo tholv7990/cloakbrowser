@@ -16,6 +16,7 @@ function titleKey(pathname: string): TranslationKey {
   if (/^\/profiles\/[^/]+\/edit/.test(pathname)) return 'title.editProfile';
   if (pathname.startsWith('/folders')) return 'title.folders';
   if (pathname.startsWith('/proxies')) return 'title.proxies';
+  if (pathname.startsWith('/extensions')) return 'title.extensions';
   if (pathname.startsWith('/automation')) return 'title.automation';
   if (pathname.startsWith('/shopify')) return 'title.shopify';
   if (pathname.startsWith('/media')) return 'title.media';

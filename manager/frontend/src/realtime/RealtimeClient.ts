@@ -16,6 +16,50 @@ type StateListener = (state: ConnectionState) => void;
 
 const MAX_BACKOFF_MS = 15_000;
 
+export function normalizeRealtimeFrame(parsed: unknown): AppEvent | null {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const frame = parsed as Record<string, unknown>;
+  if (typeof frame.event === 'string') return frame as unknown as AppEvent;
+  const sequence = typeof frame.sequence === 'number' ? frame.sequence : 0;
+  if (frame.type === 'runtime.snapshot' && Array.isArray(frame.runtimes)) {
+    return {
+      event: 'runtime.snapshot',
+      sequence,
+      timestamp: new Date().toISOString(),
+      data: {
+        runtimes: frame.runtimes as {
+          profile_id: string;
+          state: string;
+          last_message: string | null;
+        }[],
+        running_session_count:
+          typeof frame.running_session_count === 'number' ? frame.running_session_count : 0,
+      },
+    };
+  }
+  if (
+    (frame.type === 'diagnostic.progress' || frame.type === 'diagnostic.completed') &&
+    frame.diagnostic &&
+    typeof frame.diagnostic === 'object'
+  ) {
+    const diagnostic = frame.diagnostic as Record<string, unknown>;
+    return {
+      event: frame.type,
+      sequence,
+      timestamp: new Date().toISOString(),
+      data: {
+        diagnostic_id: String(diagnostic.id ?? ''),
+        profile_id: typeof diagnostic.profile_id === 'string' ? diagnostic.profile_id : null,
+        kind: diagnostic.kind,
+        status: diagnostic.status,
+        progress: typeof diagnostic.progress === 'number' ? diagnostic.progress : 0,
+        error_code: typeof diagnostic.error_code === 'string' ? diagnostic.error_code : null,
+      },
+    } as AppEvent;
+  }
+  return null;
+}
+
 export class RealtimeClient {
   private ws: WebSocket | null = null;
   private mockUnsub: (() => void) | null = null;
@@ -85,20 +129,8 @@ export class RealtimeClient {
     socket.onmessage = (message) => {
       try {
         const parsed = JSON.parse(message.data);
-        // Mock-style per-event envelope.
-        if (parsed && typeof parsed.event === 'string') {
-          this.bus.emit(parsed as AppEvent);
-          return;
-        }
-        // Real backend runtime snapshot: { sequence, type: "runtime.snapshot", runtimes: [...] }.
-        if (parsed && parsed.type === 'runtime.snapshot' && Array.isArray(parsed.runtimes)) {
-          this.bus.emit({
-            event: 'runtime.snapshot',
-            sequence: typeof parsed.sequence === 'number' ? parsed.sequence : 0,
-            timestamp: new Date().toISOString(),
-            data: { runtimes: parsed.runtimes },
-          });
-        }
+        const event = normalizeRealtimeFrame(parsed);
+        if (event) this.bus.emit(event);
       } catch {
         // Ignore malformed frames; the backend is authoritative on refetch.
       }

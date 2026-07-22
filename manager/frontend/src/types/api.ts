@@ -18,7 +18,8 @@
 export type FingerprintPreset = 'default' | 'consistent';
 
 /** Backend runtime_state enum (no `unreachable`; that is a reconciliation state). */
-export type RuntimeState = 'stopped' | 'starting' | 'running' | 'stopping' | 'crashed';
+export type RuntimeState =
+  'queued' | 'stopped' | 'starting' | 'running' | 'stopping' | 'crashed' | 'detached';
 
 export type ProxyScheme = 'direct' | 'http' | 'https' | 'socks5' | 'socks5h';
 export type ProxyType = 'residential' | 'datacenter' | 'mobile' | 'isp' | 'hosting' | 'unknown';
@@ -70,9 +71,13 @@ export interface WorkflowStatus {
 export interface Extension {
   id: string;
   name: string;
-  path: string;
+  directory: string;
+  version: string;
+  description: string;
   manifest_version: number;
+  permissions: string[];
   enabled: boolean;
+  manifest_hash: string;
   created_at: string;
   updated_at: string;
 }
@@ -234,11 +239,14 @@ export interface ProfileWrite {
 }
 
 export type ProfileCreatePayload = ProfileWrite;
-export type ProfileUpdatePayload = ProfileWrite;
+export type ProfileUpdatePayload = Partial<Omit<ProfileWrite, 'fingerprint_seed'>> & {
+  expected_updated_at: string;
+};
 
 /** ProfileRead — the single profile shape returned for list and detail. */
 export interface ProfileRead extends ProfileWrite {
   id: string;
+  profile_directory: string;
   fingerprint_seed: string;
   fingerprint_revision: number;
   fingerprint_config_hash: string;
@@ -329,8 +337,37 @@ export interface CookieImportPayload {
 export interface CookieImportResult {
   imported_count: number;
   skipped_count: number;
+  rejected_count: number;
   format: CookieFormat;
-  warnings: string[];
+  warnings: { index: number; code: string }[];
+}
+
+export interface DownloadFile {
+  blob: Blob;
+  filename: string;
+}
+
+export interface ProfileImportWarning {
+  code:
+    | 'proxy_assignment_skipped'
+    | 'extension_missing'
+    | 'extension_ambiguous'
+    | 'chrome_extension_startup_url_skipped';
+  message: string;
+}
+
+export interface ProfileImportResult {
+  profile_id: string;
+  profile_name: string;
+  warnings: ProfileImportWarning[];
+}
+
+export interface DiagnosticListParams {
+  profile?: string;
+  kind?: DiagnosticKind;
+  status?: DiagnosticStatus;
+  page?: number;
+  page_size?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -418,6 +455,7 @@ export interface AppBootstrap {
   platform: string;
   owner_email: string;
   capabilities: AppCapabilities;
+  running_session_count: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -514,12 +552,7 @@ export interface AutomationRecording {
 }
 
 export type RunItemStatus =
-  | 'pending'
-  | 'running'
-  | 'attention'
-  | 'completed'
-  | 'failed'
-  | 'cancelled';
+  'pending' | 'running' | 'attention' | 'completed' | 'failed' | 'cancelled';
 
 export interface AutomationRunItem {
   profile_id: string;
@@ -608,11 +641,7 @@ export interface StartFactoryPayload {
 // ---------------------------------------------------------------------------
 
 export type StoreCapabilityKey =
-  | 'write_products'
-  | 'write_pages'
-  | 'write_legal_policies'
-  | 'write_navigation'
-  | 'write_themes';
+  'write_products' | 'write_pages' | 'write_legal_policies' | 'write_navigation' | 'write_themes';
 
 export interface ShopifyStore {
   id: string;
@@ -787,34 +816,51 @@ export interface CreateMediaAssetPayload {
 // ---------------------------------------------------------------------------
 
 export type DiagnosticKind =
-  | 'proxy_quality'
-  | 'pixelscan'
-  | 'direct_google_control'
-  | 'launch_failure'
-  | 'fingerprint_verification';
+  'direct_google_control' | 'pixelscan' | 'iphey' | 'cloudflare' | 'google_search';
+
+export type DiagnosticStatus = 'queued' | 'running' | 'passed' | 'warning' | 'failed' | 'cancelled';
+
+export type DiagnosticErrorCode =
+  | 'diagnostic_failed'
+  | 'manager_restarted'
+  | 'scheduler_unavailable'
+  | 'browser_crashed'
+  | 'cleanup_failed'
+  | 'profile_not_stopped'
+  | 'proxy_preflight_failed'
+  | 'network_error'
+  | 'timeout'
+  | 'target_layout_changed'
+  | 'captcha_user_action_required';
 
 export interface DiagnosticRun {
   id: string;
   kind: DiagnosticKind;
-  proxy_id: string | null;
   profile_id: string | null;
-  state: 'queued' | 'running' | 'completed' | 'failed';
-  summary: string;
-  artifact_path: string | null;
-  created_at: string;
-  updated_at: string;
+  status: DiagnosticStatus;
+  target_url: string;
+  requested_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  progress: number;
+  summary: string | null;
+  findings: Record<string, boolean | string>;
+  screenshot_path: string | null;
+  report_path: string | null;
+  error_code: DiagnosticErrorCode | null;
+  error_message: string | null;
 }
 
 export interface ProfileLogEntry {
-  timestamp: string;
+  id: string;
+  profile_id: string;
+  created_at: string;
   level: 'debug' | 'info' | 'warning' | 'error';
+  event: string;
   message: string;
 }
 
-export interface ProfileLogs {
-  profile_id: string;
-  entries: ProfileLogEntry[];
-}
+export type ProfileLogs = Paginated<ProfileLogEntry>;
 
 // ---------------------------------------------------------------------------
 // Envelopes
@@ -833,7 +879,7 @@ export interface ApiErrorBody {
   error: {
     code: string;
     message: string;
-    field_errors: Record<string, string[]>;
+    field_errors: Record<string, unknown>;
     request_id: string;
   };
 }

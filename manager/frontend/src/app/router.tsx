@@ -6,6 +6,7 @@ import { ProfileWizardPage } from '@/features/profile-editor/ProfileWizardPage';
 import { ProxiesPage } from '@/features/proxies/ProxiesPage';
 import { FoldersPage } from '@/features/folders/FoldersPage';
 import { DiagnosticsPage } from '@/features/diagnostics/DiagnosticsPage';
+import { ExtensionsPage } from '@/features/extensions/ExtensionsPage';
 import { ResourcesPage } from '@/features/diagnostics/ResourcesPage';
 import { AutomationPage } from '@/features/automation/AutomationPage';
 import { ShopifyPage } from '@/features/shopify/ShopifyPage';
@@ -61,6 +62,14 @@ export const router = createBrowserRouter([
         element: (
           <RequireCapability cap="proxy_management">
             <ProxiesPage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: 'extensions',
+        element: (
+          <RequireCapability cap="profiles">
+            <ExtensionsPage />
           </RequireCapability>
         ),
       },

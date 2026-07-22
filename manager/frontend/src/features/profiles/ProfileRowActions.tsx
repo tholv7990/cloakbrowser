@@ -68,7 +68,7 @@ export function ProfileRowActions({
 
   const running = profile.runtime_state === 'running';
   const busy = profile.runtime_state === 'starting' || profile.runtime_state === 'stopping';
-  const path = `${profileRoot}\\${profile.id}`;
+  const path = profile.read.profile_directory || `${profileRoot}\\${profile.id}`;
   const launchExample = `python -m cloakbrowser.manager start --profile ${profile.id}`;
 
   const refreshGeoip = async () => {
@@ -83,6 +83,19 @@ export function ProfileRowActions({
     } catch (error) {
       toast({
         title: t('row.geoipFailed'),
+        description: (error as Error).message,
+        tone: 'danger',
+      });
+    }
+  };
+
+  const openDirectory = async () => {
+    try {
+      await api.openProfileDirectory(profile.id);
+      toast({ title: t('row.folderOpened'), tone: 'success' });
+    } catch (error) {
+      toast({
+        title: t('row.folderOpenFailed'),
         description: (error as Error).message,
         tone: 'danger',
       });
@@ -146,10 +159,7 @@ export function ProfileRowActions({
         >
           {t('row.exportConfig')}
         </MenuItem>
-        <MenuItem
-          icon={<FolderOpen className="h-4 w-4" />}
-          onSelect={() => copy(path, 'profile path')}
-        >
+        <MenuItem icon={<FolderOpen className="h-4 w-4" />} onSelect={openDirectory}>
           {t('row.openFolder')}
         </MenuItem>
       </MenuGroup>

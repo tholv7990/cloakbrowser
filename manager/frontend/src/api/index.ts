@@ -26,6 +26,7 @@ export const queryKeys = {
   folders: ['folders'] as const,
   tags: ['tags'] as const,
   statuses: ['workflow-statuses'] as const,
+  extensions: ['extensions'] as const,
   proxies: ['proxies'] as const,
   proxy: (id: string) => ['proxy', id] as const,
   proxyReports: (id: string) => ['proxy', id, 'reports'] as const,

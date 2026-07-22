@@ -96,6 +96,10 @@ function applyEvent(queryClient: QueryClient, event: AppEvent): void {
       queryClient.invalidateQueries({ queryKey: ['diagnostics'] });
       break;
     }
+    case 'diagnostic.progress': {
+      queryClient.invalidateQueries({ queryKey: ['diagnostics'] });
+      break;
+    }
     case 'manager.reconciliation.completed': {
       queryClient.invalidateQueries({ queryKey: ['profiles'] });
       queryClient.invalidateQueries({ queryKey: ['bootstrap'] });
@@ -103,6 +107,7 @@ function applyEvent(queryClient: QueryClient, event: AppEvent): void {
     }
     case 'runtime.snapshot': {
       const store = useRuntimeStore.getState();
+      store.setRunningCount(event.data.running_session_count);
       for (const runtime of event.data.runtimes) {
         const state = mapRuntimeState(runtime.state);
         patchProfile(queryClient, runtime.profile_id, (p) => ({ ...p, runtime_state: state }));

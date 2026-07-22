@@ -74,12 +74,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
     return <LoadingBlock label={t('editor.loading')} />;
   }
   if (app.isError) {
-    return (
-      <ErrorState
-        message={t('editor.loadError')}
-        onRetry={() => window.location.reload()}
-      />
-    );
+    return <ErrorState message={t('editor.loadError')} onRetry={() => window.location.reload()} />;
   }
   if (mode === 'edit' && profileQuery.isError) {
     return (
@@ -109,10 +104,20 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
     const values = form.getValues();
     const payload = wizardValuesToPayload(values);
     if (mode === 'edit' && editingId) {
-      await updateProfile.mutateAsync({ id: editingId, payload });
+      const { fingerprint_seed: _seed, ...editable } = payload;
+      await updateProfile.mutateAsync({
+        id: editingId,
+        payload: { expected_updated_at: profileQuery.data!.updated_at, ...editable },
+      });
+      if (values.extension_ids.length > 0) {
+        await api.setProfileExtensions(editingId, values.extension_ids);
+      }
       return editingId;
     }
     const created = await createProfile.mutateAsync(payload);
+    if (values.extension_ids.length > 0) {
+      await api.setProfileExtensions(created.id, values.extension_ids);
+    }
     return created.id;
   };
 

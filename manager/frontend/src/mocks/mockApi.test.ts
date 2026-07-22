@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { mockApi } from './mockApi';
 import { mockStore } from './store';
 import { ApiError } from '@/api/http';
-import { emptyProfileWrite, readToWrite } from '@/features/profiles/view';
+import { emptyProfileWrite } from '@/features/profiles/view';
 
 beforeEach(() => mockStore.reset());
 
@@ -69,17 +69,17 @@ describe('mock profiles contract', () => {
     expect(ids.every((id) => pinned.items.some((p) => p.id === id))).toBe(true);
   });
 
-  it('inline-edits a single field via a full-object PATCH (name + tags)', async () => {
+  it('inline-edits fields via a conflict-safe partial PATCH', async () => {
     const { items } = await mockApi.listProfiles({ page: 1, page_size: 1 });
     const read = await mockApi.getProfile(items[0].id);
     const updated = await mockApi.updateProfile(read.id, {
-      ...readToWrite(read),
+      expected_updated_at: read.updated_at,
       name: 'renamed-inline',
       tag_ids: ['tag-us'],
     });
     expect(updated.name).toBe('renamed-inline');
     expect(updated.tag_ids).toEqual(['tag-us']);
-    // Unchanged grouped settings survive the full-object replace.
+    // Unchanged grouped settings survive because omitted fields are untouched.
     expect(updated.location).toEqual(read.location);
   });
 });
@@ -197,7 +197,11 @@ describe('mock automation contract', () => {
     const templates = await mockApi.listTemplates();
     const profiles = (await mockApi.listProfiles({ page: 1, page_size: 2, sort: 'name' })).items;
     const run = await mockApi.startRun(templates[0].id, {
-      assignments: profiles.map((p) => ({ profile_id: p.id, variables: {}, credential_id: 'pool' })),
+      assignments: profiles.map((p) => ({
+        profile_id: p.id,
+        variables: {},
+        credential_id: 'pool',
+      })),
       max_parallel: 2,
     });
     expect(run.total).toBe(2);

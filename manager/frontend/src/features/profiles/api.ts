@@ -10,7 +10,7 @@ import type {
   RuntimeState,
 } from '@/types/api';
 import { useToast } from '@/components/ui/Toast';
-import { emptyProfileWrite, readToWrite } from './view';
+import { emptyProfileWrite } from './view';
 
 export function useProfiles(params: ProfileListParams) {
   return useQuery({
@@ -140,16 +140,15 @@ export function useMoveToTrash() {
 }
 
 /**
- * Inline edit of one or more profile fields from the table. PATCH replaces the
- * whole profile, so we re-send the full object with the changed fields merged.
- * Optimistic so the cell updates instantly.
+ * Inline edit of one or more profile fields from the table. The backend applies
+ * only provided fields and rejects stale `updated_at` values.
  */
 export function useUpdateProfileInline() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   return useMutation({
     mutationFn: ({ read, changes }: { read: ProfileRead; changes: Partial<ProfileWrite> }) =>
-      api.updateProfile(read.id, { ...readToWrite(read), ...changes }),
+      api.updateProfile(read.id, { expected_updated_at: read.updated_at, ...changes }),
     onMutate: async ({ read, changes }) => {
       await queryClient.cancelQueries({ queryKey: ['profiles'] });
       const snapshot = queryClient.getQueriesData<Paginated<ProfileRead>>({
@@ -259,8 +258,9 @@ export function useImportCookies() {
 export function useProfileLogs(id: string | null) {
   return useQuery({
     queryKey: id ? queryKeys.profileLogs(id) : ['profile', 'logs', 'none'],
-    queryFn: () => api.getProfileLogs(id!),
+    queryFn: () => api.getProfileLogs(id!, { page: 1, page_size: 100 }),
     enabled: Boolean(id),
+    refetchInterval: 2_000,
   });
 }
 

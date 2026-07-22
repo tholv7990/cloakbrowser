@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Download, ExternalLink, Pencil, Plus } from 'lucide-react';
-import type { CookieFormat, Folder, ProfileView, Proxy, ProfileWrite } from '@/types/api';
+import type { CookieFormat, Folder, ProfileView, Proxy, ProfileUpdatePayload } from '@/types/api';
 import { api } from '@/api';
 import { useT } from '@/i18n';
 import { Modal } from '@/components/ui/Modal';
@@ -19,7 +19,6 @@ import { ProxyQualityReportView, ProxyQuickResult } from '@/features/proxies/Pro
 import { ProxyEditorDrawer } from '@/features/proxies/ProxyEditorDrawer';
 import type { RowDialog } from './ProfileRowActions';
 import { useImportCookies, useMoveToTrash, useProfileLogs, useRegenerateFingerprint } from './api';
-import { readToWrite } from './view';
 
 interface DialogState {
   type: RowDialog;
@@ -53,13 +52,23 @@ export function ProfileDialogs({
     enabled: dialog?.type === 'export' && Boolean(id),
   });
   const importCookies = useImportCookies();
+  const exportCookies = useMutation({
+    mutationFn: (format: 'playwright' | 'netscape') => api.exportCookies(id!, format),
+    onSuccess: ({ blob, filename }) => {
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    },
+  });
   const regenerate = useRegenerateFingerprint();
   const trash = useMoveToTrash();
   const quickTest = useQuickTest();
 
-  // Move-folder / assign-proxy re-send the whole profile because PATCH replaces it.
   const patchProfile = useMutation({
-    mutationFn: (write: ProfileWrite) => api.updateProfile(id!, write),
+    mutationFn: (patch: ProfileUpdatePayload) => api.updateProfile(id!, patch),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profiles'] });
       queryClient.invalidateQueries({ queryKey: ['folders'] });
@@ -144,7 +153,10 @@ export function ProfileDialogs({
               variant="primary"
               loading={patchProfile.isPending}
               onClick={() =>
-                patchProfile.mutate({ ...readToWrite(profile.read), folder_id: folderId || null })
+                patchProfile.mutate({
+                  expected_updated_at: profile.read.updated_at,
+                  folder_id: folderId || null,
+                })
               }
             >
               {t('common.move')}
@@ -184,7 +196,10 @@ export function ProfileDialogs({
               variant="primary"
               loading={patchProfile.isPending}
               onClick={() =>
-                patchProfile.mutate({ ...readToWrite(profile.read), proxy_id: proxyId || null })
+                patchProfile.mutate({
+                  expected_updated_at: profile.read.updated_at,
+                  proxy_id: proxyId || null,
+                })
               }
             >
               {t('dlg.assign')}
@@ -317,14 +332,35 @@ export function ProfileDialogs({
                 skipped: importCookies.data.skipped_count,
               })}
               {importCookies.data.warnings.map((w) => (
-                <p key={w} className="mt-1 text-warning">
-                  {w}
+                <p key={`${w.index}-${w.code}`} className="mt-1 text-warning">
+                  {w.code} ({w.index})
                 </p>
               ))}
             </div>
           )}
           {importCookies.isError && (
             <p className="text-2xs text-danger">{(importCookies.error as Error).message}</p>
+          )}
+          <div className="flex gap-2 border-t border-line pt-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={exportCookies.isPending}
+              onClick={() => exportCookies.mutate('playwright')}
+            >
+              {t('dlg.cookies.exportPlaywright')}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={exportCookies.isPending}
+              onClick={() => exportCookies.mutate('netscape')}
+            >
+              {t('dlg.cookies.exportNetscape')}
+            </Button>
+          </div>
+          {exportCookies.isError && (
+            <p className="text-2xs text-danger">{(exportCookies.error as Error).message}</p>
           )}
         </div>
       </Modal>
@@ -334,13 +370,10 @@ export function ProfileDialogs({
   if (type === 'export') {
     const download = () => {
       if (!exportQuery.data) return;
-      const blob = new Blob([JSON.stringify(exportQuery.data, null, 2)], {
-        type: 'application/json',
-      });
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(exportQuery.data.blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `${profile.name}.cloakprofile.json`;
+      anchor.download = exportQuery.data.filename;
       anchor.click();
       URL.revokeObjectURL(url);
     };
@@ -369,9 +402,7 @@ export function ProfileDialogs({
             onRetry={() => exportQuery.refetch()}
           />
         ) : (
-          <pre className="max-h-80 overflow-auto rounded-md border border-line bg-surface-sunken p-3 text-[12px] leading-relaxed data text-ink-muted">
-            {JSON.stringify(exportQuery.data, null, 2)}
-          </pre>
+          <p className="text-[13px] text-ink-muted">{t('dlg.export.ready')}</p>
         )}
       </Modal>
     );
@@ -379,17 +410,23 @@ export function ProfileDialogs({
 
   if (type === 'logs') {
     return (
-      <Modal open onClose={onClose} title={t('dlg.logs.title')} description={profile.name} size="lg">
+      <Modal
+        open
+        onClose={onClose}
+        title={t('dlg.logs.title')}
+        description={profile.name}
+        size="lg"
+      >
         {logs.isLoading ? (
           <LoadingBlock label={t('dlg.logs.loading')} />
         ) : logs.isError ? (
           <ErrorState message={(logs.error as Error).message} onRetry={() => logs.refetch()} />
-        ) : logs.data && logs.data.entries.length > 0 ? (
+        ) : logs.data && logs.data.items.length > 0 ? (
           <div className="space-y-1 rounded-md border border-line bg-surface-sunken p-3 font-mono text-[12px]">
-            {logs.data.entries.map((entry, index) => (
-              <div key={index} className="flex gap-3">
+            {logs.data.items.map((entry) => (
+              <div key={entry.id} className="flex gap-3">
                 <span className="shrink-0 text-ink-faint">
-                  {new Date(entry.timestamp).toLocaleTimeString()}
+                  {new Date(entry.created_at).toLocaleTimeString()}
                 </span>
                 <Badge
                   tone={
@@ -402,15 +439,14 @@ export function ProfileDialogs({
                 >
                   {entry.level}
                 </Badge>
+                <span className="text-ink-faint">{entry.event}</span>
                 <span className="text-ink-muted">{entry.message}</span>
               </div>
             ))}
+            <p className="pt-2 text-2xs text-ink-faint">{t('dlg.logs.polling')}</p>
           </div>
         ) : (
-          <EmptyState
-            title={t('dlg.logs.empty.title')}
-            description={t('dlg.logs.empty.desc')}
-          />
+          <EmptyState title={t('dlg.logs.empty.title')} description={t('dlg.logs.empty.desc')} />
         )}
       </Modal>
     );

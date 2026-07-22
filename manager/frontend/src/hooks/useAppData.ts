@@ -9,6 +9,8 @@ import type {
   WorkflowStatus,
 } from '@/types/api';
 import { useFolders } from '@/features/folders/api';
+import { useExtensions } from '@/features/extensions/api';
+import { useRuntimeStore } from '@/app/runtimeStore';
 import { useTags, useWorkflowStatuses } from './useReferenceData';
 
 /** GET /app/bootstrap — canonical minimal app info + feature flags. */
@@ -71,13 +73,16 @@ export function useAppData(): AppData {
   const tags = useTags();
   const statuses = useWorkflowStatuses();
   const version = useVersion();
+  const bootstrap = useBootstrap();
+  const extensions = useExtensions();
+  const realtimeRunningCount = useRuntimeStore((state) => state.runningCount);
 
   const cloakVersion = version.data?.cloakbrowser_version ?? '';
   return {
     folders: folders.data ?? [],
     tags: tags.data ?? [],
     statuses: statuses.data ?? [],
-    extensions: [],
+    extensions: extensions.data ?? [],
     browser: {
       name: 'CloakBrowser Chromium',
       version: cloakVersion,
@@ -85,9 +90,21 @@ export function useAppData(): AppData {
       path_present: true,
     },
     browserVersion: cloakVersion,
-    runningCount: 0,
+    runningCount: realtimeRunningCount ?? bootstrap.data?.running_session_count ?? 0,
     profileRoot: '',
-    isLoading: folders.isLoading || tags.isLoading || statuses.isLoading || version.isLoading,
-    isError: folders.isError || tags.isError || statuses.isError || version.isError,
+    isLoading:
+      folders.isLoading ||
+      tags.isLoading ||
+      statuses.isLoading ||
+      version.isLoading ||
+      bootstrap.isLoading ||
+      extensions.isLoading,
+    isError:
+      folders.isError ||
+      tags.isError ||
+      statuses.isError ||
+      version.isError ||
+      bootstrap.isError ||
+      extensions.isError,
   };
 }

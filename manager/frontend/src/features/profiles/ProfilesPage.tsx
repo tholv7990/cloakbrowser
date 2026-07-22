@@ -72,10 +72,17 @@ export function ProfilesPage() {
 
   const importProfile = useMutation({
     mutationFn: (payload: Record<string, unknown>) => api.importProfile(payload),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['profiles'] });
       setImportOpen(false);
-      toast({ title: 'Profile imported', tone: 'success' });
+      toast({
+        title: 'Profile imported',
+        description:
+          result.warnings.length > 0
+            ? `${result.profile_name}: ${result.warnings.map((warning) => warning.message).join(' ')}`
+            : result.profile_name,
+        tone: result.warnings.length > 0 ? 'warning' : 'success',
+      });
     },
     onError: (error) =>
       toast({ title: 'Import failed', description: (error as Error).message, tone: 'danger' }),
@@ -97,16 +104,20 @@ export function ProfilesPage() {
     });
   };
 
-  const handleExport = () => {
-    const blob = new Blob([JSON.stringify({ schema_version: 1, profiles: items }, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'cloakbrowser-profiles.json';
-    anchor.click();
-    URL.revokeObjectURL(url);
+  const handleExport = async () => {
+    try {
+      for (const profile of items) {
+        const file = await api.exportProfile(profile.id);
+        const url = URL.createObjectURL(file.blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = file.filename;
+        anchor.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      toast({ title: 'Export failed', description: (error as Error).message, tone: 'danger' });
+    }
   };
 
   const filtersActive =

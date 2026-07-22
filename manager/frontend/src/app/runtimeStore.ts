@@ -7,11 +7,15 @@ import { create } from 'zustand';
 
 interface RuntimeState {
   messages: Record<string, string>;
+  runningCount: number | null;
   setMessage: (profileId: string, message: string) => void;
+  setRunningCount: (count: number) => void;
 }
 
 export const useRuntimeStore = create<RuntimeState>((set) => ({
   messages: {},
+  runningCount: null,
   setMessage: (profileId, message) =>
     set((state) => ({ messages: { ...state.messages, [profileId]: message } })),
+  setRunningCount: (runningCount) => set({ runningCount }),
 }));

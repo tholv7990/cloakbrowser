@@ -17,7 +17,9 @@ import type {
   CookieImportPayload,
   CookieImportResult,
   CredentialPoolSummary,
+  DiagnosticKind,
   DiagnosticRun,
+  Extension,
   MediaAsset,
   MediaSettings,
   PlanStep,
@@ -136,7 +138,12 @@ function progressRun(run: AutomationRun): void {
   for (const item of run.items) {
     if (TERMINAL.includes(item.status) || item.status === 'attention') continue;
     if (item.status === 'pending') item.status = 'running';
-    if (sim && item.profile_id === sim.gateProfile && !sim.gatePassed && item.current_step >= gateStep) {
+    if (
+      sim &&
+      item.profile_id === sim.gateProfile &&
+      !sim.gatePassed &&
+      item.current_step >= gateStep
+    ) {
       item.status = 'attention';
       item.attention_reason = 'CAPTCHA detected';
       item.message = 'Waiting for you to solve the challenge';
@@ -256,7 +263,8 @@ function progressPlan(plan: BuildPlan): void {
   if (done >= runnable.length) {
     const blocked = plan.steps.some((s) => s.status === 'blocked');
     plan.status = blocked ? 'partial' : 'completed';
-    const domain = mockStores.find((s) => s.id === plan.store_id)?.shop_domain ?? 'example.myshopify.com';
+    const domain =
+      mockStores.find((s) => s.id === plan.store_id)?.shop_domain ?? 'example.myshopify.com';
     plan.admin_url = `https://${domain}/admin/themes`;
     plan.preview_url = `https://${domain}?preview_theme_id=99001`;
   }
@@ -314,8 +322,10 @@ function buildProfile(payload: Partial<ProfileCreatePayload>, name: string): Pro
     ? (mockStore.proxies.find((p) => p.id === payload.proxy_id) ?? null)
     : null;
   const seed = payload.fingerprint_seed ?? randomSeed();
+  const id = newId('prof');
   return {
-    id: newId('prof'),
+    id,
+    profile_directory: `${mockStore.settings.profile_root}\\${id}`,
     name,
     folder_id: payload.folder_id ?? null,
     workflow_status_id: payload.workflow_status_id ?? null,
@@ -559,6 +569,11 @@ export const mockApi: ApiAdapter = {
         shopify_builder: true,
         media: true,
       },
+      running_session_count: mockStore.profiles.filter(
+        (profile) =>
+          !profile.deleted_at &&
+          ['starting', 'running', 'stopping'].includes(profile.runtime_state),
+      ).length,
     };
   },
 
@@ -642,7 +657,11 @@ export const mockApi: ApiAdapter = {
   async updateProfile(id: string, payload: ProfileUpdatePayload): Promise<ProfileRead> {
     await delay(160);
     const profile = mockStore.requireProfile(id);
-    Object.assign(profile, payload, { updated_at: now() });
+    if (payload.expected_updated_at !== profile.updated_at) {
+      throw new ApiError(409, 'profile_conflict', 'The profile changed. Refresh before saving.');
+    }
+    const { expected_updated_at: _expected, ...changes } = payload;
+    Object.assign(profile, changes, { updated_at: now() });
     mockStore.recomputeProxyAssignments();
     mockStore.emit('profile.updated', { profile: structuredClone(profile) });
     return structuredClone(profile);
@@ -723,51 +742,74 @@ export const mockApi: ApiAdapter = {
     return structuredClone(profile);
   },
 
-  async getProfileLogs(id: string): Promise<ProfileLogs> {
+  async getProfileLogs(id: string, params = {}): Promise<ProfileLogs> {
     await delay(120);
     const profile = mockStore.requireProfile(id);
+    const entries: ProfileLogs['items'] = [
+      {
+        id: 'log-1',
+        profile_id: id,
+        created_at: '2026-07-21T09:00:00Z',
+        level: 'info',
+        event: 'runtime.start_requested',
+        message: 'Manager acquired profile lock.',
+      },
+      {
+        id: 'log-2',
+        profile_id: id,
+        created_at: '2026-07-21T09:00:01Z',
+        level: 'info',
+        event: 'runtime.process_started',
+        message: `Preset ${profile.fingerprint_preset}, seed ${profile.fingerprint_seed}.`,
+      },
+      {
+        id: 'log-3',
+        profile_id: id,
+        created_at: '2026-07-21T09:00:02Z',
+        level: 'info',
+        event: 'runtime.preflight_failed',
+        message: 'Proxy pre-launch test passed (median 148 ms).',
+      },
+      {
+        id: 'log-4',
+        profile_id: id,
+        created_at: '2026-07-21T09:00:03Z',
+        level: 'info',
+        event: 'runtime.ready',
+        message: 'Launched persistent context; browser ready.',
+      },
+      ...(profile.runtime_state === 'crashed'
+        ? [
+            {
+              id: 'log-5',
+              profile_id: id,
+              created_at: '2026-07-21T09:05:00Z',
+              level: 'error' as const,
+              event: 'runtime.crashed',
+              message: 'Browser process exited unexpectedly (code 1).',
+            },
+          ]
+        : []),
+    ];
+    const page = params.page ?? 1;
+    const pageSize = params.page_size ?? 50;
+    const start = (page - 1) * pageSize;
     return {
-      profile_id: id,
-      entries: [
-        {
-          timestamp: '2026-07-21T09:00:00Z',
-          level: 'info',
-          message: 'Manager acquired profile lock.',
-        },
-        {
-          timestamp: '2026-07-21T09:00:01Z',
-          level: 'info',
-          message: `Preset ${profile.fingerprint_preset}, seed ${profile.fingerprint_seed}.`,
-        },
-        {
-          timestamp: '2026-07-21T09:00:02Z',
-          level: 'info',
-          message: 'Proxy pre-launch test passed (median 148 ms).',
-        },
-        {
-          timestamp: '2026-07-21T09:00:03Z',
-          level: 'info',
-          message: 'Launched persistent context; browser ready.',
-        },
-        ...(profile.runtime_state === 'crashed'
-          ? [
-              {
-                timestamp: '2026-07-21T09:05:00Z',
-                level: 'error' as const,
-                message: 'Browser process exited unexpectedly (code 1).',
-              },
-            ]
-          : []),
-      ],
+      items: entries.slice(start, start + pageSize),
+      total: entries.length,
+      page,
+      page_size: pageSize,
+      pages: Math.max(1, Math.ceil(entries.length / pageSize)),
     };
   },
 
-  async exportProfile(id: string): Promise<Record<string, unknown>> {
+  async exportProfile(id: string) {
     await delay(120);
     const p = mockStore.requireProfile(id);
     const proxy = p.proxy_id ? mockStore.proxies.find((x) => x.id === p.proxy_id) : null;
-    return {
-      schema_version: 2,
+    const document = {
+      format: 'cloakbrowser-manager-profile',
+      version: 1,
       profile: {
         name: p.name,
         fingerprint_preset: p.fingerprint_preset,
@@ -784,9 +826,13 @@ export const mockApi: ApiAdapter = {
           : null,
       },
     };
+    return {
+      blob: new Blob([JSON.stringify(document)], { type: 'application/json' }),
+      filename: `cloakbrowser-profile-${p.name}.json`,
+    };
   },
 
-  async importProfile(payload: Record<string, unknown>): Promise<ProfileRead> {
+  async importProfile(payload: Record<string, unknown>) {
     await delay(200);
     const source = (payload.profile ?? payload) as Record<string, unknown>;
     const name =
@@ -796,7 +842,7 @@ export const mockApi: ApiAdapter = {
     const profile = buildProfile({}, name);
     mockStore.profiles.unshift(profile);
     mockStore.emit('profile.created', { profile: structuredClone(profile) });
-    return structuredClone(profile);
+    return { profile_id: profile.id, profile_name: profile.name, warnings: [] };
   },
 
   async importCookies(id: string, payload: CookieImportPayload): Promise<CookieImportResult> {
@@ -807,9 +853,22 @@ export const mockApi: ApiAdapter = {
     return {
       imported_count: imported,
       skipped_count: 0,
+      rejected_count: 0,
       format: payload.format,
-      warnings: imported > 200 ? ['Large cookie set; some entries may be session-only.'] : [],
+      warnings: imported > 200 ? [{ index: 0, code: 'large_cookie_set' }] : [],
     };
+  },
+
+  async exportCookies(id: string, format: 'playwright' | 'netscape') {
+    const profile = mockStore.requireProfile(id);
+    return {
+      blob: new Blob([format === 'netscape' ? '# Netscape HTTP Cookie File\n' : '[]\n']),
+      filename: `cloakbrowser-cookies-${profile.name}.${format === 'netscape' ? 'txt' : 'json'}`,
+    };
+  },
+
+  async openProfileDirectory(id: string) {
+    return { profile_directory: mockStore.requireProfile(id).profile_directory };
   },
 
   async bulkProfiles(request: BulkProfileRequest): Promise<BulkProfileResult> {
@@ -904,6 +963,46 @@ export const mockApi: ApiAdapter = {
   async listWorkflowStatuses() {
     await delay(60);
     return structuredClone(mockStore.statuses);
+  },
+
+  async listExtensions(): Promise<Extension[]> {
+    await delay(60);
+    return structuredClone(mockStore.extensions);
+  },
+  async registerExtension(directory: string): Promise<Extension> {
+    await delay(80);
+    const name = directory.split(/[\\/]/).filter(Boolean).at(-1) ?? 'extension';
+    const extension: Extension = {
+      id: newId('ext'),
+      directory,
+      name,
+      version: '1.0.0',
+      description: 'Local unpacked extension.',
+      manifest_version: 3,
+      permissions: [],
+      enabled: true,
+      manifest_hash: fakeConfigHash(directory),
+      created_at: now(),
+      updated_at: now(),
+    };
+    mockStore.extensions.push(extension);
+    return structuredClone(extension);
+  },
+  async updateExtension(id: string, patch: { enabled?: boolean; refresh?: boolean }) {
+    await delay(60);
+    const extension = mockStore.extensions.find((item) => item.id === id);
+    if (!extension) throw new ApiError(404, 'extension_not_found', 'Extension not found.');
+    if (patch.enabled !== undefined) extension.enabled = patch.enabled;
+    extension.updated_at = now();
+    return structuredClone(extension);
+  },
+  async unregisterExtension(id: string) {
+    await delay(60);
+    mockStore.extensions = mockStore.extensions.filter((item) => item.id !== id);
+  },
+  async setProfileExtensions(id: string, extensionIds: string[]) {
+    mockStore.requireProfile(id);
+    return { extension_ids: structuredClone(extensionIds) };
   },
 
   // Proxies
@@ -1041,17 +1140,6 @@ export const mockApi: ApiAdapter = {
     proxy.last_checked_at = report.checked_at;
     proxy.latency_ms = report.latency_ms;
     proxy.reputation = report.reputation;
-    mockStore.diagnostics.unshift({
-      id: newId('diag'),
-      kind: 'proxy_quality',
-      proxy_id: id,
-      profile_id: null,
-      state: 'completed',
-      summary: `${proxy.label} — ${report.reputation ?? 'unknown'}, Turnstile ${report.turnstile_outcome}.`,
-      artifact_path: report.report_path,
-      created_at: report.checked_at,
-      updated_at: report.checked_at,
-    });
     mockStore.emit('proxy.updated', { proxy: structuredClone(proxy) });
     mockStore.emit('proxy.test.completed', {
       proxy_id: id,
@@ -1067,9 +1155,22 @@ export const mockApi: ApiAdapter = {
   },
 
   // Diagnostics / settings
-  async listDiagnostics(): Promise<DiagnosticRun[]> {
+  async listDiagnostics(params = {}): Promise<Paginated<DiagnosticRun>> {
     await delay(120);
-    return structuredClone(mockStore.diagnostics);
+    let runs = [...mockStore.diagnostics];
+    if (params.profile) runs = runs.filter((run) => run.profile_id === params.profile);
+    if (params.kind) runs = runs.filter((run) => run.kind === params.kind);
+    if (params.status) runs = runs.filter((run) => run.status === params.status);
+    const page = params.page ?? 1;
+    const pageSize = params.page_size ?? 20;
+    const start = (page - 1) * pageSize;
+    return {
+      items: structuredClone(runs.slice(start, start + pageSize)),
+      total: runs.length,
+      page,
+      page_size: pageSize,
+      pages: Math.max(1, Math.ceil(runs.length / pageSize)),
+    };
   },
   async getDiagnostic(id: string): Promise<DiagnosticRun> {
     await delay(80);
@@ -1083,34 +1184,79 @@ export const mockApi: ApiAdapter = {
     const diag: DiagnosticRun = {
       id: newId('diag'),
       kind: 'direct_google_control',
-      proxy_id: null,
       profile_id: null,
-      state: 'completed',
+      status: 'passed',
+      target_url: 'https://www.google.com/search?q=CloakBrowser+diagnostic',
+      requested_at: now(),
+      started_at: now(),
+      completed_at: now(),
+      progress: 100,
       summary: 'Direct-network Google control reachable; no challenge.',
-      artifact_path: null,
-      created_at: now(),
-      updated_at: now(),
+      findings: { page_loaded: true, captcha_detected: false, results_visible: true },
+      screenshot_path: null,
+      report_path: null,
+      error_code: null,
+      error_message: null,
     };
     mockStore.diagnostics.unshift(diag);
-    mockStore.emit('diagnostic.completed', { diagnostic_id: diag.id, state: 'completed' });
+    mockStore.emit('diagnostic.completed', {
+      diagnostic_id: diag.id,
+      profile_id: null,
+      kind: diag.kind,
+      status: diag.status,
+      progress: 100,
+      error_code: null,
+    });
     return structuredClone(diag);
   },
   async runPixelscan(profileId: string): Promise<DiagnosticRun> {
-    await delay(500);
+    return this.runDiagnostic('pixelscan', profileId);
+  },
+  async runDiagnostic(kind: Exclude<DiagnosticKind, 'direct_google_control'>, profileId: string) {
+    await delay(300);
+    mockStore.requireProfile(profileId);
+    const targets: Record<Exclude<DiagnosticKind, 'direct_google_control'>, string> = {
+      pixelscan: 'https://pixelscan.net/',
+      iphey: 'https://iphey.com/',
+      cloudflare: 'https://challenge.cloudflare.com/turnstile/v0/generic/',
+      google_search: 'https://www.google.com/search?q=CloakBrowser+browser+diagnostic',
+    };
     const diag: DiagnosticRun = {
       id: newId('diag'),
-      kind: 'pixelscan',
-      proxy_id: null,
+      kind,
       profile_id: profileId,
-      state: 'completed',
-      summary: 'Pixelscan regression completed; consistency score nominal.',
-      artifact_path: `reports/pixelscan/${profileId}.json`,
-      created_at: now(),
-      updated_at: now(),
+      status: 'passed',
+      target_url: targets[kind],
+      requested_at: now(),
+      started_at: now(),
+      completed_at: now(),
+      progress: 100,
+      summary: 'Diagnostic completed.',
+      findings: {},
+      screenshot_path: null,
+      report_path: `C:\\Manager\\diagnostics\\${profileId}\\report.json`,
+      error_code: null,
+      error_message: null,
     };
     mockStore.diagnostics.unshift(diag);
-    mockStore.emit('diagnostic.completed', { diagnostic_id: diag.id, state: 'completed' });
+    mockStore.emit('diagnostic.completed', {
+      diagnostic_id: diag.id,
+      profile_id: profileId,
+      kind,
+      status: diag.status,
+      progress: 100,
+      error_code: null,
+    });
     return structuredClone(diag);
+  },
+  async cancelDiagnostic(id: string) {
+    const run = mockStore.diagnostics.find((item) => item.id === id);
+    if (!run) throw new ApiError(404, 'diagnostic_not_found', 'Diagnostic not found.');
+    run.status = 'cancelled';
+    run.progress = Math.min(run.progress, 99);
+    run.completed_at = now();
+    run.summary = 'Diagnostic cancelled.';
+    return structuredClone(run);
   },
   async getSettings(): Promise<Settings> {
     await delay(80);
@@ -1371,7 +1517,11 @@ export const mockApi: ApiAdapter = {
       .split('\n')
       .map((line) => line.trim())
       .filter((line) => line.includes(':')).length;
-    mockPool = { ...mockPool, available: mockPool.available + added, total: mockPool.total + added };
+    mockPool = {
+      ...mockPool,
+      available: mockPool.available + added,
+      total: mockPool.total + added,
+    };
     return { ...mockPool };
   },
 
