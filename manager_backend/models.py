@@ -228,6 +228,9 @@ class Profile(TimestampMixin, Base):
     extensions: Mapped[list["Extension"]] = relationship(
         secondary=profile_extensions, back_populates="profiles"
     )
+    diagnostic_runs: Mapped[list["DiagnosticRun"]] = relationship(
+        back_populates="profile", passive_deletes=True
+    )
 
     @property
     def runtime_state(self) -> str:
@@ -263,6 +266,61 @@ class Extension(TimestampMixin, Base):
     profiles: Mapped[list[Profile]] = relationship(
         secondary=profile_extensions, back_populates="extensions"
     )
+
+
+class DiagnosticRun(Base):
+    __tablename__ = "diagnostic_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('direct_google_control','pixelscan','iphey','cloudflare','google_search')",
+            name="ck_diagnostic_runs_kind",
+        ),
+        CheckConstraint(
+            "status IN ('queued','running','passed','warning','failed','cancelled')",
+            name="ck_diagnostic_runs_status",
+        ),
+        CheckConstraint(
+            "progress >= 0 AND progress <= 100",
+            name="ck_diagnostic_runs_progress",
+        ),
+        Index(
+            "uq_diagnostic_runs_active_profile",
+            "profile_id",
+            unique=True,
+            sqlite_where=text(
+                "profile_id IS NOT NULL AND status IN ('queued','running')"
+            ),
+        ),
+        Index(
+            "ix_diagnostic_runs_requested_at", "requested_at"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    profile_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    target_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    findings: Mapped[dict[str, Any]] = mapped_column(
+        "findings_json", JSON, nullable=False, default=dict
+    )
+    screenshot_path: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    report_path: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    profile: Mapped[Profile | None] = relationship(back_populates="diagnostic_runs")
 
 
 class RuntimeSession(Base):

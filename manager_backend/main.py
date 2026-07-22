@@ -28,6 +28,7 @@ from .features.proxies.service import build_proxy_preflight
 from .features.proxies.quality import ProxyQualityManager, recover_orphan_quality_runs
 from .features.portability.browser_cookies import CookieContextAdapter
 from .features.settings.store import SettingsStore
+from .features.diagnostics.service import DiagnosticManager
 
 
 def create_app(settings: ManagerSettings | None = None) -> FastAPI:
@@ -48,6 +49,9 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
             application.state.proxy_quality_recovered = recover_orphan_quality_runs(
                 application.state.session_factory
             )
+            application.state.diagnostic_recovered = (
+                application.state.diagnostic_manager.recover_orphans()
+            )
             yield
         finally:
             application.state.runtime_manager.shutdown()
@@ -63,6 +67,7 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
     app.state.engine = create_engine_for(resolved)
     Base.metadata.create_all(app.state.engine)
     app.state.session_factory = create_session_factory(app.state.engine)
+    app.state.diagnostic_manager = DiagnosticManager(app.state.session_factory)
     app.state.credential_store = KeyringCredentialStore()
 
     app.state.cookie_context_adapter = CookieContextAdapter(resolved)
