@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 
 from manager_backend.features.proxies.credentials import MemoryCredentialStore
@@ -332,3 +333,82 @@ def test_factory_creates_profiles(client, auth_headers):
     assert all(item["profile_id"] for item in job["items"])
     # The profiles really exist.
     assert client.get("/api/v1/profiles", headers=auth_headers).json()["total"] == 2
+
+
+# --- F1: no plaintext fill values / secret variables ------------------------
+def _put_template(client, auth_headers, tid, steps, name="T"):
+    return client.put(
+        f"/api/v1/automations/templates/{tid}",
+        headers=auth_headers,
+        json={"name": name, "description": "", "steps": steps},
+    )
+
+
+def test_fill_step_rejects_literal_value(client, auth_headers):
+    r = _put_template(client, auth_headers, "t-literal", [
+        {"type": "fill", "selectors": [{"css": "#u"}], "value": "hunter2"}
+    ])
+    assert r.status_code == 422
+    assert "hunter2" not in r.text  # never echo the secret back
+
+
+def test_fill_step_requires_a_variable(client, auth_headers):
+    r = _put_template(client, auth_headers, "t-novar", [
+        {"type": "fill", "selectors": [{"css": "#u"}]}
+    ])
+    assert r.status_code == 422
+
+
+def test_template_rejects_secret_carrying_variable_names(client, auth_headers):
+    for bad in ["pass", "token", "api_key", "client_secret", "access_token", "cookie",
+                "authorization", "csrf_token", "user_password", "sessionCookie"]:
+        r = _put_template(client, auth_headers, f"t-{abs(hash(bad))}", [
+            {"type": "fill", "selectors": [{"css": "#x"}], "variable": bad}
+        ])
+        assert r.status_code == 422, bad
+
+
+def test_email_password_credential_and_public_vars_allowed(client, auth_headers):
+    r = _put_template(client, auth_headers, "t-ok", [
+        {"type": "fill", "selectors": [{"css": "#e"}], "variable": "email"},
+        {"type": "fill", "selectors": [{"css": "#p"}], "variable": "password"},
+        {"type": "fill", "selectors": [{"css": "#promo"}], "variable": "promo_code"},
+    ])
+    assert r.status_code == 200, r.text
+    assert r.json()["variables"] == ["email", "password", "promo_code"]
+
+
+def test_run_never_persists_credentials_or_stray_secrets(client, auth_headers):
+    _setup(client)
+    profile = _profile(client, auth_headers, "SecVars")
+    _put_template(client, auth_headers, "t-sec", [
+        {"type": "fill", "selectors": [{"css": "#e"}], "variable": "email"},
+        {"type": "fill", "selectors": [{"css": "#p"}], "variable": "password"},
+        {"type": "fill", "selectors": [{"css": "#promo"}], "variable": "promo_code"},
+    ])
+    client.post("/api/v1/automations/credentials/import", headers=auth_headers,
+                json={"text": "victim@x.com:s3cr3tPW"})
+
+    # A stray secret-carrying key in the assignment is rejected outright.
+    bad = client.post("/api/v1/automations/templates/t-sec/runs", headers=auth_headers, json={
+        "assignments": [{"profile_id": profile["id"], "variables": {"promo_code": "SAVE10", "token": "leak"}}],
+        "max_parallel": 1})
+    assert bad.status_code in (400, 422)
+    assert "leak" not in bad.text
+
+    run = client.post("/api/v1/automations/templates/t-sec/runs", headers=auth_headers, json={
+        "assignments": [{"profile_id": profile["id"], "variables": {"promo_code": "SAVE10"}}],
+        "max_parallel": 1}).json()
+    _poll_run(client, run["id"], lambda r: r["status"] in ("completed", "failed"))
+
+    # Adversarial DB dump: no credential value, no stray secret, only the public var.
+    from manager_backend.models import AutomationRunItem, AutomationTemplate
+    with client.app.state.session_factory() as s:
+        for item in s.query(AutomationRunItem).all():
+            dumped = json.dumps(item.variables_json or {})
+            assert "s3cr3tPW" not in dumped and "victim@x.com" not in dumped
+            assert "email" not in (item.variables_json or {})
+            assert "password" not in (item.variables_json or {})
+            assert (item.variables_json or {}).get("promo_code") == "SAVE10"
+        for t in s.query(AutomationTemplate).all():
+            assert "hunter2" not in json.dumps(t.steps_json or [])

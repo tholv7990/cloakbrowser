@@ -143,11 +143,12 @@ class RunCoordinator:
                 run_id=run.id,
                 profile_id=assignment.profile_id,
                 status="pending",
-                # Never persist email/password literals — those come from the pool.
+                # Persist only the template's DECLARED public variables — never a
+                # credential (pool-resolved) and never a stray/secret request key.
                 variables_json={
-                    key: value
-                    for key, value in assignment.variables.items()
-                    if key not in CREDENTIAL_VARIABLES
+                    v: assignment.variables[v]
+                    for v in custom_vars
+                    if v in assignment.variables
                 },
             )
             if needs_credential:

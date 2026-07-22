@@ -1,14 +1,36 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ...schemas.common import StrictModel
 
 
 StepType = Literal["goto", "click", "fill", "select", "wait_url"]
+
+# Website credentials are never literals or public inputs: they are pooled and
+# resolved from the secure CredentialStore. Only these variable names are treated
+# as credential references; any other name that could smuggle a secret through a
+# public field is rejected outright.
+CREDENTIAL_VARIABLES = frozenset({"email", "password"})
+_SECRET_SUBSTRINGS = (
+    "pass", "token", "secret", "cookie", "apikey", "authorization", "credential", "otp",
+)
+
+
+def is_credential_variable(name: str) -> bool:
+    return name.strip().lower() in CREDENTIAL_VARIABLES
+
+
+def is_secret_variable_name(name: str) -> bool:
+    """True if `name` could carry a secret (and is not a recognized credential ref)."""
+    if is_credential_variable(name):
+        return False
+    normalized = re.sub(r"[^a-z0-9]", "", name.lower())
+    return any(token in normalized for token in _SECRET_SUBSTRINGS)
 
 
 class AutomationSelector(StrictModel):
@@ -31,6 +53,22 @@ class AutomationStep(StrictModel):
     selectors: list[AutomationSelector] | None = None
     value: str | None = None
     variable: str | None = None
+
+    @model_validator(mode="after")
+    def _no_literal_secrets(self):
+        if self.type == "fill":
+            # A fill types text into an input — the classic credential sink. It must
+            # reference a declared variable, never a literal value.
+            if self.value is not None:
+                raise ValueError("fill steps must reference a variable, not a literal value")
+            if not (self.variable and self.variable.strip()):
+                raise ValueError("fill steps require a variable reference")
+        if self.variable is not None:
+            if not self.variable.strip():
+                raise ValueError("variable must not be blank")
+            if is_secret_variable_name(self.variable):
+                raise ValueError("variable name may not carry a secret")
+        return self
 
 
 class TemplateWrite(StrictModel):
@@ -98,6 +136,14 @@ class RunAssignment(StrictModel):
     profile_id: str
     variables: dict[str, str] = Field(default_factory=dict)
     credential_id: str | None = None
+
+    @model_validator(mode="after")
+    def _public_variables_only(self):
+        # Credentials come from the pool; the request carries public inputs only.
+        for key in self.variables:
+            if is_credential_variable(key) or is_secret_variable_name(key):
+                raise ValueError("credential/secret variables come from the pool, not the request")
+        return self
 
 
 class StartRunPayload(StrictModel):

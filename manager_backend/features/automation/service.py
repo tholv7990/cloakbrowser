@@ -22,9 +22,7 @@ from ...models import (
 )
 from ..proxies.credentials import CredentialStore, ProxyCredential
 from .controller import AutomationController
-
-
-CREDENTIAL_VARIABLES = ("email", "password")
+from .schemas import CREDENTIAL_VARIABLES
 
 
 # --- shared helpers ---------------------------------------------------------
