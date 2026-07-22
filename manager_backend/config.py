@@ -23,6 +23,14 @@ class ManagerSettings(BaseModel):
     allowed_origin: str = "http://127.0.0.1:5273"
     install_token: str | None = None
     max_concurrent_launches: int = Field(default=2, ge=1, le=8)
+    max_concurrent_diagnostics: int = Field(default=2, ge=1, le=8)
+    diagnostic_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
+    diagnostic_max_report_bytes: int = Field(
+        default=1024 * 1024, ge=1024, le=10 * 1024 * 1024
+    )
+    diagnostic_max_screenshot_bytes: int = Field(
+        default=10 * 1024 * 1024, ge=1024, le=50 * 1024 * 1024
+    )
 
     @property
     def profile_root(self) -> Path:

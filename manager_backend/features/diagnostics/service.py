@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 
 from ...errors import ManagerError
 from ...models import DiagnosticRun, Profile, utc_now
-from .schemas import DiagnosticResultUpdate, bounded_findings
+from .schemas import DiagnosticResultUpdate, TARGET_URLS, bounded_findings
 
 
 DIAGNOSTIC_KINDS = frozenset(
@@ -28,14 +28,6 @@ DIAGNOSTIC_STATUSES = frozenset(
 ACTIVE_STATUSES = frozenset({"queued", "running"})
 TERMINAL_STATUSES = frozenset({"passed", "warning", "failed", "cancelled"})
 
-TARGET_URLS = {
-    "direct_google_control": "https://www.google.com/search?q=CloakBrowser+diagnostic",
-    "pixelscan": "https://pixelscan.net/",
-    "iphey": "https://iphey.com/",
-    "cloudflare": "https://challenge.cloudflare.com/turnstile/v0/generic/",
-    "google_search": "https://www.google.com/search?q=CloakBrowser+browser+diagnostic",
-}
-
 SUMMARY_TEMPLATES = {
     "passed": "Diagnostic completed.",
     "warning": "Diagnostic completed with warnings.",
@@ -47,6 +39,7 @@ ERROR_MESSAGES = {
     "manager_restarted": "The manager restarted before the diagnostic completed.",
     "scheduler_unavailable": "The diagnostic could not be scheduled.",
     "browser_crashed": "The browser closed before the diagnostic completed.",
+    "profile_not_stopped": "Stop the profile before running this diagnostic.",
     "proxy_preflight_failed": "The assigned proxy is unavailable.",
     "network_error": "The diagnostic target could not be reached.",
     "timeout": "The diagnostic did not complete before its time limit.",
@@ -62,6 +55,7 @@ FAILURE_ERROR_CODES = frozenset(
         "manager_restarted",
         "scheduler_unavailable",
         "browser_crashed",
+        "profile_not_stopped",
         "proxy_preflight_failed",
         "network_error",
         "timeout",

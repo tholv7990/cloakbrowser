@@ -55,12 +55,14 @@ def profile_launch_snapshot(
 ) -> dict[str, Any]:
     """Build the one canonical Manager launch snapshot for a profile."""
 
-    location = profile.location or {}
+    location = dict(profile.location or {})
     return {
         "id": profile.id,
         "profile_dir": settings.profile_root / profile.id,
         "fingerprint_seed": profile.fingerprint_seed,
         "fingerprint_preset": profile.fingerprint_preset,
+        "fingerprint_revision": profile.fingerprint_revision,
+        "fingerprint_config_hash": profile.fingerprint_config_hash,
         "browser_version": (
             profile.browser_version if profile.browser_version_mode == "pinned" else None
         ),
@@ -69,6 +71,9 @@ def profile_launch_snapshot(
         ),
         "locale": location.get("locale"),
         "timezone": location.get("timezone"),
+        "location": location,
+        "window": dict(profile.window or {}),
+        "behavior": dict(profile.behavior or {}),
         "startup_urls": list(profile.startup_urls or []),
         "proxy_id": profile.proxy_id,
         "extension_paths": list(extension_paths or []),

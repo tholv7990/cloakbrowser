@@ -25,6 +25,13 @@ DiagnosticTargetUrl = Literal[
     "https://challenge.cloudflare.com/turnstile/v0/generic/",
     "https://www.google.com/search?q=CloakBrowser+browser+diagnostic",
 ]
+TARGET_URLS: dict[DiagnosticKind, DiagnosticTargetUrl] = {
+    "direct_google_control": "https://www.google.com/search?q=CloakBrowser+diagnostic",
+    "pixelscan": "https://pixelscan.net/",
+    "iphey": "https://iphey.com/",
+    "cloudflare": "https://challenge.cloudflare.com/turnstile/v0/generic/",
+    "google_search": "https://www.google.com/search?q=CloakBrowser+browser+diagnostic",
+}
 DiagnosticSummary = Literal[
     "Diagnostic completed.",
     "Diagnostic completed with warnings.",
@@ -36,6 +43,7 @@ DiagnosticErrorMessage = Literal[
     "The manager restarted before the diagnostic completed.",
     "The diagnostic could not be scheduled.",
     "The browser closed before the diagnostic completed.",
+    "Stop the profile before running this diagnostic.",
     "The assigned proxy is unavailable.",
     "The diagnostic target could not be reached.",
     "The diagnostic did not complete before its time limit.",
@@ -47,6 +55,7 @@ DiagnosticErrorCode = Literal[
     "manager_restarted",
     "scheduler_unavailable",
     "browser_crashed",
+    "profile_not_stopped",
     "proxy_preflight_failed",
     "network_error",
     "timeout",
