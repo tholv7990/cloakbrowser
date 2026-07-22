@@ -26,6 +26,7 @@ MAX_COOKIE_EXPIRY_SECONDS = (2**53) - 1
 
 _COOKIE_NAME_RE = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 _DOMAIN_LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+_NUMERIC_ADDRESS_TOKEN_RE = re.compile(r"^(?:[0-9]+|0[xX][0-9A-Fa-f]+)$")
 _SAME_SITE_VALUES = {
     "none": "None",
     "no_restriction": "None",
@@ -449,6 +450,8 @@ def _is_valid_domain(domain: Any) -> bool:
             return is_bracketed and not is_subdomain_cookie
         return not is_bracketed and not is_subdomain_cookie
 
+    if _looks_like_noncanonical_ipv4(hostname):
+        return False
     if hostname.lower() == "localhost":
         return not is_subdomain_cookie
     labels = hostname.split(".")
@@ -456,6 +459,12 @@ def _is_valid_domain(domain: Any) -> bool:
         return False
     extracted = _PSL_EXTRACT(hostname)
     return not (not extracted.domain and bool(extracted.suffix))
+
+
+def _looks_like_noncanonical_ipv4(hostname: str) -> bool:
+    """Reject alternate numeric IPv4 spellings before DNS/PSL interpretation."""
+
+    return all(_NUMERIC_ADDRESS_TOKEN_RE.fullmatch(label) for label in hostname.split("."))
 
 
 def _normalize_expiry(value: Any) -> float:

@@ -231,6 +231,35 @@ def test_ipv6_cookie_domains_require_brackets_and_forbid_scope_identifiers(domai
 
 
 @pytest.mark.parametrize(
+    "domain",
+    [
+        "127.1",
+        "127.0.1",
+        "127.0.0.01",
+        "0177.0.0.1",
+        "0x7f000001",
+        "0x7f.0.0.1",
+        "2130706433",
+        ".127.1",
+        ".0x7f000001",
+        ".2130706433",
+    ],
+)
+def test_noncanonical_ipv4_numeric_spellings_are_rejected(domain):
+    result = parse_cookie_payload({"cookies": [_manager_cookie(domain=domain)]}, "json")
+
+    assert result.cookies == []
+    assert result.warnings[0].code == "invalid_domain"
+
+
+@pytest.mark.parametrize("domain", ["1.example.com", "0x7f.example.com", "0177.example.com"])
+def test_numeric_dns_labels_in_registered_names_remain_valid(domain):
+    result = parse_cookie_payload({"cookies": [_manager_cookie(domain=domain)]}, "json")
+
+    assert result.cookies[0]["domain"] == domain
+
+
+@pytest.mark.parametrize(
     ("changes", "warning_code"),
     [
         ({"name": "__Secure-id", "secure": False}, "insecure_secure_prefix"),
