@@ -12,6 +12,7 @@ class AppCapabilities(StrictModel):
     fingerprint_diagnostics: bool
     settings: bool
     resources: bool
+    media: bool
 
 
 class AppBootstrap(StrictModel):

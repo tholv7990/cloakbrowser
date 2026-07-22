@@ -12,6 +12,7 @@ from .features.extensions.routes import router as extensions_router
 from .features.diagnostics.routes import router as diagnostics_router
 from .features.resources.routes import router as resources_router
 from .features.backups.routes import router as backups_router
+from .features.media.routes import router as media_router
 from .dependencies import require_authenticated_session
 from .schemas.common import ErrorEnvelope
 
@@ -37,3 +38,4 @@ api_router.include_router(extensions_router)
 api_router.include_router(diagnostics_router)
 api_router.include_router(resources_router)
 api_router.include_router(backups_router)
+api_router.include_router(media_router)

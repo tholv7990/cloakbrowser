@@ -32,6 +32,7 @@ def bootstrap(request: Request, session: SessionDependency) -> AppBootstrap:
             "fingerprint_diagnostics": False,
             "settings": True,
             "resources": True,
+            "media": True,
         },
         running_session_count=count_active_runtimes(session),
     )

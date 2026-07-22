@@ -442,3 +442,44 @@ class AuthSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     owner: Mapped[Owner] = relationship(back_populates="sessions")
+
+
+profile_media_assets = Table(
+    "profile_media_assets",
+    Base.metadata,
+    Column(
+        "profile_id",
+        String(36),
+        ForeignKey("profiles.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "media_asset_id",
+        String(36),
+        ForeignKey("media_assets.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
+
+
+class MediaAsset(TimestampMixin, Base):
+    __tablename__ = "media_assets"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('camera','microphone','screen')", name="ck_media_assets_kind"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    format: Mapped[str] = mapped_column(String(80), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class MediaSetting(Base):
+    __tablename__ = "media_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
