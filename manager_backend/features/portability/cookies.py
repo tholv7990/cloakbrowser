@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import io
+import ipaddress
 import json
 import math
 import re
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
+
+import ijson
+import tldextract
+from ijson import JSONError
 
 
 MAX_COOKIE_PAYLOAD_BYTES = 10 * 1024 * 1024
@@ -16,8 +22,9 @@ MAX_COOKIE_VALUE_BYTES = 4096
 MAX_COOKIE_NAME_BYTES = 256
 MAX_COOKIE_DOMAIN_BYTES = 253
 MAX_COOKIE_PATH_BYTES = 4096
+MAX_COOKIE_EXPIRY_SECONDS = (2**53) - 1
 
-_COOKIE_NAME_RE = re.compile(r'^[^\x00-\x20\x7f()<>@,;:\\"/\[\]?={}]+$')
+_COOKIE_NAME_RE = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 _DOMAIN_LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 _SAME_SITE_VALUES = {
     "none": "None",
@@ -25,6 +32,28 @@ _SAME_SITE_VALUES = {
     "lax": "Lax",
     "strict": "Strict",
 }
+_WARNING_CODES = frozenset(
+    {
+        "invalid_cookie",
+        "invalid_domain",
+        "invalid_expiry",
+        "invalid_host_prefix",
+        "invalid_http_only",
+        "invalid_name",
+        "invalid_netscape_record",
+        "invalid_path",
+        "invalid_samesite",
+        "invalid_secure",
+        "invalid_value",
+        "insecure_samesite_none",
+        "insecure_secure_prefix",
+    }
+)
+# The package's bundled PSL snapshot is used exclusively.  No cache or live fetch
+# is allowed while parsing an untrusted cookie import.
+_PSL_EXTRACT = tldextract.TLDExtract(
+    suffix_list_urls=(), cache_dir=None, include_psl_private_domains=True
+)
 
 
 @dataclass(frozen=True)
@@ -56,36 +85,50 @@ class CookieParseResult:
         }
 
 
+@dataclass(frozen=True)
+class _CookieRecord:
+    raw: dict[str, Any] | None = None
+    error_code: str | None = None
+
+
+class _CookieValidationError(ValueError):
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(code)
+
+
 def parse_cookie_payload(data: Any, format: str) -> CookieParseResult:
     """Parse one supported format into Playwright-compatible cookie dictionaries.
 
-    ``data`` may be decoded JSON, UTF-8 JSON text/bytes, or Netscape text/bytes.
-    Invalid individual records are rejected with a bounded warning that contains only
-    the record index and a stable code; it can never contain a cookie value.
+    JSON formats are event-parsed with ``ijson``.  The parser raises as soon as it
+    sees the 10,001st cookie's ``start_map`` event, before building that record.
+    Individual record failures are reported only as a bounded index/code pair.
     """
 
     normalized_format = _normalize_format(format)
-    payload = _coerce_payload(data)
-    _ensure_payload_size(payload)
-
-    if normalized_format == "netscape":
-        raw_cookies = _parse_netscape(payload)
-    else:
-        raw_cookies = _parse_json(payload, normalized_format)
-
-    if len(raw_cookies) > MAX_COOKIE_COUNT:
-        raise ValueError("too_many_cookies")
+    payload = _payload_bytes(data)
+    records = (
+        _iter_netscape_records(payload)
+        if normalized_format == "netscape"
+        else _iter_json_records(payload, normalized_format)
+    )
 
     accepted: list[dict[str, Any]] = []
     warnings: list[CookieParseWarning] = []
     rejected = 0
-    for index, raw_cookie in enumerate(raw_cookies):
-        try:
-            accepted.append(_normalize_cookie(raw_cookie))
-        except _CookieValidationError as error:
-            rejected += 1
-            if len(warnings) < MAX_COOKIE_WARNINGS:
-                warnings.append(CookieParseWarning(index=index, code=error.code))
+    try:
+        for index, record in enumerate(records):
+            if record.error_code is not None:
+                rejected += 1
+                _append_warning(warnings, index, record.error_code)
+                continue
+            try:
+                accepted.append(_normalize_cookie(record.raw))
+            except _CookieValidationError as error:
+                rejected += 1
+                _append_warning(warnings, index, error.code)
+    except (JSONError, UnicodeDecodeError) as error:
+        raise ValueError("invalid_cookie_payload") from error
 
     return CookieParseResult(
         cookies=accepted,
@@ -98,8 +141,8 @@ def parse_cookie_payload(data: Any, format: str) -> CookieParseResult:
 def to_netscape(cookies: Iterable[dict[str, Any]]) -> str:
     """Encode normalized cookies as a Netscape HTTP Cookie File.
 
-    The function revalidates records before serializing so a caller cannot inject
-    a line through an untrusted cookie value or field.
+    Netscape's ``0`` is reserved for session cookies.  A real Unix epoch expiry
+    cannot round-trip through the format, so it is rejected rather than changed.
     """
 
     lines = ["# Netscape HTTP Cookie File"]
@@ -108,6 +151,8 @@ def to_netscape(cookies: Iterable[dict[str, Any]]) -> str:
             cookie = _normalize_cookie(raw_cookie)
         except _CookieValidationError as error:
             raise ValueError("invalid_cookie_for_export") from error
+        if cookie["expires"] == 0:
+            raise ValueError("invalid_cookie_for_export")
 
         domain = cookie["domain"]
         if cookie["httpOnly"]:
@@ -130,12 +175,6 @@ def to_netscape(cookies: Iterable[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-class _CookieValidationError(ValueError):
-    def __init__(self, code: str):
-        self.code = code
-        super().__init__(code)
-
-
 def _normalize_format(format: str) -> str:
     if not isinstance(format, str):
         raise ValueError("unsupported_cookie_format")
@@ -145,111 +184,176 @@ def _normalize_format(format: str) -> str:
     return normalized
 
 
-def _coerce_payload(data: Any) -> str | Any:
+def _payload_bytes(data: Any) -> bytes:
     if isinstance(data, bytes):
-        try:
-            return data.decode("utf-8")
-        except UnicodeDecodeError as error:
-            raise ValueError("invalid_cookie_payload") from error
-    return data
-
-
-def _ensure_payload_size(payload: str | Any) -> None:
-    if isinstance(payload, str):
-        size = len(payload.encode("utf-8"))
+        payload = data
+    elif isinstance(data, str):
+        payload = data.encode("utf-8")
     else:
         try:
-            size = len(
-                json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
-                    "utf-8"
-                )
+            payload = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode(
+                "utf-8"
             )
         except (TypeError, ValueError, OverflowError) as error:
             raise ValueError("invalid_cookie_payload") from error
-    if size > MAX_COOKIE_PAYLOAD_BYTES:
+    if len(payload) > MAX_COOKIE_PAYLOAD_BYTES:
         raise ValueError("payload_too_large")
+    return payload
 
 
-def _parse_json(payload: str | Any, format: str) -> list[Any]:
-    if isinstance(payload, str):
-        try:
-            payload = json.loads(payload)
-        except json.JSONDecodeError as error:
-            raise ValueError("invalid_cookie_payload") from error
-
-    if format == "json":
-        if not isinstance(payload, dict) or set(payload) != {"cookies"}:
-            raise ValueError("invalid_cookie_payload")
-        cookies = payload["cookies"]
-    elif isinstance(payload, list):
-        cookies = payload
-    elif isinstance(payload, dict) and set(payload) == {"cookies"}:
-        # Browser storage-state exports commonly carry this envelope.
-        cookies = payload["cookies"]
-    else:
+def _iter_json_records(payload: bytes, format: str) -> Iterator[_CookieRecord]:
+    events = iter(ijson.parse(io.BytesIO(payload)))
+    try:
+        root_prefix, root_event, _root_value = next(events)
+    except StopIteration as error:
+        raise ValueError("invalid_cookie_payload") from error
+    if root_prefix != "" or root_event not in {"start_array", "start_map"}:
+        raise ValueError("invalid_cookie_payload")
+    if format == "json" and root_event != "start_map":
         raise ValueError("invalid_cookie_payload")
 
-    if not isinstance(cookies, list):
-        raise ValueError("invalid_cookie_payload")
-    return cookies
-
-
-def _parse_netscape(payload: str | Any) -> list[dict[str, Any]]:
-    if not isinstance(payload, str):
+    envelope = root_event == "start_map"
+    item_prefix = "cookies.item" if envelope else "item"
+    array_prefix = "cookies" if envelope else ""
+    if format == "playwright" and not envelope and root_event != "start_array":
         raise ValueError("invalid_cookie_payload")
 
-    cookies: list[dict[str, Any]] = []
-    for line in payload.splitlines():
+    cookie_count = 0
+    current: dict[str, Any] | None = None
+    current_key: str | None = None
+    envelope_keys: set[str] = set()
+    cookies_array_started = not envelope
+    cookies_array_finished = False
+    root_finished = False
+
+    def start_cookie() -> None:
+        nonlocal cookie_count
+        if cookie_count >= MAX_COOKIE_COUNT:
+            raise ValueError("too_many_cookies")
+        cookie_count += 1
+
+    for prefix, event, value in events:
+        if envelope and prefix == "" and event == "map_key":
+            if not isinstance(value, str):
+                raise ValueError("invalid_cookie_payload")
+            envelope_keys.add(value)
+            if value != "cookies":
+                raise ValueError("invalid_cookie_payload")
+            continue
+        if envelope and prefix == array_prefix and event == "start_array":
+            if not envelope_keys or cookies_array_started:
+                raise ValueError("invalid_cookie_payload")
+            cookies_array_started = True
+            continue
+        if prefix == array_prefix and event == "end_array":
+            cookies_array_finished = True
+            continue
+        if envelope and prefix == "" and event == "end_map":
+            root_finished = True
+            continue
+
+        if prefix == item_prefix and event == "start_map":
+            if not cookies_array_started or current is not None:
+                raise ValueError("invalid_cookie_payload")
+            start_cookie()
+            current = {}
+            current_key = None
+            continue
+        if prefix == item_prefix and event in {"string", "number", "boolean", "null", "start_array"}:
+            if not cookies_array_started:
+                raise ValueError("invalid_cookie_payload")
+            start_cookie()
+            yield _CookieRecord(error_code="invalid_cookie")
+            continue
+        if prefix == item_prefix and event == "map_key" and current is not None:
+            current_key = value if isinstance(value, str) else None
+            continue
+        if prefix == item_prefix and event == "end_map" and current is not None:
+            yield _CookieRecord(raw=current)
+            current = None
+            current_key = None
+            continue
+        if current is not None and current_key is not None:
+            direct_field_prefix = f"{item_prefix}.{current_key}"
+            if prefix == direct_field_prefix and event in {"string", "number", "boolean", "null"}:
+                current[current_key] = value
+            elif prefix == direct_field_prefix and event in {"start_array", "start_map"}:
+                # Keep the value typed-but-invalid without serializing it into a warning.
+                current[current_key] = object()
+
+    if current is not None or not cookies_array_started or not cookies_array_finished:
+        raise ValueError("invalid_cookie_payload")
+    if envelope and (envelope_keys != {"cookies"} or not root_finished):
+        raise ValueError("invalid_cookie_payload")
+    if not envelope and not cookies_array_finished:
+        raise ValueError("invalid_cookie_payload")
+
+
+def _iter_netscape_records(payload: bytes) -> Iterator[_CookieRecord]:
+    text = payload.decode("utf-8")
+    record_count = 0
+    for line in io.StringIO(text):
+        line = line.rstrip("\r\n")
         if not line or (line.startswith("#") and not line.startswith("#HttpOnly_")):
             continue
+        if record_count >= MAX_COOKIE_COUNT:
+            raise ValueError("too_many_cookies")
+        record_count += 1
+
         http_only = line.startswith("#HttpOnly_")
         if http_only:
             line = line[len("#HttpOnly_") :]
         fields = line.split("\t")
         if len(fields) != 7:
-            cookies.append({"_invalid_code": "invalid_netscape_record"})
+            yield _CookieRecord(error_code="invalid_netscape_record")
             continue
-        domain, include_subdomains, path, secure, expires, name, value = fields
-        if include_subdomains.upper() not in {"TRUE", "FALSE"}:
-            cookies.append({"_invalid_code": "invalid_netscape_record"})
+        domain, include_subdomains, path, secure, expiry_text, name, value = fields
+        if include_subdomains.upper() not in {"TRUE", "FALSE"} or secure.upper() not in {
+            "TRUE",
+            "FALSE",
+        }:
+            yield _CookieRecord(error_code="invalid_netscape_record")
             continue
-        if secure.upper() not in {"TRUE", "FALSE"}:
-            cookies.append({"_invalid_code": "invalid_netscape_record"})
+        if not expiry_text.isdecimal():
+            yield _CookieRecord(error_code="invalid_expiry")
             continue
-        try:
-            expiry = int(expires)
-        except ValueError:
-            cookies.append({"_invalid_code": "invalid_expiry"})
-            continue
-        if expiry < 0:
-            cookies.append({"_invalid_code": "invalid_expiry"})
+        expiry = int(expiry_text)
+        if expiry > MAX_COOKIE_EXPIRY_SECONDS:
+            yield _CookieRecord(error_code="invalid_expiry")
             continue
         if include_subdomains.upper() == "TRUE" and not domain.startswith("."):
             domain = f".{domain}"
         elif include_subdomains.upper() == "FALSE":
             domain = domain.lstrip(".")
-        cookies.append(
-            {
+        yield _CookieRecord(
+            raw={
                 "name": name,
                 "value": value,
                 "domain": domain,
                 "path": path,
+                # Netscape reserves zero for a session cookie.
                 "expires": -1 if expiry == 0 else expiry,
                 "secure": secure.upper() == "TRUE",
                 "httpOnly": http_only,
             }
         )
-    return cookies
 
 
-def _normalize_cookie(raw_cookie: Any) -> dict[str, Any]:
+def _append_warning(
+    warnings: list[CookieParseWarning], index: int, code: str
+) -> None:
+    if len(warnings) < MAX_COOKIE_WARNINGS:
+        warnings.append(
+            CookieParseWarning(
+                index=index,
+                code=code if code in _WARNING_CODES else "invalid_cookie",
+            )
+        )
+
+
+def _normalize_cookie(raw_cookie: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(raw_cookie, dict):
         raise _CookieValidationError("invalid_cookie")
-    invalid_code = raw_cookie.get("_invalid_code")
-    if invalid_code is not None:
-        raise _CookieValidationError(
-            invalid_code if isinstance(invalid_code, str) else "invalid_cookie"
-        )
 
     name = raw_cookie.get("name")
     if not isinstance(name, str) or not name or not _is_limited_utf8(name, MAX_COOKIE_NAME_BYTES):
@@ -260,7 +364,7 @@ def _normalize_cookie(raw_cookie: Any) -> dict[str, Any]:
     value = raw_cookie.get("value")
     if not isinstance(value, str) or not _is_limited_utf8(value, MAX_COOKIE_VALUE_BYTES):
         raise _CookieValidationError("invalid_value")
-    if any(character in value for character in ("\r", "\n", "\t", "\x00")):
+    if _has_unsafe_netscape_text(value):
         raise _CookieValidationError("invalid_value")
 
     domain = raw_cookie.get("domain")
@@ -270,9 +374,7 @@ def _normalize_cookie(raw_cookie: Any) -> dict[str, Any]:
     path = raw_cookie.get("path", "/")
     if not isinstance(path, str) or not path.startswith("/"):
         raise _CookieValidationError("invalid_path")
-    if not _is_limited_utf8(path, MAX_COOKIE_PATH_BYTES) or any(
-        character in path for character in ("\r", "\n", "\t", "\x00")
-    ):
+    if not _is_limited_utf8(path, MAX_COOKIE_PATH_BYTES) or _has_unsafe_netscape_text(path):
         raise _CookieValidationError("invalid_path")
 
     expires = _normalize_expiry(raw_cookie.get("expires", raw_cookie.get("expirationDate", -1)))
@@ -284,6 +386,10 @@ def _normalize_cookie(raw_cookie: Any) -> dict[str, Any]:
     same_site = _normalize_same_site(raw_cookie.get("sameSite", raw_cookie.get("same_site")))
     if same_site == "None" and not secure:
         raise _CookieValidationError("insecure_samesite_none")
+    if name.startswith("__Secure-") and not secure:
+        raise _CookieValidationError("insecure_secure_prefix")
+    if name.startswith("__Host-") and (not secure or path != "/" or domain.startswith(".")):
+        raise _CookieValidationError("invalid_host_prefix")
 
     normalized = {
         "name": name,
@@ -303,27 +409,51 @@ def _is_limited_utf8(value: str, limit: int) -> bool:
     return len(value.encode("utf-8")) <= limit
 
 
+def _has_unsafe_netscape_text(value: str) -> bool:
+    return any(
+        ord(character) < 0x20
+        or ord(character) == 0x7F
+        or character in {"\u2028", "\u2029"}
+        for character in value
+    )
+
+
 def _is_valid_domain(domain: Any) -> bool:
     if not isinstance(domain, str) or not domain or not _is_limited_utf8(domain, MAX_COOKIE_DOMAIN_BYTES):
         return False
-    hostname = domain[1:] if domain.startswith(".") else domain
+    if _has_unsafe_netscape_text(domain):
+        return False
+    is_subdomain_cookie = domain.startswith(".")
+    hostname = domain[1:] if is_subdomain_cookie else domain
     if not hostname or hostname.endswith(".") or any(character.isspace() for character in hostname):
         return False
-    if any(character in hostname for character in ("/", "\\", ":", "@", "\x00")):
-        return False
+
+    ip_hostname = hostname[1:-1] if hostname.startswith("[") and hostname.endswith("]") else hostname
+    try:
+        ipaddress.ip_address(ip_hostname)
+    except ValueError:
+        pass
+    else:
+        return not is_subdomain_cookie
+
     if hostname.lower() == "localhost":
-        return True
+        return not is_subdomain_cookie
     labels = hostname.split(".")
-    return all(_DOMAIN_LABEL_RE.fullmatch(label) for label in labels)
+    if not all(_DOMAIN_LABEL_RE.fullmatch(label) for label in labels):
+        return False
+    extracted = _PSL_EXTRACT(hostname)
+    return not (not extracted.domain and bool(extracted.suffix))
 
 
 def _normalize_expiry(value: Any) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise _CookieValidationError("invalid_expiry")
-    expires = float(value)
-    if not math.isfinite(expires) or expires < -1:
+    if isinstance(value, float) and (not math.isfinite(value) or not value.is_integer()):
         raise _CookieValidationError("invalid_expiry")
-    return expires
+    expires = int(value)
+    if expires != -1 and not 0 <= expires <= MAX_COOKIE_EXPIRY_SECONDS:
+        raise _CookieValidationError("invalid_expiry")
+    return float(expires)
 
 
 def _strict_bool(value: Any, code: str) -> bool:

@@ -68,6 +68,8 @@ manager = [
     "psutil>=6.0",
     "argon2-cffi>=23.1",
     "email-validator>=2.2",
+    "ijson==3.4.0",
+    "tldextract==5.1.3",
 ]
 manager-test = ["httpx>=0.27"]
 
