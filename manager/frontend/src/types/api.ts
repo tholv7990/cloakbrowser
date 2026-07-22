@@ -783,6 +783,40 @@ export interface CreateMediaAssetPayload {
 }
 
 // ---------------------------------------------------------------------------
+// Proxy providers — connect IPRoyal / 711Proxy and generate proxies into the
+// pool. Credentials are stored securely and never returned.
+// ---------------------------------------------------------------------------
+
+export type ProxyProviderId = 'iproyal' | 'seveneleven';
+
+export interface ProxyProvider {
+  id: ProxyProviderId;
+  name: string;
+  configured: boolean;
+}
+
+export interface ProxyProviderConfigPayload {
+  provider: ProxyProviderId;
+  /** IPRoyal. */
+  api_token?: string;
+  /** 711Proxy. */
+  username?: string;
+  password?: string;
+}
+
+export interface GenerateProxiesPayload {
+  provider: ProxyProviderId;
+  count: number;
+  country: string;
+  session_type: 'rotating' | 'sticky';
+}
+
+export interface GenerateProxiesResult {
+  created: number;
+  proxy_ids: string[];
+}
+
+// ---------------------------------------------------------------------------
 // Diagnostics + logs
 // ---------------------------------------------------------------------------
 

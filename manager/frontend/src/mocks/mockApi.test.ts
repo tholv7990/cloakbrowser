@@ -292,4 +292,41 @@ describe('mock runtime extras contract', () => {
     await mockApi.deleteMediaAsset(asset.id);
     expect((await mockApi.listMediaAssets()).length).toBe(before);
   });
+
+  it('assigns media assets to profiles by count', async () => {
+    const assets = await mockApi.listMediaAssets();
+    const profiles = (await mockApi.listProfiles({ page: 1, page_size: 2, sort: 'name' })).items;
+    const updated = await mockApi.setMediaAssignments(
+      assets[0].id,
+      profiles.map((p) => p.id),
+    );
+    expect(updated.assigned_profile_count).toBe(profiles.length);
+    expect((await mockApi.getMediaAssignments(assets[0].id)).length).toBe(profiles.length);
+  });
+
+  it('requires a configured provider before generating proxies into the pool', async () => {
+    await expect(
+      mockApi.generateProxies({
+        provider: 'seveneleven',
+        count: 3,
+        country: 'US',
+        session_type: 'rotating',
+      }),
+    ).rejects.toBeInstanceOf(ApiError);
+    const configured = await mockApi.configureProxyProvider({
+      provider: 'seveneleven',
+      username: 'u',
+      password: 'p',
+    });
+    expect(configured.configured).toBe(true);
+    const before = (await mockApi.listProxies()).length;
+    const result = await mockApi.generateProxies({
+      provider: 'seveneleven',
+      count: 3,
+      country: 'US',
+      session_type: 'rotating',
+    });
+    expect(result.created).toBe(3);
+    expect((await mockApi.listProxies()).length).toBe(before + 3);
+  });
 });

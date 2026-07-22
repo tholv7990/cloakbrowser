@@ -47,4 +47,5 @@ export const queryKeys = {
   backups: ['backups'] as const,
   mediaSettings: ['media', 'settings'] as const,
   mediaAssets: ['media', 'assets'] as const,
+  proxyProviders: ['proxies', 'providers'] as const,
 };

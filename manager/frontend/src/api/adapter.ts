@@ -24,11 +24,15 @@ import type {
   CreatePlanPayload,
   CredentialPoolSummary,
   DiagnosticRun,
+  GenerateProxiesPayload,
+  GenerateProxiesResult,
   MediaAsset,
   MediaSettings,
   ProductCatalog,
   ProductCsvInspection,
   ProfileFactoryJob,
+  ProxyProvider,
+  ProxyProviderConfigPayload,
   RuntimeSessionRecord,
   ShopifyStore,
   StartFactoryPayload,
@@ -194,4 +198,11 @@ export interface ApiAdapter {
   listMediaAssets(): Promise<MediaAsset[]>;
   createMediaAsset(payload: CreateMediaAssetPayload): Promise<MediaAsset>;
   deleteMediaAsset(id: string): Promise<void>;
+  getMediaAssignments(assetId: string): Promise<string[]>;
+  setMediaAssignments(assetId: string, profileIds: string[]): Promise<MediaAsset>;
+
+  // Proxy providers (IPRoyal / 711Proxy)
+  listProxyProviders(): Promise<ProxyProvider[]>;
+  configureProxyProvider(payload: ProxyProviderConfigPayload): Promise<ProxyProvider>;
+  generateProxies(payload: GenerateProxiesPayload): Promise<GenerateProxiesResult>;
 }

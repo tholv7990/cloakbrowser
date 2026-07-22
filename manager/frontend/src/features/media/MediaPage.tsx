@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Camera, Mic, Monitor, Plus, Trash2 } from 'lucide-react';
+import { Camera, Mic, Monitor, Plus, Trash2, Users } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { MediaKind } from '@/types/api';
+import type { MediaAsset, MediaKind } from '@/types/api';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { IconButton } from '@/components/ui/IconButton';
@@ -20,6 +20,7 @@ import {
   useMediaSettings,
   useUpdateMediaSettings,
 } from './api';
+import { AssignMediaDialog } from './AssignMediaDialog';
 
 const KIND_ICON: Record<MediaKind, LucideIcon> = {
   camera: Camera,
@@ -36,6 +37,7 @@ export function MediaPage() {
   const deleteAsset = useDeleteMediaAsset();
 
   const [addOpen, setAddOpen] = useState(false);
+  const [assignAsset, setAssignAsset] = useState<MediaAsset | null>(null);
   const [name, setName] = useState('');
   const [kind, setKind] = useState<MediaKind>('camera');
   const [format, setFormat] = useState('image/jpeg');
@@ -119,13 +121,22 @@ export function MediaPage() {
                       {t('media.assignedCount', { count: asset.assigned_profile_count })}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <IconButton
-                        size="sm"
-                        label={t('media.delete')}
-                        onClick={() => deleteAsset.mutate(asset.id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </IconButton>
+                      <div className="flex items-center justify-end gap-0.5">
+                        <IconButton
+                          size="sm"
+                          label={t('media.assign')}
+                          onClick={() => setAssignAsset(asset)}
+                        >
+                          <Users className="h-3.5 w-3.5" />
+                        </IconButton>
+                        <IconButton
+                          size="sm"
+                          label={t('media.delete')}
+                          onClick={() => deleteAsset.mutate(asset.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </IconButton>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -170,6 +181,8 @@ export function MediaPage() {
           </Field>
         </div>
       </Modal>
+
+      <AssignMediaDialog asset={assignAsset} onClose={() => setAssignAsset(null)} />
     </div>
   );
 }
