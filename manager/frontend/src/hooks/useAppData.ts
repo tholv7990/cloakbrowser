@@ -85,7 +85,7 @@ export function useAppData(): AppData {
     statuses: statuses.data ?? [],
     extensions: extensions.data ?? [],
     browser: {
-      name: 'CloakBrowser Chromium',
+      name: 'Plasma Chromium',
       version: cloakVersion,
       chromium_version: version.data?.chromium_version ?? '',
       path_present: true,

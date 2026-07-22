@@ -230,7 +230,7 @@ export const settings: Settings = {
   log_retention_days: 14,
   trash_retention_days: 30,
   browser: {
-    name: 'CloakBrowser Chromium',
+    name: 'Plasma Chromium',
     version: BROWSER_VERSION,
     path: 'C:\\Users\\operator\\.cloakbrowser\\chromium-146.0.7680.177.5\\chrome.exe',
     platform: 'windows-x64',

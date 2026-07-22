@@ -335,7 +335,7 @@ export const vi: Record<keyof typeof en, string> = {
   'editor.customAdvanced': 'Tùy chỉnh (nâng cao)',
   'editor.customUserAgent': 'User agent tùy chỉnh',
   'editor.platformNote':
-    'Nền tảng cố định là Windows và trình duyệt là CloakBrowser Chromium. Engine chỉ phơi bày một nền tảng dấu vân tay Windows, không tách riêng persona Windows 10/11.',
+    'Nền tảng cố định là Windows và trình duyệt là Plasma Chromium. Engine chỉ phơi bày một nền tảng dấu vân tay Windows, không tách riêng persona Windows 10/11.',
 
   'editor.windowMode': 'Chế độ cửa sổ',
   'editor.maximizedRec': 'Phóng to (khuyến nghị)',
@@ -344,7 +344,7 @@ export const vi: Record<keyof typeof en, string> = {
   'editor.height': 'Chiều cao',
   'editor.colorScheme': 'Bảng màu',
   'editor.windowNote':
-    'CloakBrowser dùng hình học cửa sổ headed thật để kích thước màn hình, cửa sổ ngoài và cửa sổ trong luôn đồng nhất. Độ phân giải màn hình không bị giả lập độc lập.',
+    'Plasma dùng hình học cửa sổ headed thật để kích thước màn hình, cửa sổ ngoài và cửa sổ trong luôn đồng nhất. Độ phân giải màn hình không bị giả lập độc lập.',
 
   'editor.cookiesNote':
     'Phiên bản 1 hỗ trợ nhập và xuất cookie, không phải trình sửa từng ô. Cookie, bộ nhớ cục bộ và trạng thái đăng nhập nằm trong thư mục dữ liệu người dùng riêng của hồ sơ — không bao giờ trong hàng cơ sở dữ liệu hồ sơ.',
@@ -812,7 +812,7 @@ export const vi: Record<keyof typeof en, string> = {
   'enum.outcome.failed': 'Thất bại',
   'enum.outcome.unknown': 'Không rõ',
 
-  'auth.appName': 'CloakBrowser Trình quản lý hồ sơ',
+  'auth.appName': 'Plasma',
   'auth.brandTagline': 'Quản lý hồ sơ trình duyệt ẩn danh, ngay trên máy.',
   'auth.brandSubtext':
     'Tạo, khởi chạy và chẩn đoán các hồ sơ Windows độc lập — mọi dấu vân tay nhất quán, mọi bí mật chỉ nằm trên máy này.',

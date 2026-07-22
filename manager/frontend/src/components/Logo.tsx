@@ -35,7 +35,7 @@ export function Wordmark({ collapsed = false }: { collapsed?: boolean }) {
       {!collapsed && (
         <div className="leading-none">
           <span className="font-display text-[15px] font-semibold tracking-tight text-ink">
-            CloakBrowser
+            Plasma
           </span>
           <span className="block text-[10px] font-medium uppercase tracking-[0.16em] text-ink-faint">
             Profile Manager

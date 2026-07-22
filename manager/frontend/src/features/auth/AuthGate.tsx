@@ -71,7 +71,7 @@ function AuthScreen({ mode }: { mode: 'setup' | 'login' }) {
         <div className="relative z-10 flex h-full flex-col justify-between p-10 text-white">
           <div className="flex items-center gap-2.5">
             <LogoMark size={32} />
-            <span className="font-display text-[15px] font-semibold">CloakBrowser</span>
+            <span className="font-display text-[15px] font-semibold">Plasma</span>
           </div>
           <div className="max-w-md">
             <h2 className="font-display text-[32px] font-semibold leading-[1.15]">
@@ -93,7 +93,7 @@ function AuthScreen({ mode }: { mode: 'setup' | 'login' }) {
           <div className="mb-5 flex items-center justify-between">
             <div className="flex items-center gap-2.5 lg:hidden">
               <LogoMark size={26} />
-              <span className="font-display text-[14px] font-semibold text-ink">CloakBrowser</span>
+              <span className="font-display text-[14px] font-semibold text-ink">Plasma</span>
             </div>
             <div className="hidden lg:block" />
             <LanguageToggle />

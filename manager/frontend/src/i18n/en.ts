@@ -331,7 +331,7 @@ export const en = {
   'editor.customAdvanced': 'Custom (advanced)',
   'editor.customUserAgent': 'Custom user agent',
   'editor.platformNote':
-    'Platform is fixed to Windows and the browser to CloakBrowser Chromium. The engine exposes one Windows fingerprint platform, not separate Windows 10/11 personas.',
+    'Platform is fixed to Windows and the browser to Plasma Chromium. The engine exposes one Windows fingerprint platform, not separate Windows 10/11 personas.',
 
   'editor.windowMode': 'Window mode',
   'editor.maximizedRec': 'Maximized (recommended)',
@@ -340,7 +340,7 @@ export const en = {
   'editor.height': 'Height',
   'editor.colorScheme': 'Color scheme',
   'editor.windowNote':
-    'CloakBrowser uses real headed window geometry so screen, outer-window, and inner-window dimensions stay coherent. Screen resolution is not spoofed independently.',
+    'Plasma uses real headed window geometry so screen, outer-window, and inner-window dimensions stay coherent. Screen resolution is not spoofed independently.',
 
   'editor.cookiesNote':
     'Version 1 supports importing and exporting cookies, not a cell-by-cell editor. Cookies, local storage, and login state live inside the profile dedicated user-data directory — never in the profile database row.',
@@ -807,7 +807,7 @@ export const en = {
   'enum.outcome.failed': 'Failed',
   'enum.outcome.unknown': 'Unknown',
 
-  'auth.appName': 'CloakBrowser Profile Manager',
+  'auth.appName': 'Plasma',
   'auth.brandTagline': 'Stealth browser profiles, managed locally.',
   'auth.brandSubtext':
     'Create, launch, and diagnose isolated Windows profiles — every fingerprint coherent, every secret on this machine only.',
