@@ -16,7 +16,8 @@ def test_extension_loading(mock_sync_playwright, mock_ensure_binary):
 
     mock_sync_playwright.return_value.start.return_value = mock_pw
 
-    launch(extension_paths=["./ext"])
+    extension_paths = ["./extension one", "./extension;two"]
+    launch(extension_paths=extension_paths)
 
     mock_pw.chromium.launch.assert_called_once()
 
@@ -24,7 +25,12 @@ def test_extension_loading(mock_sync_playwright, mock_ensure_binary):
 
     args = launch_call.kwargs["args"]
 
-    abs_path = os.path.abspath("./ext")
+    absolute_paths = [os.path.abspath(path) for path in extension_paths]
+    load_flags = [arg for arg in args if arg.startswith("--load-extension=")]
+    allow_flags = [
+        arg for arg in args if arg.startswith("--disable-extensions-except=")
+    ]
 
-    assert f"--load-extension={abs_path}" in args
-    assert f"--disable-extensions-except={abs_path}" in args
+    assert len(load_flags) == len(allow_flags) == 1
+    assert load_flags[0].split("=", 1)[1].split(",") == absolute_paths
+    assert allow_flags[0].split("=", 1)[1].split(",") == absolute_paths

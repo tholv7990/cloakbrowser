@@ -10,7 +10,7 @@ from manager_backend.errors import ManagerError
 from manager_backend.features.extensions import service as extension_service
 from manager_backend.features.runtime.launcher import persistent_context_kwargs
 from manager_backend.features.runtime.manager import RuntimeManager
-from manager_backend.models import Profile, RuntimeSession
+from manager_backend.models import Extension, Profile, RuntimeSession
 
 
 class FakeHandle:
@@ -224,6 +224,44 @@ def test_start_revalidates_registered_extension_before_creating_runtime(
     runtime = manager.start(profile_id)
     _wait_state(db_session_factory, runtime.id, "running")
     manager.shutdown()
+
+
+def test_start_rejects_legacy_comma_delimited_extension_assignment(
+    db_session_factory, settings, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(extension_service, "_temporary_roots", lambda: ())
+    launcher = FakeLauncher()
+    manager = RuntimeManager(db_session_factory, settings, launcher=launcher)
+    profile_id = _profile(db_session_factory, "legacy-comma-extension")
+    directory = tmp_path / "legacy,ambiguous"
+    directory.mkdir()
+    raw_manifest = json.dumps(
+        {"manifest_version": 3, "name": "Legacy", "version": "1"}
+    ).encode("utf-8")
+    (directory / "manifest.json").write_bytes(raw_manifest)
+    metadata = extension_service._manifest_metadata(raw_manifest)
+    with db_session_factory() as session:
+        extension = Extension(
+            directory=str(directory.resolve()),
+            name=metadata.name,
+            version=metadata.version,
+            description=metadata.description,
+            manifest_version=metadata.manifest_version,
+            permissions=metadata.permissions,
+            manifest_hash=metadata.manifest_hash,
+        )
+        profile = session.get(Profile, profile_id)
+        profile.extensions.append(extension)
+        session.commit()
+
+    with pytest.raises(ManagerError) as caught:
+        manager.start(profile_id)
+
+    assert caught.value.code == "extension_path_forbidden"
+    assert str(directory) not in caught.value.message
+    assert launcher.snapshots == {}
+    with db_session_factory() as session:
+        assert session.query(RuntimeSession).count() == 0
 
 
 def test_start_and_stop_keep_launcher_on_worker_thread(db_session_factory, settings):

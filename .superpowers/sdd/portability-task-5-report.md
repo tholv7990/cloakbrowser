@@ -72,3 +72,44 @@ manifest through secured handles immediately before snapshot creation and fails
 closed on mismatch, but it cannot pin the directory identity through Chromium's
 later consumption of that path. Eliminating that final external-consumer race
 would require a different browser/wrapper interface.
+
+## Important follow-up: extension flag delimiter
+
+An independent review identified that CloakBrowser serializes multiple extension
+paths into comma-delimited Chromium flag values. A directory containing a comma
+could therefore change the number and meaning of loaded paths.
+
+The canonical extension validator now rejects commas in both the supplied path
+and the resolved path with the stable `extension_path_forbidden` error. This
+protects new registrations and causes launch revalidation to fail closed for
+legacy database rows. The checks run before manifest access.
+
+The wrapper regression passes two accepted paths containing spaces and a
+semicolon through a real `launch()` call, then verifies that both
+`--load-extension` and `--disable-extensions-except` contain exactly the same two
+absolute paths after delimiter parsing. Manager still uses a structured argument
+list rather than a shell command; NUL is already rejected by canonical path
+validation, so comma is the Chromium list ambiguity requiring this additional
+restriction.
+
+Follow-up TDD and verification evidence:
+
+```text
+python -m pytest <registration, legacy-launch, wrapper cases> -q
+2 failed, 1 passed
+
+python -m pytest tests/manager/test_extension_filesystem.py::test_canonical_resolution_cannot_introduce_extension_delimiter -q
+1 failed
+
+python -m pytest <four delimiter boundary cases> -q
+4 passed, 1 warning
+
+python -m pytest tests/manager/test_extensions_api.py tests/manager/test_extension_filesystem.py tests/manager/test_runtime_manager.py -q
+47 passed, 1 skipped, 1 warning
+
+python -m pytest tests/test_extension_loading.py tests/test_persistent_context.py -q
+18 passed
+
+python -m pytest tests/manager -q
+361 passed, 3 skipped, 1 warning
+```

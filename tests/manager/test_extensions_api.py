@@ -137,6 +137,20 @@ def test_rejects_oversized_manifest_without_echo(client, auth_headers, tmp_path)
     assert "xxxxx" not in response.text
 
 
+@pytest.mark.usefixtures("allow_test_paths")
+def test_rejects_comma_delimited_extension_directory(
+    client, auth_headers, tmp_path
+):
+    directory = tmp_path / "ambiguous,extension"
+    _manifest(directory)
+
+    response = _register(client, auth_headers, directory)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "extension_path_forbidden"
+    assert str(directory) not in response.text
+
+
 def test_rejects_profile_temp_system_network_and_reparse_paths(
     client, auth_headers, settings, tmp_path, monkeypatch
 ):

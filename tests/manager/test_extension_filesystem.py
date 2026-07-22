@@ -49,6 +49,17 @@ class ResolveLocalToUnc:
         return Path(r"\\server\share\swapped-extension")
 
 
+class ResolveToCommaPath:
+    def __init__(self, target):
+        self.target = target
+
+    def is_network(self, _supplied, _path):
+        return False
+
+    def resolve(self, _path):
+        return self.target
+
+
 def test_injected_filesystem_race_detection_fails_closed_without_persisting(
     db_session_factory, settings, tmp_path, monkeypatch
 ):
@@ -147,6 +158,32 @@ def test_resolved_unc_swap_is_rejected_before_handle_reader(
 
     assert caught.value.code == "extension_path_forbidden"
     assert len(path_security.network_checks) == 2
+    assert filesystem.called is False
+
+
+def test_canonical_resolution_cannot_introduce_extension_delimiter(
+    db_session_factory, settings, tmp_path, monkeypatch
+):
+    supplied = tmp_path / "initially-safe"
+    supplied.mkdir()
+    (supplied / "manifest.json").write_text("{}", encoding="utf-8")
+    resolved = tmp_path / "resolved,ambiguous"
+    path_security = ResolveToCommaPath(resolved)
+    filesystem = RecordingFilesystem()
+    monkeypatch.setattr(service, "_temporary_roots", lambda: ())
+    monkeypatch.setattr(service, "_system_roots", lambda: ())
+
+    with db_session_factory() as session:
+        with pytest.raises(ManagerError) as caught:
+            service.register_extension(
+                session,
+                settings,
+                str(supplied),
+                filesystem=filesystem,
+                path_security=path_security,
+            )
+
+    assert caught.value.code == "extension_path_forbidden"
     assert filesystem.called is False
 
 

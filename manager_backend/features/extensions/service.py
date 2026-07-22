@@ -189,7 +189,7 @@ def _canonical_directory(
     supplied: str,
     path_security: PathSecurityAdapter = DEFAULT_PATH_SECURITY,
 ) -> ApprovedDirectory:
-    if "\0" in supplied:
+    if "\0" in supplied or "," in supplied:
         raise _path_error()
     candidate = Path(supplied).expanduser()
     try:
@@ -199,6 +199,8 @@ def _canonical_directory(
         if _path_has_reparse_component(absolute):
             raise _path_error()
         resolved = path_security.resolve(absolute)
+        if "," in str(resolved):
+            raise _path_error()
         if path_security.is_network(str(resolved), resolved):
             raise _path_error()
     except NetworkPathIndeterminate:
