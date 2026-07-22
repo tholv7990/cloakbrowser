@@ -26,6 +26,7 @@ from .dependencies import SESSION_COOKIE
 from .models import RuntimeSession
 from .features.proxies.credentials import KeyringCredentialStore
 from .features.proxies.testing import ScannerQuickTester
+from .features.proxies.providers import DefaultProviderClient
 from .features.proxies.service import build_proxy_preflight
 from .features.proxies.quality import ProxyQualityManager, recover_orphan_quality_runs
 from .features.portability.browser_cookies import CookieContextAdapter
@@ -133,6 +134,7 @@ def create_app(
 
     app.state.cookie_context_adapter = CookieContextAdapter(resolved)
     app.state.proxy_quick_tester = ScannerQuickTester()
+    app.state.proxy_provider_client = DefaultProviderClient()
     app.state.proxy_quality_manager = ProxyQualityManager(
         app.state.session_factory, app.state.credential_store, resolved
     )

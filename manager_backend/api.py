@@ -5,6 +5,7 @@ from .features.app.routes import router as app_router
 from .features.profiles.routes import router as profiles_router
 from .features.portability.routes import router as portability_router
 from .features.runtime.routes import router as runtime_router
+from .features.proxies.provider_routes import router as proxy_providers_router
 from .features.proxies.routes import router as proxies_router
 from .features.settings.routes import router as settings_router
 from .features.extensions.routes import router as extensions_router
@@ -28,6 +29,7 @@ api_router.include_router(catalog_router)
 api_router.include_router(profiles_router)
 api_router.include_router(portability_router)
 api_router.include_router(runtime_router)
+api_router.include_router(proxy_providers_router)  # before proxies_router: /proxies/providers
 api_router.include_router(proxies_router)
 api_router.include_router(settings_router)
 api_router.include_router(extensions_router)
