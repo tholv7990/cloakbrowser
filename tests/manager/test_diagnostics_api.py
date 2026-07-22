@@ -490,14 +490,24 @@ def test_diagnostic_artifact_access_rejects_file_swap_and_reparse_boundary(
         session.commit()
         run_id = run.id
 
-    original_open = artifacts.os.open
+    if os.name == "nt":
+        original_read = artifacts._read_windows_artifact
 
-    def swap_before_open(path, flags):
-        if Path(path) == report and replacement.exists():
-            artifacts.os.replace(replacement, report)
-        return original_open(path, flags)
+        def swap_before_open(path, max_bytes, before):
+            if Path(path) == report and replacement.exists():
+                artifacts.os.replace(replacement, report)
+            return original_read(path, max_bytes, before)
 
-    monkeypatch.setattr(artifacts.os, "open", swap_before_open)
+        monkeypatch.setattr(artifacts, "_read_windows_artifact", swap_before_open)
+    else:
+        original_open = artifacts.os.open
+
+        def swap_before_open(path, flags, *args, **kwargs):
+            if path == "report.json" and replacement.exists():
+                artifacts.os.replace(replacement, report)
+            return original_open(path, flags, *args, **kwargs)
+
+        monkeypatch.setattr(artifacts.os, "open", swap_before_open)
     swapped = client.get(
         f"/api/v1/diagnostics/{run_id}/artifacts/report", headers=auth_headers
     )
@@ -570,6 +580,94 @@ def test_diagnostic_artifact_access_rejects_directory_boundary_swap(
     )
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "diagnostic_artifact_unavailable"
+
+
+def test_diagnostic_artifact_never_serves_swap_and_restore_payload(
+    client, auth_headers, settings, monkeypatch
+):
+    from manager_backend.features.diagnostics import artifacts
+    from manager_backend.models import DiagnosticRun
+
+    with client.app.state.session_factory() as session:
+        run = DiagnosticRun(
+            kind="direct_google_control",
+            status="passed",
+            target_url="https://www.google.com/search?q=CloakBrowser+diagnostic",
+            progress=100,
+            findings={},
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(run)
+        session.flush()
+        diagnostics_root = settings.data_root.resolve() / "diagnostics"
+        run_root = diagnostics_root / run.id
+        run_root.mkdir(parents=True)
+        report = run_root / "report.json"
+        report.write_text('{"owned":true}', encoding="utf-8")
+        run.report_path = str(report)
+        session.commit()
+        run_id = run.id
+
+    original_lstat = artifacts.os.lstat
+    original_open = artifacts.os.open
+    candidate_lstats = 0
+    held_original = diagnostics_root / f"{run_id}-held-original"
+    held_attacker = diagnostics_root / f"{run_id}-held-attacker"
+
+    def swap_during_candidate_lstats(path, *args, **kwargs):
+        nonlocal candidate_lstats
+        path = Path(path)
+        if path != report:
+            return original_lstat(path, *args, **kwargs)
+        candidate_lstats += 1
+        if candidate_lstats == 1:
+            run_root.rename(held_original)
+            run_root.mkdir()
+            report.write_text('{"outside":true}', encoding="utf-8")
+            return original_lstat(path, *args, **kwargs)
+        if candidate_lstats == 3:
+            run_root.rename(held_original)
+            held_attacker.rename(run_root)
+            info = original_lstat(path, *args, **kwargs)
+            run_root.rename(held_attacker)
+            held_original.rename(run_root)
+            return info
+        return original_lstat(path, *args, **kwargs)
+
+    def restore_boundary_after_open(path, flags, *args, **kwargs):
+        descriptor = original_open(path, flags, *args, **kwargs)
+        if Path(path) == report and held_original.exists():
+            run_root.rename(held_attacker)
+            held_original.rename(run_root)
+        return descriptor
+
+    monkeypatch.setattr(artifacts.os, "lstat", swap_during_candidate_lstats)
+    monkeypatch.setattr(artifacts.os, "open", restore_boundary_after_open)
+    response = client.get(
+        f"/api/v1/diagnostics/{run_id}/artifacts/report", headers=auth_headers
+    )
+    if held_attacker.exists():
+        (held_attacker / "report.json").unlink()
+        held_attacker.rmdir()
+    assert response.status_code in {200, 409}
+    if response.status_code == 200:
+        assert response.json() == {"owned": True}
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows directory sharing contract")
+def test_windows_held_run_directory_denies_rename(tmp_path):
+    from manager_backend.features.diagnostics import artifacts
+
+    run_root = tmp_path / "run"
+    moved_root = tmp_path / "moved"
+    run_root.mkdir()
+    try:
+        with artifacts._held_boundary(run_root):
+            with pytest.raises(OSError):
+                run_root.rename(moved_root)
+    finally:
+        if moved_root.exists():
+            moved_root.rename(run_root)
 
 
 def test_openapi_declares_explicit_diagnostic_artifact_media_types(client):

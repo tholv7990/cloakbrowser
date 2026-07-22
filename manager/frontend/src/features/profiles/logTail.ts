@@ -17,10 +17,5 @@ export function mergeProfileLogTail(
   const source = response.reset ? response.items : [...previous, ...response.items];
   const unique = new Map<string, ProfileLogEntry>();
   for (const item of source) unique.set(item.id, item);
-  return [...unique.values()]
-    .sort(
-      (left, right) =>
-        left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id),
-    )
-    .slice(-limit);
+  return [...unique.values()].slice(-limit);
 }

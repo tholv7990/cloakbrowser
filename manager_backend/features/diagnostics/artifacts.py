@@ -216,8 +216,8 @@ def _open_windows_boundary(path: Path) -> _BoundaryHandle:
     close_handle.restype = wintypes.BOOL
     handle = create_file(
         str(path),
-        0x80,  # FILE_READ_ATTRIBUTES
-        0x1 | 0x2 | 0x4,  # FILE_SHARE_READ | WRITE | DELETE
+        0x10000 | 0x80,  # DELETE | FILE_READ_ATTRIBUTES (locks rename)
+        0x1 | 0x2,  # FILE_SHARE_READ | FILE_SHARE_WRITE; deny rename/delete
         None,
         3,  # OPEN_EXISTING
         0x02000000 | 0x00200000,  # BACKUP_SEMANTICS | OPEN_REPARSE_POINT
@@ -236,6 +236,9 @@ def _open_windows_boundary(path: Path) -> _BoundaryHandle:
         length = get_final_path(handle, buffer, len(buffer), 0)
         if length == 0 or length >= len(buffer):
             raise OSError(ctypes.get_last_error(), "GetFinalPathNameByHandleW failed")
+        final_path = _normalized_final_path(buffer.value)
+        if final_path != _normalized_final_path(path):
+            raise ArtifactUnavailable
         return _BoundaryHandle(
             path=path,
             identity=(
@@ -243,7 +246,7 @@ def _open_windows_boundary(path: Path) -> _BoundaryHandle:
                 int(information.file_index_high),
                 int(information.file_index_low),
             ),
-            final_path=_normalized_final_path(buffer.value),
+            final_path=final_path,
             native_handle=int(handle),
         )
     except Exception:
@@ -282,6 +285,15 @@ def _held_boundary(path: Path) -> Iterator[_BoundaryHandle]:
 
 def _boundary_is_current(boundary: _BoundaryHandle) -> bool:
     try:
+        if boundary.native_handle is not None:
+            information = os.lstat(boundary.path)
+            expected_inode = (boundary.identity[1] << 32) | boundary.identity[2]
+            return (
+                not _is_link_or_reparse(boundary.path)
+                and int(information.st_ino) == expected_inode
+                and _normalized_final_path(boundary.path.resolve(strict=True))
+                == boundary.final_path
+            )
         with _held_boundary(boundary.path) as current:
             return (
                 current.identity == boundary.identity
@@ -294,6 +306,179 @@ def _boundary_is_current(boundary: _BoundaryHandle) -> bool:
 def _require_current_boundaries(boundaries: tuple[_BoundaryHandle, ...]) -> None:
     if not all(_boundary_is_current(boundary) for boundary in boundaries):
         raise ArtifactUnavailable
+
+
+def _read_posix_artifact(
+    run_boundary: _BoundaryHandle, filename: str, max_bytes: int
+) -> bytes:
+    if run_boundary.descriptor is None:
+        raise ArtifactUnavailable
+    before = os.stat(
+        filename,
+        dir_fd=run_boundary.descriptor,
+        follow_symlinks=False,
+    )
+    if not stat.S_ISREG(before.st_mode) or before.st_size > max_bytes:
+        raise ArtifactUnavailable
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
+    descriptor = os.open(filename, flags, dir_fd=run_boundary.descriptor)
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
+            or opened.st_size > max_bytes
+        ):
+            raise ArtifactUnavailable
+        chunks: list[bytes] = []
+        remaining = max_bytes + 1
+        while remaining > 0:
+            chunk = os.read(descriptor, min(64 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        content = b"".join(chunks)
+        after = os.stat(
+            filename,
+            dir_fd=run_boundary.descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            len(content) > max_bytes
+            or len(content) != opened.st_size
+            or (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino)
+        ):
+            raise ArtifactUnavailable
+        return content
+    finally:
+        os.close(descriptor)
+
+
+def _read_windows_artifact(
+    candidate: Path, max_bytes: int, before: os.stat_result
+) -> bytes:
+    import ctypes
+    from ctypes import wintypes
+
+    class ByHandleFileInformation(ctypes.Structure):
+        _fields_ = [
+            ("file_attributes", wintypes.DWORD),
+            ("creation_time", wintypes.FILETIME),
+            ("last_access_time", wintypes.FILETIME),
+            ("last_write_time", wintypes.FILETIME),
+            ("volume_serial_number", wintypes.DWORD),
+            ("file_size_high", wintypes.DWORD),
+            ("file_size_low", wintypes.DWORD),
+            ("number_of_links", wintypes.DWORD),
+            ("file_index_high", wintypes.DWORD),
+            ("file_index_low", wintypes.DWORD),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+    get_information = kernel32.GetFileInformationByHandle
+    get_information.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(ByHandleFileInformation),
+    ]
+    get_information.restype = wintypes.BOOL
+    get_final_path = kernel32.GetFinalPathNameByHandleW
+    get_final_path.argtypes = [
+        wintypes.HANDLE,
+        wintypes.LPWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+    ]
+    get_final_path.restype = wintypes.DWORD
+    read_file = kernel32.ReadFile
+    read_file.argtypes = [
+        wintypes.HANDLE,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        wintypes.LPVOID,
+    ]
+    read_file.restype = wintypes.BOOL
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+    handle = create_file(
+        str(candidate),
+        0x80000000 | 0x80,  # GENERIC_READ | FILE_READ_ATTRIBUTES
+        0x1,  # FILE_SHARE_READ; deny writes, replacement, and deletion
+        None,
+        3,  # OPEN_EXISTING
+        0x00200000,  # FILE_FLAG_OPEN_REPARSE_POINT
+        None,
+    )
+    invalid_handle = ctypes.c_void_p(-1).value
+    if handle == invalid_handle:
+        raise OSError(ctypes.get_last_error(), "CreateFileW failed", str(candidate))
+    try:
+        opened = ByHandleFileInformation()
+        if not get_information(handle, ctypes.byref(opened)):
+            raise OSError(ctypes.get_last_error(), "GetFileInformationByHandle failed")
+        opened_inode = (int(opened.file_index_high) << 32) | int(opened.file_index_low)
+        opened_size = (int(opened.file_size_high) << 32) | int(opened.file_size_low)
+        if (
+            opened.file_attributes & _REPARSE_POINT
+            or opened_inode != int(before.st_ino)
+            or opened_size != int(before.st_size)
+            or opened_size > max_bytes
+        ):
+            raise ArtifactUnavailable
+        buffer = ctypes.create_unicode_buffer(32_768)
+        length = get_final_path(handle, buffer, len(buffer), 0)
+        if (
+            length == 0
+            or length >= len(buffer)
+            or _normalized_final_path(buffer.value) != _normalized_final_path(candidate)
+        ):
+            raise ArtifactUnavailable
+        chunks: list[bytes] = []
+        remaining = max_bytes + 1
+        while remaining > 0:
+            requested = min(64 * 1024, remaining)
+            chunk = ctypes.create_string_buffer(requested)
+            count = wintypes.DWORD()
+            if not read_file(handle, chunk, requested, ctypes.byref(count), None):
+                raise OSError(ctypes.get_last_error(), "ReadFile failed")
+            if count.value == 0:
+                break
+            chunks.append(chunk.raw[: count.value])
+            remaining -= count.value
+        content = b"".join(chunks)
+        after = ByHandleFileInformation()
+        if not get_information(handle, ctypes.byref(after)):
+            raise OSError(ctypes.get_last_error(), "GetFileInformationByHandle failed")
+        after_inode = (int(after.file_index_high) << 32) | int(after.file_index_low)
+        after_size = (int(after.file_size_high) << 32) | int(after.file_size_low)
+        if (
+            len(content) > max_bytes
+            or len(content) != opened_size
+            or after_inode != opened_inode
+            or after_size != opened_size
+        ):
+            raise ArtifactUnavailable
+        return content
+    finally:
+        close_handle(handle)
 
 
 def read_diagnostic_artifact(
@@ -332,46 +517,18 @@ def read_diagnostic_artifact(
                 ):
                     raise ArtifactUnavailable
             _require_current_boundaries(boundaries)
-            before = os.lstat(candidate)
-            if (
-                not stat.S_ISREG(before.st_mode)
-                or _is_link_or_reparse(candidate)
-                or before.st_size > max_bytes
-            ):
-                raise ArtifactUnavailable
-            flags = (
-                os.O_RDONLY
-                | getattr(os, "O_BINARY", 0)
-                | getattr(os, "O_NOFOLLOW", 0)
-            )
-            descriptor = os.open(candidate, flags)
-            try:
-                opened = os.fstat(descriptor)
+            if os.name == "nt":
+                before = os.lstat(candidate)
                 if (
-                    not stat.S_ISREG(opened.st_mode)
-                    or (opened.st_dev, opened.st_ino)
-                    != (before.st_dev, before.st_ino)
-                    or opened.st_size > max_bytes
+                    not stat.S_ISREG(before.st_mode)
+                    or _is_link_or_reparse(candidate)
+                    or before.st_size > max_bytes
                 ):
                     raise ArtifactUnavailable
-                _require_current_boundaries(boundaries)
-                chunks: list[bytes] = []
-                remaining = max_bytes + 1
-                while remaining > 0:
-                    chunk = os.read(descriptor, min(64 * 1024, remaining))
-                    if not chunk:
-                        break
-                    chunks.append(chunk)
-                    remaining -= len(chunk)
-                content = b"".join(chunks)
-                if len(content) > max_bytes or len(content) != opened.st_size:
-                    raise ArtifactUnavailable
-                after = os.lstat(candidate)
-                if (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino):
-                    raise ArtifactUnavailable
-                _require_current_boundaries(boundaries)
-            finally:
-                os.close(descriptor)
+                content = _read_windows_artifact(candidate, max_bytes, before)
+            else:
+                content = _read_posix_artifact(boundaries[1], filename, max_bytes)
+            _require_current_boundaries(boundaries)
     except ArtifactNotFound:
         raise
     except ArtifactUnavailable:

@@ -33,6 +33,19 @@ describe('mergeProfileLogTail', () => {
     expect(second.map((item) => item.id)).toEqual(['2', '3', '4']);
   });
 
+  it('preserves backend monotonic delivery order instead of timestamp or UUID order', () => {
+    const first = {
+      ...entry('ffffffff-ffff-4fff-8fff-ffffffffffff'),
+      created_at: '2026-07-22T00:00:02Z',
+    };
+    const laterSequence = {
+      ...entry('00000000-0000-4000-8000-000000000001'),
+      created_at: '2026-07-22T00:00:01Z',
+    };
+    const merged = mergeProfileLogTail([first], tail([first, laterSequence]), 20);
+    expect(merged.map((item) => item.id)).toEqual([first.id, laterSequence.id]);
+  });
+
   it('replaces local history when the backend resets a stale cursor', () => {
     const merged = mergeProfileLogTail(
       [entry('1'), entry('2')],
