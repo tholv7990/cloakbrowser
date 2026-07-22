@@ -20,7 +20,9 @@ Add versioned profile import/export, safe cookie import/export, and local unpack
 
 The profile contains editable configuration, tags by name/color, workflow status by name/color, and extension references by manifest metadata. It excludes IDs, timestamps, runtime state, filesystem paths, proxy credentials, cookies, browser data, diagnostic data, and license/session material. Proxy assignment exports only non-secret scheme/host/port metadata and is not automatically recreated on import.
 
-`POST /api/v1/profiles/import` accepts one document up to 2 MiB. It validates format/version strictly, creates a new UUID, fingerprint seed, revision, and profile directory, resolves or creates catalog values by normalized name, and reports warnings for skipped proxy assignment or missing extensions. Name collisions gain ` (imported N)` deterministically. Import is transactional.
+Portable startup URLs exclude `chrome-extension://` URLs because their extension IDs are machine-specific. Extension portability uses manifest metadata only. Import requires trusted Manager settings so profile-directory creation cannot be skipped.
+
+`POST /api/v1/profiles/import` accepts one document up to 2 MiB. It requires explicit format/version fields, validates all fields strictly, creates a new UUID, fingerprint seed, revision, and profile directory, resolves or creates catalog values by normalized name, and reports warnings for skipped proxy assignment, machine-specific startup URLs, or missing extensions. Name collisions gain ` (imported N)` deterministically. Import reserves the SQLite writer transaction before resolution and commits transactionally, preventing concurrent imports from duplicating normalized catalog values or collision names.
 
 ## Cookies
 

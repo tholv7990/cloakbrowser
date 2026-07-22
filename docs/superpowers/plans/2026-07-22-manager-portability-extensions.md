@@ -27,11 +27,13 @@
 - Test: `tests/manager/test_profile_portability.py`
 
 **Interfaces:**
-- Produces: `export_profile(session, id) -> ProfileExportV1`; `import_profile(session, document) -> ProfileImportResult`.
+- Produces: `export_profile(session, id) -> ProfileExportV1`; `import_profile(session, settings, document) -> ProfileImportResult`.
 
 - [ ] Write failing tests for deterministic schema, secret/path/ID exclusion, 2 MiB limit, bad version, catalog resolution, collision naming, fresh UUID/seed, warnings, and rollback.
 - [ ] Run the focused test and confirm import symbols/routes are missing.
 - [ ] Implement strict Pydantic export/import models, `Content-Disposition` download, and one transaction. Proxy metadata generates a warning and no assignment.
+- [ ] Require explicit format/version, omit `chrome-extension://` machine IDs, bound portable permissions and safe validation errors, and require trusted Manager settings.
+- [ ] Reserve the SQLite writer transaction before indexed deterministic catalog/name resolution; map lock/integrity failures to safe typed errors.
 - [ ] Run focused tests and confirm green.
 - [ ] Commit with `git commit -m "feat(manager): add profile import and export"`.
 

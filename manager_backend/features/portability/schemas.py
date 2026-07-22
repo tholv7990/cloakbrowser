@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from ...schemas.common import StrictModel
 from ..profiles.schemas import LocationSettings, WindowSettings
@@ -13,7 +13,13 @@ from ..profiles.schemas import LocationSettings, WindowSettings
 PROFILE_EXPORT_FORMAT = "cloakbrowser-manager-profile"
 PROFILE_EXPORT_VERSION = 1
 MAX_PROFILE_DOCUMENT_BYTES = 2 * 1024 * 1024
+MAX_PORTABLE_PERMISSIONS = 64
+MAX_PORTABLE_PERMISSION_KEY_LENGTH = 80
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+PortablePermissionKey = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=MAX_PORTABLE_PERMISSION_KEY_LENGTH),
+]
 
 
 def _normalized_name(value: str) -> str:
@@ -67,7 +73,10 @@ class PortableBehaviorSettings(PortableStrictModel):
     humanize_preset: Literal["default", "careful"] = "default"
     clear_cache_before_launch: bool = False
     restore_previous_tabs: bool = True
-    permissions: dict[str, Literal["ask", "allow", "block"]] = Field(default_factory=dict)
+    permissions: dict[PortablePermissionKey, Literal["ask", "allow", "block"]] = Field(
+        default_factory=dict,
+        max_length=MAX_PORTABLE_PERMISSIONS,
+    )
     ignore_https_errors: bool = False
     hardware_concurrency_mode: Literal["automatic", "custom"] = "automatic"
     hardware_concurrency: int | None = Field(default=None, ge=2, le=64)
@@ -171,8 +180,8 @@ class PortableProfile(PortableStrictModel):
 
 
 class ProfileExportV1(PortableStrictModel):
-    format: Literal["cloakbrowser-manager-profile"] = PROFILE_EXPORT_FORMAT
-    version: Literal[1] = PROFILE_EXPORT_VERSION
+    format: Literal["cloakbrowser-manager-profile"]
+    version: Literal[1]
     exported_at: datetime
     profile: PortableProfile
     extensions: list[PortableExtension] = Field(default_factory=list, max_length=100)
@@ -193,11 +202,15 @@ class ProfileExportV1(PortableStrictModel):
 
 
 class ProfileImportWarning(PortableStrictModel):
-    code: Literal["proxy_assignment_skipped", "extension_missing"]
+    code: Literal[
+        "proxy_assignment_skipped",
+        "extension_missing",
+        "chrome_extension_startup_url_skipped",
+    ]
     message: str = Field(min_length=1, max_length=240)
 
 
 class ProfileImportResult(PortableStrictModel):
     profile_id: str
     profile_name: str
-    warnings: list[ProfileImportWarning] = Field(default_factory=list, max_length=101)
+    warnings: list[ProfileImportWarning] = Field(default_factory=list, max_length=102)

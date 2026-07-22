@@ -63,3 +63,41 @@ Each RED failed for the intended missing or incorrect behavior before its produc
 
 - Export currently emits `extensions: []` because extension persistence/assignments do not exist until plan Task 4. `_export_extensions()` is an explicit integration seam; Task 4 must populate it with manifest metadata only, never IDs or paths. Import already accepts strict extension metadata and emits one safe missing-extension warning per unresolved reference.
 - Static `manager_backend/openapi.json` regeneration is intentionally deferred to the plan's Task 7 contract gate.
+
+## Approved strict-contract follow-up
+
+### Additional RED evidence
+
+- Required discriminators: documents missing `format` or `version` validated because both fields had defaults.
+- Machine extension IDs: `chrome-extension://<machine-id>/...` startup URLs exported and reimported verbatim.
+- Permission/error bounds: permission maps had no entry/key bounds, and validation locations reflected attacker-controlled keys without an error-count cap.
+- Trusted settings: `import_profile(session, document)` allowed directory creation to be silently skipped.
+- Concurrent resolution: two simultaneous imports could check the same catalog/profile-name state before either committed; catalog lookups also scanned whole tables once per reference.
+- Deterministic ties: casefold-equivalent tag/catalog names lacked original-name and stable-ID tie-breakers.
+- Cleanup: no regression covered a directory successfully created before a later commit failure.
+
+Each item received a failing focused test or adversarial/concurrent regression before the implementation change. The legacy oversized-permissions export regression also failed before deterministic filtering was added.
+
+### Additional GREEN evidence
+
+- `ProfileExportV1` now requires explicit `format` and `version`; export supplies the exact v1 constants.
+- Portable export/import removes all `chrome-extension://` startup URLs. HTTP export emits only the fixed `chrome_extension_startup_urls_skipped` warning code; import emits one bounded generic warning and never reflects the machine ID.
+- Portable permissions accept at most 64 entries with keys of at most 80 characters. Legacy export maps are deterministically sorted, filtered, and capped.
+- Validation conversion returns at most 16 fixed `invalid` entries, maps indices/unknown keys to safe fixed path components, and does not include file values. A 200-key/200-extra-field adversarial request produced a response below 2 KiB with no marker/content reflection.
+- The service interface is now `import_profile(session, settings, document)`; trusted settings are mandatory and every successful import creates its manager-owned directory.
+- Import executes `BEGIN IMMEDIATE` before all resolution reads, so SQLite serializes the complete check-and-write transaction. No normalized-key migration is needed, avoiding destructive handling of existing case-variant duplicates.
+- Folder/status/tag tables and profile names are each loaded once into deterministic normalized indexes. Legacy duplicates resolve by normalized name, original name, then stable ID; incoming/exported tags sort by normalized name, original name, then color.
+- `OperationalError` and `IntegrityError` map to fixed typed errors without database detail. A directory created before a simulated commit `IntegrityError` is removed after rollback; a pre-existing directory remains untouched.
+- Focused: `python -m pytest tests/manager/test_profile_portability.py -q` -> `33 passed, 1 warning in 3.06s`.
+- Concurrent stress: simultaneous normalized-catalog/name import regression repeated 10 times -> `10/10 passed`.
+- Full Manager: `python -m pytest tests/manager -q` -> `243 passed, 2 skipped, 1 warning in 32.19s`.
+- Compile and scoped diff checks exited 0.
+
+### Follow-up review
+
+- The approved contract required an equally enforced database design rather than necessarily persistent normalized columns. SQLite writer reservation is the chosen compatibility-safe enforcement: it protects concurrent imports while preserving deterministic lookup of existing case-variant duplicates.
+- Extension assignment/export remains the Task 4 integration seam and must use manifest metadata only. Machine extension IDs are no longer portable through startup URLs.
+- Independent strict review found that raw prefix matching could miss whitespace/control-prefixed extension URLs accepted by `urlsplit`. A RED regression reproduced the leak; filtering now uses the parsed, case-normalized scheme, and raw plus space/tab-prefixed cases pass without ID reflection.
+- Independent strict review also found that all `OperationalError` values were classified as lock contention. A RED regression split the cases: only SQLite `BUSY`/`LOCKED` base error codes now map to retryable `profile_import_busy`/409; other operational failures map to safe `profile_import_failed`/500.
+- Python 3.9/3.10 compatibility is covered with an exact match for SQLite's fixed lock messages when `sqlite_errorcode` is unavailable; unknown messages remain non-retryable 500 errors.
+- The review noted that loading each catalog/profile-name table once is O(total manager data) while the SQLite writer reservation is held. This is the explicitly approved alternative to normalized persistent columns and avoids a compatibility migration for existing case-variant duplicates; a future scale-driven schema change may add normalized indexed keys with an explicit duplicate policy.

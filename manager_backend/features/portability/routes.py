@@ -17,6 +17,41 @@ from .schemas import MAX_PROFILE_DOCUMENT_BYTES, ProfileExportV1, ProfileImportR
 
 SessionDependency = Annotated[Session, Depends(get_session)]
 router = APIRouter()
+MAX_PROFILE_VALIDATION_ERRORS = 16
+_SAFE_LOCATION_PARTS = {
+    "format",
+    "version",
+    "exported_at",
+    "profile",
+    "extensions",
+    "name",
+    "folder",
+    "workflow_status",
+    "tags",
+    "color",
+    "notes",
+    "pinned",
+    "startup_urls",
+    "fingerprint_preset",
+    "browser_version_mode",
+    "browser_version",
+    "user_agent_mode",
+    "custom_user_agent",
+    "location",
+    "window",
+    "behavior",
+    "proxy",
+    "test_proxy_before_launch",
+    "permissions",
+    "scheme",
+    "host",
+    "port",
+    "mode",
+    "width",
+    "height",
+    "manifest_version",
+    "manifest_hash",
+}
 
 
 def _safe_filename(name: str) -> str:
@@ -28,9 +63,21 @@ def _safe_filename(name: str) -> str:
 
 def _validation_fields(error: ValidationError) -> dict[str, str]:
     fields: dict[str, str] = {}
-    for item in error.errors():
-        field = ".".join(str(part) for part in item.get("loc", ())) or "document"
-        fields.setdefault(field, str(item.get("msg", "Invalid value")))
+    for item in error.errors()[:MAX_PROFILE_VALIDATION_ERRORS]:
+        parts: list[str] = []
+        for part in item.get("loc", ())[:6]:
+            if isinstance(part, int):
+                safe = "item"
+            elif part in _SAFE_LOCATION_PARTS:
+                safe = part
+            elif parts and parts[-1] == "permissions":
+                safe = "key"
+            else:
+                safe = "field"
+            if not parts or parts[-1] != safe:
+                parts.append(safe)
+        field = ".".join(parts) if parts else "document"
+        fields.setdefault(field, "invalid")
     return fields
 
 
@@ -40,16 +87,20 @@ def _validation_fields(error: ValidationError) -> dict[str, str]:
     responses={404: {"model": ErrorEnvelope, "description": "Profile not found"}},
 )
 def download_profile(profile_id: str, session: SessionDependency) -> Response:
-    document = export_profile(session, profile_id)
+    warning_codes: list[str] = []
+    document = export_profile(session, profile_id, warning_codes=warning_codes)
     filename = _safe_filename(document.profile.name)
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if warning_codes:
+        headers["X-CloakBrowser-Export-Warning"] = ",".join(warning_codes)
     return Response(
         content=document.model_dump_json().encode("utf-8"),
         media_type="application/json",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Cache-Control": "no-store",
-            "X-Content-Type-Options": "nosniff",
-        },
+        headers=headers,
     )
 
 
@@ -95,4 +146,4 @@ async def upload_profile(request: Request, session: SessionDependency) -> Profil
             422,
             _validation_fields(error),
         ) from None
-    return import_profile(session, document, settings=request.app.state.settings)
+    return import_profile(session, request.app.state.settings, document)

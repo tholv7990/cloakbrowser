@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import unicodedata
+import sqlite3
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from urllib.parse import urlsplit
 
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, selectinload
 
 from ...config import ManagerSettings
@@ -21,6 +25,10 @@ from .schemas import (
     PortableFolder,
     PortableProfile,
     PortableProxy,
+    MAX_PORTABLE_PERMISSIONS,
+    MAX_PORTABLE_PERMISSION_KEY_LENGTH,
+    PROFILE_EXPORT_FORMAT,
+    PROFILE_EXPORT_VERSION,
     ProfileExportV1,
     ProfileImportResult,
     ProfileImportWarning,
@@ -56,7 +64,14 @@ def _portable_behavior(value: dict[str, Any]) -> PortableBehaviorSettings:
     safe = {key: value[key] for key in _PORTABLE_BEHAVIOR_FIELDS if key in value}
     if "permissions" in safe:
         permissions = safe["permissions"]
-        safe["permissions"] = {key: permissions[key] for key in sorted(permissions)}
+        keys = sorted(
+            key
+            for key, setting in permissions.items()
+            if isinstance(key, str)
+            and 0 < len(key) <= MAX_PORTABLE_PERMISSION_KEY_LENGTH
+            and setting in {"ask", "allow", "block"}
+        )[:MAX_PORTABLE_PERMISSIONS]
+        safe["permissions"] = {key: permissions[key] for key in keys}
     return PortableBehaviorSettings.model_validate(safe)
 
 
@@ -65,12 +80,16 @@ def export_profile(
     profile_id: str,
     *,
     exported_at: datetime | None = None,
+    warning_codes: list[str] | None = None,
 ) -> ProfileExportV1:
     source = _load_export_profile(session, profile_id)
     tags = sorted(
         (PortableColoredCatalog(name=tag.name, color=tag.color) for tag in source.tags),
-        key=lambda item: (item.name.casefold(), item.color),
+        key=lambda item: (_normalized_name(item.name), item.name, item.color),
     )
+    startup_urls, skipped_extension_urls = _portable_startup_urls(source.startup_urls)
+    if skipped_extension_urls and warning_codes is not None:
+        warning_codes.append("chrome_extension_startup_urls_skipped")
     proxy = None
     if source.proxy is not None:
         proxy = PortableProxy(
@@ -79,6 +98,8 @@ def export_profile(
             port=source.proxy.port,
         )
     document = ProfileExportV1(
+        format=PROFILE_EXPORT_FORMAT,
+        version=PROFILE_EXPORT_VERSION,
         exported_at=_canonical_utc(exported_at or utc_now()),
         profile=PortableProfile(
             name=source.name,
@@ -94,7 +115,7 @@ def export_profile(
             tags=tags,
             notes=source.notes,
             pinned=source.pinned,
-            startup_urls=list(source.startup_urls),
+            startup_urls=startup_urls,
             fingerprint_preset=source.fingerprint_preset,
             browser_version_mode=source.browser_version_mode,
             browser_version=source.browser_version,
@@ -118,65 +139,119 @@ def _export_extensions(_source: Profile) -> list[PortableExtension]:
 
 
 def _normalized_name(value: str) -> str:
-    return " ".join(value.split()).casefold()
+    return unicodedata.normalize("NFKC", " ".join(value.split())).casefold()
 
 
-def _next_position(session: Session, model: type[Folder] | type[WorkflowStatus]) -> int:
-    current = session.scalar(select(func.max(model.position)))
-    return 0 if current is None else int(current) + 1
+def _portable_startup_urls(values: list[str]) -> tuple[list[str], int]:
+    portable = [
+        value for value in values if urlsplit(value).scheme.lower() != "chrome-extension"
+    ]
+    return portable, len(values) - len(portable)
 
 
-def _find_catalog(session: Session, model, name: str):
-    wanted = _normalized_name(name)
-    return next(
-        (item for item in session.scalars(select(model)) if _normalized_name(item.name) == wanted),
-        None,
+def _is_retryable_sqlite_lock(error: OperationalError) -> bool:
+    code = getattr(error.orig, "sqlite_errorcode", None)
+    if isinstance(code, int):
+        return code & 0xFF in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
+    return str(error.orig).strip().lower() in {
+        "database is locked",
+        "database table is locked",
+    }
+
+
+@dataclass(slots=True)
+class _ImportIndex:
+    folders: dict[str, Folder]
+    statuses: dict[str, WorkflowStatus]
+    tags: dict[str, Tag]
+    profile_names: set[str]
+    next_folder_position: int
+    next_status_position: int
+
+
+def _catalog_index(items):
+    indexed = {}
+    for item in sorted(
+        items,
+        key=lambda entry: (_normalized_name(entry.name), entry.name, entry.id),
+    ):
+        indexed.setdefault(_normalized_name(item.name), item)
+    return indexed
+
+
+def _load_import_index(session: Session) -> _ImportIndex:
+    folders = list(session.scalars(select(Folder)))
+    statuses = list(session.scalars(select(WorkflowStatus)))
+    tags = list(session.scalars(select(Tag)))
+    return _ImportIndex(
+        folders=_catalog_index(folders),
+        statuses=_catalog_index(statuses),
+        tags=_catalog_index(tags),
+        profile_names={_normalized_name(name) for name in session.scalars(select(Profile.name))},
+        next_folder_position=max((item.position for item in folders), default=-1) + 1,
+        next_status_position=max((item.position for item in statuses), default=-1) + 1,
     )
 
 
-def _resolve_folder(session: Session, value: PortableFolder | None) -> Folder | None:
+def _resolve_folder(
+    session: Session, index: _ImportIndex, value: PortableFolder | None
+) -> Folder | None:
     if value is None:
         return None
-    existing = _find_catalog(session, Folder, value.name)
+    normalized = _normalized_name(value.name)
+    existing = index.folders.get(normalized)
     if existing is not None:
         return existing
-    item = Folder(name=value.name, position=_next_position(session, Folder))
+    item = Folder(name=value.name, position=index.next_folder_position)
+    index.next_folder_position += 1
+    index.folders[normalized] = item
     session.add(item)
     return item
 
 
 def _resolve_colored_catalog(
     session: Session,
+    index: _ImportIndex,
     model: type[Tag] | type[WorkflowStatus],
     value: PortableColoredCatalog | None,
 ):
     if value is None:
         return None
-    existing = _find_catalog(session, model, value.name)
+    normalized = _normalized_name(value.name)
+    catalog = index.statuses if model is WorkflowStatus else index.tags
+    existing = catalog.get(normalized)
     if existing is not None:
         return existing
     values: dict[str, Any] = {"name": value.name, "color": value.color}
     if model is WorkflowStatus:
-        values["position"] = _next_position(session, WorkflowStatus)
+        values["position"] = index.next_status_position
+        index.next_status_position += 1
     item = model(**values)
+    catalog[normalized] = item
     session.add(item)
     return item
 
 
-def _resolve_tags(session: Session, values: list[PortableColoredCatalog]) -> list[Tag]:
+def _resolve_tags(
+    session: Session, index: _ImportIndex, values: list[PortableColoredCatalog]
+) -> list[Tag]:
     resolved: list[Tag] = []
     seen: set[str] = set()
-    for value in values:
+    ordered = sorted(
+        values,
+        key=lambda item: (_normalized_name(item.name), item.name, item.color),
+    )
+    for value in ordered:
         normalized = _normalized_name(value.name)
         if normalized in seen:
             continue
         seen.add(normalized)
-        resolved.append(_resolve_colored_catalog(session, Tag, value))
+        resolved.append(_resolve_colored_catalog(session, index, Tag, value))
     return resolved
 
 
-def _collision_safe_name(session: Session, requested: str) -> str:
-    taken = {_normalized_name(name) for name in session.scalars(select(Profile.name))}
+def _collision_safe_name(index: _ImportIndex, requested: str) -> str:
+    taken = index.profile_names
     if _normalized_name(requested) not in taken:
         return requested
     number = 1
@@ -193,6 +268,10 @@ def _new_seed(session: Session) -> str:
         return bool(session.scalar(select(func.count(Profile.id)).where(Profile.fingerprint_seed == seed)))
 
     return generate_unique_seed(is_taken)
+
+
+def _reserve_import_transaction(session: Session) -> None:
+    session.connection().exec_driver_sql("BEGIN IMMEDIATE")
 
 
 def _create_profile_directory(path: Path) -> None:
@@ -227,25 +306,42 @@ def _warnings(document: ProfileExportV1) -> list[ProfileImportWarning]:
         )
         for index, _extension in enumerate(document.extensions)
     )
+    _urls, skipped_extension_urls = _portable_startup_urls(
+        document.profile.startup_urls
+    )
+    if skipped_extension_urls:
+        warnings.append(
+            ProfileImportWarning(
+                code="chrome_extension_startup_url_skipped",
+                message=(
+                    "Machine-specific extension startup URLs were not imported; "
+                    "assign extensions by manifest metadata instead."
+                ),
+            )
+        )
     return warnings
 
 
 def import_profile(
     session: Session,
+    settings: ManagerSettings,
     document: ProfileExportV1,
-    *,
-    settings: ManagerSettings | None = None,
 ) -> ProfileImportResult:
     profile_directory: Path | None = None
     directory_created = False
     try:
+        _reserve_import_transaction(session)
+        index = _load_import_index(session)
         portable = document.profile
-        folder = _resolve_folder(session, portable.folder)
+        folder = _resolve_folder(session, index, portable.folder)
         workflow_status = _resolve_colored_catalog(
-            session, WorkflowStatus, portable.workflow_status
+            session, index, WorkflowStatus, portable.workflow_status
         )
-        tags = _resolve_tags(session, portable.tags)
+        tags = _resolve_tags(session, index, portable.tags)
         seed = _new_seed(session)
+        startup_urls, _skipped_extension_urls = _portable_startup_urls(
+            portable.startup_urls
+        )
         behavior = {
             **portable.behavior.model_dump(mode="json"),
             "download_directory_mode": "profile",
@@ -265,13 +361,13 @@ def import_profile(
         )
         profile = Profile(
             id=str(uuid4()),
-            name=_collision_safe_name(session, portable.name),
+            name=_collision_safe_name(index, portable.name),
             folder=folder,
             workflow_status=workflow_status,
             tags=tags,
             notes=portable.notes,
             pinned=portable.pinned,
-            startup_urls=list(portable.startup_urls),
+            startup_urls=startup_urls,
             fingerprint_seed=identity.seed,
             fingerprint_preset=portable.fingerprint_preset,
             fingerprint_revision=identity.revision,
@@ -288,11 +384,25 @@ def import_profile(
         )
         session.add(profile)
         session.flush()
-        if settings is not None:
-            profile_directory = resolve_profile_directory(settings, profile.id)
-            _create_profile_directory(profile_directory)
-            directory_created = True
+        profile_directory = resolve_profile_directory(settings, profile.id)
+        _create_profile_directory(profile_directory)
+        directory_created = True
         session.commit()
+    except OperationalError as error:
+        session.rollback()
+        if directory_created:
+            _remove_empty_profile_directory(profile_directory)
+        if _is_retryable_sqlite_lock(error):
+            raise ManagerError(
+                "profile_import_busy",
+                "The profile import could not acquire the database write lock. Try again.",
+                409,
+            ) from None
+        raise ManagerError(
+            "profile_import_failed",
+            "The profile document could not be imported.",
+            500,
+        ) from None
     except (IntegrityError, OSError) as error:
         session.rollback()
         if directory_created:
