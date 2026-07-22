@@ -111,6 +111,55 @@ _DEFAULT_SEARCH_PREFS = {
 }
 
 
+# The stealth binary ships with NO prepopulated search engines, so the omnibox
+# has no search fallback and types plain text as a hostname ("test" -> http://test/).
+# The default search provider is a *protected* Chromium pref (HMAC-guarded in
+# Secure Preferences), so it can't be injected into a profile's prefs after the
+# fact — a plain-Preferences write is rejected as tampering. Chromium DOES apply
+# `initial_preferences` (next to the executable) on a profile's first run and
+# stamps a valid MAC itself, so that is where we seed Google. Applies to new
+# profiles only; existing ones are already past first-run.
+_INITIAL_PREFS_FILE = "initial_preferences"
+_SEARCH_TEMPLATE_URL_DATA = {
+    "short_name": "Google",
+    "keyword": "google.com",
+    "url": "https://www.google.com/search?q={searchTerms}",
+    "suggestions_url": "https://www.google.com/complete/search?output=chrome&q={searchTerms}",
+    "favicon_url": "https://www.google.com/favicon.ico",
+    "safe_for_autoreplace": False,
+    "input_encodings": ["UTF-8"],
+    "date_created": "0",
+    "last_modified": "0",
+    "id": "1",
+    "sync_guid": "google-default-000000000000",
+    "prepopulate_id": 1,
+    "is_active": 1,
+}
+
+
+def ensure_initial_preferences(binary_dir: Path) -> None:
+    """Seed Google as the default search engine for new profiles via the binary's
+    `initial_preferences`. Idempotent; re-created after a binary update. Never
+    raises — a bad seed must not block a launch."""
+    payload = {
+        "distribution": {
+            "skip_first_run_ui": True,
+            "import_search_engine": False,
+            "import_history": False,
+            "make_chrome_default": False,
+        },
+        "default_search_provider_data": {"template_url_data": _SEARCH_TEMPLATE_URL_DATA},
+    }
+    try:
+        desired = json.dumps(payload)
+        target = binary_dir / _INITIAL_PREFS_FILE
+        if target.exists() and target.read_text(encoding="utf-8") == desired:
+            return
+        target.write_text(desired, encoding="utf-8")
+    except OSError:
+        pass
+
+
 def seed_default_search_engine(user_data_dir: Path) -> None:
     """Ensure the profile has a default search engine (Google) before launch.
 
@@ -308,10 +357,17 @@ class _PersistentContextHandle:
 class CloakPersistentLauncher:
     def launch(self, snapshot: dict[str, Any]) -> BrowserHandle:
         import cloakbrowser
+        from cloakbrowser.config import get_binary_dir
 
         profile_dir = snapshot["profile_dir"]
         profile_dir.mkdir(parents=True, exist_ok=True)
         user_data_path = profile_dir / "user-data"
+        # Seed a default search engine (Google) so the omnibox searches instead of
+        # treating typed text as a hostname. Best-effort; must never block a launch.
+        try:
+            ensure_initial_preferences(get_binary_dir(snapshot.get("browser_version")))
+        except Exception:
+            pass
         seed_default_search_engine(user_data_path)
         user_data_dir = str(user_data_path)
         context = cloakbrowser.launch_persistent_context(
