@@ -7,8 +7,24 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+$flagNames = @(
+    "CLOAK_RUN_MANAGER_E2E",
+    "CLOAK_RUN_MANAGER_EXISTING_OWNER_E2E",
+    "CLOAK_LIVE_DIAGNOSTICS"
+)
+$originalFlags = @{}
+foreach ($flagName in $flagNames) {
+    $originalFlags[$flagName] = @{
+        Present = Test-Path -LiteralPath "Env:$flagName"
+        Value = [Environment]::GetEnvironmentVariable($flagName, "Process")
+    }
+}
+
 Push-Location $repositoryRoot
 try {
+    foreach ($flagName in $flagNames) {
+        Remove-Item -LiteralPath "Env:$flagName" -ErrorAction SilentlyContinue
+    }
     if ($Mode -eq "Deterministic") {
         if (-not $env:CLOAKBROWSER_LICENSE_KEY) {
             throw "CLOAKBROWSER_LICENSE_KEY is missing from the process environment."
@@ -28,5 +44,18 @@ try {
     }
 }
 finally {
-    Pop-Location
+    try {
+        foreach ($flagName in $flagNames) {
+            $original = $originalFlags[$flagName]
+            if ($original.Present) {
+                Set-Item -LiteralPath "Env:$flagName" -Value $original.Value
+            }
+            else {
+                Remove-Item -LiteralPath "Env:$flagName" -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    finally {
+        Pop-Location
+    }
 }

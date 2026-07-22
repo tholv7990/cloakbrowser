@@ -157,3 +157,125 @@ def test_managed_process_terminates_only_its_owned_process():
     owned = ManagedProcess(child, "unit-child")
     owned.close(timeout=2)
     assert child.poll() is not None
+
+
+@pytest.mark.skipif(os.name != "nt", reason="PowerShell runner is Windows-only")
+@pytest.mark.parametrize(
+    ("mode", "live_switch", "expected_child"),
+    [
+        (
+            "Deterministic",
+            False,
+            {
+                "CLOAK_RUN_MANAGER_E2E": "1",
+                "CLOAK_RUN_MANAGER_EXISTING_OWNER_E2E": "",
+                "CLOAK_LIVE_DIAGNOSTICS": "",
+            },
+        ),
+        (
+            "Deterministic",
+            True,
+            {
+                "CLOAK_RUN_MANAGER_E2E": "1",
+                "CLOAK_RUN_MANAGER_EXISTING_OWNER_E2E": "",
+                "CLOAK_LIVE_DIAGNOSTICS": "1",
+            },
+        ),
+        (
+            "ExistingOwner",
+            False,
+            {
+                "CLOAK_RUN_MANAGER_E2E": "",
+                "CLOAK_RUN_MANAGER_EXISTING_OWNER_E2E": "1",
+                "CLOAK_LIVE_DIAGNOSTICS": "",
+            },
+        ),
+    ],
+)
+def test_powershell_runner_scopes_and_restores_flags_on_failure(
+    tmp_path, mode, live_switch, expected_child
+):
+    stub = tmp_path / "python.cmd"
+    names = (
+        "CLOAK_RUN_MANAGER_E2E",
+        "CLOAK_RUN_MANAGER_EXISTING_OWNER_E2E",
+        "CLOAK_LIVE_DIAGNOSTICS",
+    )
+    stub.write_text(
+        "@echo off\n"
+        + "\n".join(f"echo CHILD_{name}=[%{name}%]" for name in names)
+        + "\nexit /b 9\n",
+        encoding="utf-8",
+    )
+    script = Path("scripts/run_manager_e2e.ps1").resolve()
+    switch = " -LiveDiagnostics" if live_switch else ""
+    command = (
+        f"try {{ & '{script}' -Mode {mode}{switch} }} catch {{ Write-Output 'CAUGHT' }}; "
+        + "; ".join(
+            f"Write-Output ('AFTER_{name}=[' + $env:{name} + ']')" for name in names
+        )
+    )
+    environment = dict(os.environ)
+    environment["PATH"] = f"{tmp_path}{os.pathsep}{environment['PATH']}"
+    environment["CLOAKBROWSER_LICENSE_KEY"] = "fixture-license"
+    original = {
+        "CLOAK_RUN_MANAGER_E2E": "original-deterministic",
+        "CLOAK_RUN_MANAGER_EXISTING_OWNER_E2E": "original-existing",
+        "CLOAK_LIVE_DIAGNOSTICS": "stale-live",
+    }
+    environment.update(original)
+
+    completed = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", command],
+        cwd=Path.cwd(),
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+
+    assert "CAUGHT" in completed.stdout
+    for name, expected in expected_child.items():
+        assert f"CHILD_{name}=[{expected}]" in completed.stdout
+    for name, expected in original.items():
+        assert f"AFTER_{name}=[{expected}]" in completed.stdout
+
+
+@pytest.mark.skipif(os.name != "nt", reason="PowerShell runner is Windows-only")
+def test_powershell_runner_restores_originally_absent_flags(tmp_path):
+    stub = tmp_path / "python.cmd"
+    stub.write_text("@echo off\nexit /b 9\n", encoding="utf-8")
+    script = Path("scripts/run_manager_e2e.ps1").resolve()
+    names = (
+        "CLOAK_RUN_MANAGER_E2E",
+        "CLOAK_RUN_MANAGER_EXISTING_OWNER_E2E",
+        "CLOAK_LIVE_DIAGNOSTICS",
+    )
+    checks = "; ".join(
+        f"Write-Output ('AFTER_{name}_PRESENT=' + (Test-Path Env:{name}))"
+        for name in names
+    )
+    command = (
+        f"try {{ & '{script}' -Mode Deterministic }} catch {{ Write-Output 'CAUGHT' }}; "
+        + checks
+    )
+    environment = dict(os.environ)
+    environment["PATH"] = f"{tmp_path}{os.pathsep}{environment['PATH']}"
+    environment["CLOAKBROWSER_LICENSE_KEY"] = "fixture-license"
+    for name in names:
+        environment.pop(name, None)
+
+    completed = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", command],
+        cwd=Path.cwd(),
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+
+    assert "CAUGHT" in completed.stdout
+    for name in names:
+        assert f"AFTER_{name}_PRESENT=False" in completed.stdout
