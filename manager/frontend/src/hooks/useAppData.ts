@@ -32,6 +32,7 @@ const ALL_CAPABILITIES: AppCapabilities = {
   fingerprint_diagnostics: true,
   settings: true,
   automation: true,
+  shopify_builder: true,
 };
 
 export function useCapabilities(): AppCapabilities {

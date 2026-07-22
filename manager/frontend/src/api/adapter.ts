@@ -7,20 +7,29 @@ import type {
   AppBootstrap,
   AppVersion,
   AuthStatus,
+  AiImageSettings,
   AutomationRecording,
   AutomationRun,
   AutomationStep,
   AutomationTemplate,
+  BuildPlan,
   BulkProfileRequest,
   BulkProfileResult,
   ChangePasswordRequest,
+  ConnectStorePayload,
   CookieImportPayload,
   CookieImportResult,
+  CreatePlanPayload,
   CredentialPoolSummary,
   DiagnosticRun,
+  ProductCatalog,
+  ProductCsvInspection,
   ProfileFactoryJob,
+  ShopifyStore,
   StartFactoryPayload,
   StartRunPayload,
+  StoreProfile,
+  ThemeLibrary,
   EmailPasswordRequest,
   Folder,
   OwnerSession,
@@ -144,4 +153,24 @@ export interface ApiAdapter {
   startFactoryJob(payload: StartFactoryPayload): Promise<ProfileFactoryJob>;
   getFactoryJob(id: string): Promise<ProfileFactoryJob>;
   cancelFactoryJob(id: string): Promise<ProfileFactoryJob>;
+
+  // Shopify Builder — stores / analysis / plans (draft-only)
+  listStores(): Promise<ShopifyStore[]>;
+  connectStore(payload: ConnectStorePayload): Promise<ShopifyStore>;
+  inspectStore(id: string): Promise<ShopifyStore>;
+  setStoreNetworkRoute(id: string, proxyId: string | null): Promise<ShopifyStore>;
+  deleteStore(id: string): Promise<void>;
+  getStoreProfile(id: string): Promise<StoreProfile>;
+  updateStoreProfile(id: string, patch: Partial<StoreProfile>): Promise<StoreProfile>;
+
+  getAiSettings(): Promise<AiImageSettings>;
+  updateAiSettings(patch: Partial<AiImageSettings> & { api_key?: string }): Promise<AiImageSettings>;
+
+  getThemeLibrary(storeId: string): Promise<ThemeLibrary>;
+  inspectProductCsv(storeId: string, content: string): Promise<ProductCsvInspection>;
+  listCatalogs(): Promise<ProductCatalog[]>;
+
+  createBuildPlan(storeId: string, payload: CreatePlanPayload): Promise<BuildPlan>;
+  getBuildPlan(storeId: string, planId: string): Promise<BuildPlan>;
+  executeBuildPlan(storeId: string, planId: string, confirm: boolean): Promise<BuildPlan>;
 }

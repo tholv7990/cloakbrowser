@@ -218,3 +218,45 @@ describe('mock automation contract', () => {
     expect(JSON.stringify(after)).not.toContain('pw1');
   });
 });
+
+describe('mock shopify builder contract', () => {
+  it('connects a store without echoing the client secret', async () => {
+    const store = await mockApi.connectStore({
+      label: 'My store',
+      shop_domain: 'my-shop.myshopify.com',
+      client_id: 'abc',
+      client_secret: 'super-secret',
+      proxy_id: null,
+    });
+    expect(store.connected).toBe(true);
+    expect(Object.keys(store.capabilities)).toContain('write_products');
+    expect(JSON.stringify(store)).not.toContain('super-secret');
+  });
+
+  it('stages a draft-only plan and requires confirmation to execute', async () => {
+    const store = await mockApi.connectStore({
+      label: 'Plan store',
+      shop_domain: 'plan-shop.myshopify.com',
+      client_id: 'abc',
+      client_secret: 'x',
+      proxy_id: null,
+    });
+    const plan = await mockApi.createBuildPlan(store.id, {
+      theme_id: 'thm_dawn',
+      preset: 'Default',
+      product_source: 'catalog',
+      catalog_id: 'cat_vst',
+      ai_hero: false,
+    });
+    expect(plan.status).toBe('staged');
+    expect(plan.mode).toBe('draft_only');
+    expect(plan.steps).toHaveLength(9);
+    expect(plan.admin_url).toBeNull();
+
+    await expect(mockApi.executeBuildPlan(store.id, plan.id, false)).rejects.toBeInstanceOf(
+      ApiError,
+    );
+    const running = await mockApi.executeBuildPlan(store.id, plan.id, true);
+    expect(running.status).toBe('running');
+  });
+});

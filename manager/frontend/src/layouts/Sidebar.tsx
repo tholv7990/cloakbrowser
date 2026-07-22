@@ -6,6 +6,7 @@ import {
   Globe,
   PanelLeftClose,
   PanelLeftOpen,
+  ShoppingBag,
   Users,
   Workflow,
 } from 'lucide-react';
@@ -23,6 +24,7 @@ const NAV: { to: string; key: TranslationKey; icon: typeof Users; cap?: keyof Ap
   { to: '/folders', key: 'nav.folders', icon: FolderClosed, cap: 'catalogs' },
   { to: '/proxies', key: 'nav.proxies', icon: Globe, cap: 'proxy_management' },
   { to: '/automation', key: 'nav.automation', icon: Workflow, cap: 'automation' },
+  { to: '/shopify', key: 'nav.shopify', icon: ShoppingBag, cap: 'shopify_builder' },
   { to: '/diagnostics', key: 'nav.diagnostics', icon: Activity, cap: 'fingerprint_diagnostics' },
   { to: '/resources', key: 'nav.resources', icon: Gauge, cap: 'browser_runtime' },
   { to: '/settings', key: 'nav.settings', icon: SettingsIcon, cap: 'settings' },

@@ -3,11 +3,13 @@ import type {
   AppBootstrap,
   AppVersion,
   AuthStatus,
+  AiImageSettings,
   AutomationRecording,
   AutomationRun,
   AutomationRunItem,
   AutomationStep,
   AutomationTemplate,
+  BuildPlan,
   BulkProfileRequest,
   BulkProfileResult,
   ChangePasswordRequest,
@@ -15,8 +17,17 @@ import type {
   CookieImportResult,
   CredentialPoolSummary,
   DiagnosticRun,
+  PlanStep,
+  ProductCatalog,
+  ProductCsvInspection,
+  ProductRow,
   ProfileFactoryItem,
   ProfileFactoryJob,
+  ShopifyStore,
+  StoreCapabilityKey,
+  StoreProfile,
+  ThemeInfo,
+  ThemeLibrary,
   EmailPasswordRequest,
   Folder,
   OwnerSession,
@@ -159,6 +170,91 @@ function requireRun(id: string): AutomationRun {
   const run = mockRuns.find((x) => x.id === id);
   if (!run) throw new ApiError(404, 'run_not_found', 'Automation run not found.');
   return run;
+}
+
+// --- Shopify Builder mock state + draft-build simulation ---------------------
+const PLAN_STEP_KEYS = [
+  'product_csv',
+  'analysis',
+  'identity',
+  'content',
+  'policies',
+  'navigation',
+  'preset',
+  'design',
+  'theme',
+] as const;
+const CAP_FOR_STEP: Partial<Record<(typeof PLAN_STEP_KEYS)[number], StoreCapabilityKey>> = {
+  product_csv: 'write_products',
+  content: 'write_pages',
+  policies: 'write_legal_policies',
+  navigation: 'write_navigation',
+  design: 'write_themes',
+  theme: 'write_themes',
+};
+const mockThemes: ThemeLibrary = {
+  integrated: [
+    { id: 'thm_dawn', name: 'Dawn', role: 'demo', presets: ['Default', 'Bright', 'Studio'] },
+    { id: 'thm_horizon', name: 'Horizon', role: 'demo', presets: ['Default', 'Bold'] },
+  ],
+  store: [{ id: 'thm_main', name: 'Live theme', role: 'main', presets: ['Default'] }],
+};
+const mockCatalogs: ProductCatalog[] = [
+  { id: 'cat_vst', name: 'VST plugins', niche: 'audio-software', product_count: 24 },
+  { id: 'cat_moto', name: 'Motorsport gear', niche: 'motorsport', product_count: 40 },
+  { id: 'cat_home', name: 'Home & living', niche: 'home', product_count: 60 },
+];
+const mockStores: ShopifyStore[] = [];
+const mockPlans: BuildPlan[] = [];
+let mockAi: AiImageSettings = {
+  enabled: false,
+  provider: 'openai',
+  model: 'gpt-image-2',
+  has_api_key: false,
+};
+const planStart = new Map<string, number>();
+const storeProfiles = new Map<string, StoreProfile>();
+
+function capsFromScopes(scopes: string[]): Record<StoreCapabilityKey, boolean> {
+  const has = (scope: string) => scopes.includes(scope);
+  return {
+    write_products: has('write_products'),
+    write_pages: has('write_content'),
+    write_legal_policies: has('write_legal_policies') || has('write_content'),
+    write_navigation: has('write_navigation') || has('write_content'),
+    write_themes: has('write_themes'),
+  };
+}
+function requireStore(id: string): ShopifyStore {
+  const store = mockStores.find((x) => x.id === id);
+  if (!store) throw new ApiError(404, 'store_not_found', 'Store not found.');
+  return store;
+}
+function requirePlan(planId: string): BuildPlan {
+  const plan = mockPlans.find((x) => x.id === planId);
+  if (!plan) throw new ApiError(404, 'plan_not_found', 'Build plan not found.');
+  return plan;
+}
+function themeById(id: string): ThemeInfo | undefined {
+  return [...mockThemes.integrated, ...mockThemes.store].find((t) => t.id === id);
+}
+function progressPlan(plan: BuildPlan): void {
+  if (plan.status !== 'running') return;
+  const start = planStart.get(plan.id) ?? Date.parse(plan.created_at);
+  const done = Math.floor((Date.now() - start) / 800);
+  const runnable = plan.steps.filter((s) => s.status !== 'blocked');
+  runnable.forEach((step, index) => {
+    if (index < done) step.status = 'completed';
+    else if (index === done) step.status = 'running';
+    else step.status = 'ready';
+  });
+  if (done >= runnable.length) {
+    const blocked = plan.steps.some((s) => s.status === 'blocked');
+    plan.status = blocked ? 'partial' : 'completed';
+    const domain = mockStores.find((s) => s.id === plan.store_id)?.shop_domain ?? 'example.myshopify.com';
+    plan.admin_url = `https://${domain}/admin/themes`;
+    plan.preview_url = `https://${domain}?preview_theme_id=99001`;
+  }
 }
 
 function makeSession(): OwnerSession {
@@ -420,6 +516,7 @@ export const mockApi: ApiAdapter = {
         fingerprint_diagnostics: true,
         settings: true,
         automation: true,
+        shopify_builder: true,
       },
     };
   },
@@ -1282,5 +1379,193 @@ export const mockApi: ApiAdapter = {
     });
     job.status = 'cancelled';
     return structuredClone(job);
+  },
+
+  async listStores(): Promise<ShopifyStore[]> {
+    await delay(60);
+    return structuredClone(mockStores);
+  },
+  async connectStore(payload): Promise<ShopifyStore> {
+    await delay(220);
+    if (!payload.shop_domain.trim() || !payload.client_id.trim())
+      throw new ApiError(422, 'invalid_store', 'A shop domain and client ID are required.');
+    const domain = payload.shop_domain.trim().replace(/^https?:\/\//, '');
+    const scopes = [
+      'read_products',
+      'write_products',
+      'write_content',
+      'write_themes',
+      'write_navigation',
+    ];
+    const store: ShopifyStore = {
+      id: newId('store'),
+      label: payload.label.trim() || domain,
+      shop_domain: domain,
+      connected: true,
+      scopes,
+      capabilities: capsFromScopes(scopes),
+      shop_name: payload.label.trim() || domain.split('.')[0],
+      product_count: 12 + Math.floor(Math.random() * 40),
+      proxy_id: payload.proxy_id ?? null,
+      exit_ip: payload.proxy_id ? `203.0.113.${10 + Math.floor(Math.random() * 200)}` : null,
+      niche: null,
+      language: null,
+      created_at: now(),
+      updated_at: now(),
+    };
+    mockStores.unshift(store);
+    storeProfiles.set(store.id, {
+      niche: null,
+      language: null,
+      store_name: store.shop_name ?? domain,
+      support_email: `support@${domain}`,
+    });
+    return structuredClone(store);
+  },
+  async inspectStore(id: string): Promise<ShopifyStore> {
+    await delay(200);
+    const store = requireStore(id);
+    store.niche = mockCatalogs[Math.floor(Math.random() * mockCatalogs.length)].niche;
+    store.language = 'en';
+    store.product_count = store.product_count ?? 12;
+    store.updated_at = now();
+    const profile = storeProfiles.get(id);
+    if (profile) {
+      profile.niche = store.niche;
+      profile.language = store.language;
+    }
+    return structuredClone(store);
+  },
+  async setStoreNetworkRoute(id, proxyId): Promise<ShopifyStore> {
+    await delay(120);
+    const store = requireStore(id);
+    store.proxy_id = proxyId;
+    store.exit_ip = proxyId ? `203.0.113.${10 + Math.floor(Math.random() * 200)}` : null;
+    store.updated_at = now();
+    return structuredClone(store);
+  },
+  async deleteStore(id: string): Promise<void> {
+    await delay(80);
+    const index = mockStores.findIndex((x) => x.id === id);
+    if (index >= 0) mockStores.splice(index, 1);
+    storeProfiles.delete(id);
+  },
+  async getStoreProfile(id: string): Promise<StoreProfile> {
+    await delay(40);
+    const profile = storeProfiles.get(id);
+    if (!profile) throw new ApiError(404, 'store_not_found', 'Store not found.');
+    return { ...profile };
+  },
+  async updateStoreProfile(id, patch): Promise<StoreProfile> {
+    await delay(100);
+    const profile = storeProfiles.get(id);
+    if (!profile) throw new ApiError(404, 'store_not_found', 'Store not found.');
+    const next = { ...profile, ...patch };
+    storeProfiles.set(id, next);
+    const store = requireStore(id);
+    if (patch.niche !== undefined) store.niche = patch.niche;
+    if (patch.language !== undefined) store.language = patch.language;
+    if (patch.store_name !== undefined) store.shop_name = patch.store_name;
+    return { ...next };
+  },
+
+  async getAiSettings(): Promise<AiImageSettings> {
+    await delay(40);
+    return { ...mockAi };
+  },
+  async updateAiSettings(patch): Promise<AiImageSettings> {
+    await delay(100);
+    const { api_key, ...rest } = patch;
+    mockAi = { ...mockAi, ...rest, has_api_key: api_key ? true : mockAi.has_api_key };
+    return { ...mockAi };
+  },
+
+  async getThemeLibrary(): Promise<ThemeLibrary> {
+    await delay(80);
+    return structuredClone(mockThemes);
+  },
+  async inspectProductCsv(_storeId, content): Promise<ProductCsvInspection> {
+    await delay(160);
+    const rows = content
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(1);
+    const sample: ProductRow[] = rows.slice(0, 5).map((line, index) => {
+      const cols = line.split(',');
+      return {
+        handle: (cols[0] || `product-${index + 1}`).toLowerCase().replace(/\s+/g, '-'),
+        title: cols[1] || cols[0] || `Product ${index + 1}`,
+        price: cols[2] || '19.00',
+        variants: 1 + (index % 3),
+      };
+    });
+    return {
+      total: rows.length,
+      sample,
+      columns_mapped: ['Handle', 'Title', 'Variant Price', 'Image Src'],
+      columns_unmapped: [],
+    };
+  },
+  async listCatalogs(): Promise<ProductCatalog[]> {
+    await delay(60);
+    return structuredClone(mockCatalogs);
+  },
+
+  async createBuildPlan(storeId, payload): Promise<BuildPlan> {
+    await delay(220);
+    const store = requireStore(storeId);
+    const theme = themeById(payload.theme_id);
+    const catalog =
+      payload.product_source === 'catalog'
+        ? mockCatalogs.find((c) => c.id === payload.catalog_id)
+        : undefined;
+    const steps: PlanStep[] = PLAN_STEP_KEYS.map((key) => {
+      const cap = CAP_FOR_STEP[key];
+      const blocked = cap ? !store.capabilities[cap] : false;
+      return {
+        key,
+        status: blocked ? 'blocked' : 'ready',
+        reason: blocked ? `Missing scope for ${key.replace(/_/g, ' ')}` : null,
+        error: null,
+      };
+    });
+    const plan: BuildPlan = {
+      id: newId('plan'),
+      store_id: storeId,
+      status: 'staged',
+      mode: 'draft_only',
+      niche: payload.niche_override || catalog?.niche || store.niche || 'General store',
+      language: store.language || 'en',
+      theme_name: theme?.name ?? 'Dawn',
+      preset: payload.preset,
+      product_count: catalog?.product_count ?? store.product_count ?? 0,
+      ai_hero: payload.ai_hero && mockAi.enabled,
+      steps,
+      admin_url: null,
+      preview_url: null,
+      created_at: now(),
+    };
+    mockPlans.unshift(plan);
+    return structuredClone(plan);
+  },
+  async getBuildPlan(_storeId, planId): Promise<BuildPlan> {
+    await delay(40);
+    const plan = requirePlan(planId);
+    progressPlan(plan);
+    return structuredClone(plan);
+  },
+  async executeBuildPlan(_storeId, planId, confirm): Promise<BuildPlan> {
+    await delay(160);
+    const plan = requirePlan(planId);
+    if (!confirm) throw new ApiError(422, 'confirm_required', 'Execution must be confirmed.');
+    if (plan.status === 'staged' || plan.status === 'failed') {
+      plan.status = 'running';
+      plan.steps.forEach((step) => {
+        if (step.status !== 'blocked') step.status = 'ready';
+      });
+      planStart.set(plan.id, Date.now());
+    }
+    return structuredClone(plan);
   },
 };

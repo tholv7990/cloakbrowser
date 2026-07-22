@@ -376,6 +376,8 @@ export interface AppCapabilities {
   settings: boolean;
   /** Optional — present once the Automation backend ships. Treated as false when absent. */
   automation?: boolean;
+  /** Optional — present once the Shopify Builder backend ships. Treated as false when absent. */
+  shopify_builder?: boolean;
 }
 
 export interface Settings {
@@ -595,6 +597,129 @@ export interface StartFactoryPayload {
   name_prefix: string;
   automation_template_id?: string | null;
   start_automation: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Shopify Builder — connect a store, analyze, stage a plan, execute as drafts.
+// Contract: docs/backend-contract-shopify-builder.md. Draft-only: nothing is
+// ever published, and secrets (client id/secret, token, AI key) never return.
+// ---------------------------------------------------------------------------
+
+export type StoreCapabilityKey =
+  | 'write_products'
+  | 'write_pages'
+  | 'write_legal_policies'
+  | 'write_navigation'
+  | 'write_themes';
+
+export interface ShopifyStore {
+  id: string;
+  label: string;
+  shop_domain: string;
+  connected: boolean;
+  scopes: string[];
+  capabilities: Record<StoreCapabilityKey, boolean>;
+  shop_name: string | null;
+  product_count: number | null;
+  proxy_id: string | null;
+  exit_ip: string | null;
+  niche: string | null;
+  language: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StoreProfile {
+  niche: string | null;
+  language: string | null;
+  store_name: string;
+  support_email: string;
+}
+
+/** AI image generation settings. `has_api_key` only — the key never returns. */
+export interface AiImageSettings {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  has_api_key: boolean;
+}
+
+export interface ThemeInfo {
+  id: string;
+  name: string;
+  role: 'main' | 'unpublished' | 'demo';
+  presets: string[];
+}
+
+export interface ThemeLibrary {
+  integrated: ThemeInfo[];
+  store: ThemeInfo[];
+}
+
+export interface ProductRow {
+  handle: string;
+  title: string;
+  price: string;
+  variants: number;
+}
+
+export interface ProductCsvInspection {
+  total: number;
+  sample: ProductRow[];
+  columns_mapped: string[];
+  columns_unmapped: string[];
+}
+
+export interface ProductCatalog {
+  id: string;
+  name: string;
+  niche: string;
+  product_count: number;
+}
+
+export type PlanStepStatus = 'planned' | 'ready' | 'blocked' | 'running' | 'completed' | 'failed';
+
+export interface PlanStep {
+  key: string;
+  status: PlanStepStatus;
+  reason: string | null;
+  error: string | null;
+}
+
+export type BuildPlanStatus = 'staged' | 'running' | 'completed' | 'partial' | 'failed';
+
+export interface BuildPlan {
+  id: string;
+  store_id: string;
+  status: BuildPlanStatus;
+  mode: 'draft_only';
+  niche: string;
+  language: string;
+  theme_name: string;
+  preset: string;
+  product_count: number;
+  ai_hero: boolean;
+  steps: PlanStep[];
+  admin_url: string | null;
+  preview_url: string | null;
+  created_at: string;
+}
+
+export interface ConnectStorePayload {
+  label: string;
+  shop_domain: string;
+  client_id: string;
+  client_secret: string;
+  proxy_id?: string | null;
+}
+
+export interface CreatePlanPayload {
+  theme_id: string;
+  preset: string;
+  product_source: 'catalog' | 'csv';
+  catalog_id?: string | null;
+  niche_override?: string | null;
+  ai_hero: boolean;
 }
 
 // ---------------------------------------------------------------------------

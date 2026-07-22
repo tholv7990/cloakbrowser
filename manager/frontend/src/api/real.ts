@@ -3,9 +3,11 @@ import type {
   AppBootstrap,
   AppVersion,
   AuthStatus,
+  AiImageSettings,
   AutomationRecording,
   AutomationRun,
   AutomationTemplate,
+  BuildPlan,
   BulkProfileRequest,
   BulkProfileResult,
   ChangePasswordRequest,
@@ -13,7 +15,12 @@ import type {
   CookieImportResult,
   CredentialPoolSummary,
   DiagnosticRun,
+  ProductCatalog,
+  ProductCsvInspection,
   ProfileFactoryJob,
+  ShopifyStore,
+  StoreProfile,
+  ThemeLibrary,
   EmailPasswordRequest,
   Folder,
   OwnerSession,
@@ -188,4 +195,52 @@ export const realApi: ApiAdapter = {
   getFactoryJob: (id) => apiRequest<ProfileFactoryJob>(`/automations/factory/jobs/${id}`),
   cancelFactoryJob: (id) =>
     apiRequest<ProfileFactoryJob>(`/automations/factory/jobs/${id}/cancel`, { method: 'POST' }),
+
+  listStores: () => apiRequest<ShopifyStore[]>('/shopify-builder/stores'),
+  connectStore: (payload) =>
+    apiRequest<ShopifyStore>('/shopify-builder/stores/connect', { method: 'POST', body: payload }),
+  inspectStore: (id) =>
+    apiRequest<ShopifyStore>(`/shopify-builder/stores/${id}/inspect`, { method: 'POST' }),
+  setStoreNetworkRoute: (id, proxyId) =>
+    apiRequest<ShopifyStore>(`/shopify-builder/stores/${id}/network-route`, {
+      method: 'PUT',
+      body: { proxy_id: proxyId },
+    }),
+  deleteStore: (id) =>
+    apiRequest<void>(`/shopify-builder/stores/${id}`, { method: 'DELETE' }),
+  getStoreProfile: (id) => apiRequest<StoreProfile>(`/shopify-builder/stores/${id}/profile`),
+  updateStoreProfile: (id, patch) =>
+    apiRequest<StoreProfile>(`/shopify-builder/stores/${id}/profile`, {
+      method: 'PUT',
+      body: patch,
+    }),
+
+  getAiSettings: () => apiRequest<AiImageSettings>('/shopify-builder/ai-images/settings'),
+  updateAiSettings: (patch) =>
+    apiRequest<AiImageSettings>('/shopify-builder/ai-images/settings', {
+      method: 'PUT',
+      body: patch,
+    }),
+
+  getThemeLibrary: (storeId) =>
+    apiRequest<ThemeLibrary>(`/shopify-builder/stores/${storeId}/themes/library`),
+  inspectProductCsv: (storeId, content) =>
+    apiRequest<ProductCsvInspection>(`/shopify-builder/stores/${storeId}/product-csv/inspect`, {
+      method: 'POST',
+      body: { content },
+    }),
+  listCatalogs: () => apiRequest<ProductCatalog[]>('/shopify-builder/catalogs'),
+
+  createBuildPlan: (storeId, payload) =>
+    apiRequest<BuildPlan>(`/shopify-builder/stores/${storeId}/plans`, {
+      method: 'POST',
+      body: payload,
+    }),
+  getBuildPlan: (storeId, planId) =>
+    apiRequest<BuildPlan>(`/shopify-builder/stores/${storeId}/plans/${planId}`),
+  executeBuildPlan: (storeId, planId, confirm) =>
+    apiRequest<BuildPlan>(`/shopify-builder/stores/${storeId}/plans/${planId}/execute`, {
+      method: 'POST',
+      body: { confirm },
+    }),
 };
