@@ -717,6 +717,9 @@ export const vi: Record<keyof typeof en, string> = {
   'sess.exit.crashed': 'Đã sập',
   'sess.exit.timeout': 'Hết thời gian',
   'sess.exit.unknown': 'Không rõ',
+  'sess.page.showing': 'Hiển thị {from}–{to} trong {total}',
+  'sess.page.prev': 'Trang trước',
+  'sess.page.next': 'Trang sau',
 
   'bkp.title': 'Sao lưu',
   'bkp.desc':
