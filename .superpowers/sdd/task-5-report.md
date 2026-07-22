@@ -74,3 +74,40 @@ Implemented and verified. The profile PATCH endpoint now accepts independently d
 - Two environment/platform-dependent Manager tests remain skipped, as before.
 - The checked-in OpenAPI artifact is intentionally deferred to Task 7, per the approved plan; the live app schema already reflects `ProfilePatch` and the 409 response.
 - Unrelated pre-existing edits in `.superpowers/sdd/progress.md` and task brief files were preserved and excluded from this task's commit.
+
+## Important Findings Follow-up
+
+### Corrections
+
+- Semantic updates now assign `updated_at = max(canonical_utc(utc_now()), canonical_stored + 1 microsecond)`, so a frozen or backward-moving clock cannot leave the optimistic-concurrency token reusable.
+- The conditional profile UPDATE now reserves SQLite's writer/CAS transaction before any folder, workflow-status, tag, or proxy lookup. Reference validation therefore observes state serialized after whichever writer obtained the reservation first.
+- SQLite write-upgrade/lock failures at the CAS boundary are rolled back and returned as the existing safe `profile_conflict` response with the current profile.
+- Proxy deletion now reserves its write before checking profile assignments. If PATCH already won the reservation, deletion observes the committed assignment and returns typed `proxy_in_use`; if a write-upgrade conflict still occurs, it is mapped to a safe proxy conflict rather than exposing SQLite state.
+- Profile changes and tag-association writes are explicitly flushed inside the guarded transaction. Residual foreign-key `IntegrityError` failures are rolled back and mapped to HTTP 422 `invalid_profile_reference` with `references=changed_during_update`; no SQL or database text escapes.
+- Omitted/null behavior, atomic nested replacement, fingerprint revision/hash rules, and the safe stale-profile payload remain unchanged.
+
+### Follow-up TDD Evidence
+
+1. RED command targeted the frozen-clock writer race, proxy soft-delete interleaving, tag hard-delete interleaving, and residual association FK failure.
+   - 4 failed, 0 passed.
+   - Observed failures: both frozen-clock writers committed; a deleted proxy was assigned; tag deletion leaked an SQLAlchemy `IntegrityError`; and the injected FK failure exposed raw database exception details.
+2. GREEN after the transaction/timestamp fix:
+   - 4 passed, 0 failed.
+3. RED inverse-order proxy test:
+   - 1 failed, 0 passed.
+   - PATCH reserved first, but the delete-side stale in-use count let both operations succeed and left the profile assigned to a soft-deleted proxy.
+4. GREEN after reserving the proxy delete transaction before its in-use check:
+   - 1 passed, 0 failed.
+5. Broader profile/schema/proxy/catalog focused suite:
+   - 71 passed, 0 failed.
+6. Deterministic race stress:
+   - All 5 regression tests passed in 10 consecutive runs (50/50 executions).
+7. Full Manager suite after the follow-up implementation:
+   - 210 passed, 2 skipped, 0 failed.
+
+### Follow-up Files Changed
+
+- `manager_backend/features/profiles/service.py`
+- `manager_backend/features/proxies/service.py`
+- `tests/manager/test_profiles_api.py`
+- `.superpowers/sdd/task-5-report.md`

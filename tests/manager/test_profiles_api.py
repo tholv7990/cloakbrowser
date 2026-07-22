@@ -4,9 +4,16 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from threading import Barrier
 
+import pytest
+from sqlalchemy import event
+
 from manager_backend.errors import ManagerError
+from manager_backend.features.catalog.service import delete_catalog
 from manager_backend.features.profiles import service as profile_service
 from manager_backend.features.profiles.schemas import ProfileCreate, ProfilePatch
+from manager_backend.features.proxies.credentials import MemoryCredentialStore
+from manager_backend.features.proxies.service import delete_proxy
+from manager_backend.models import Profile, Proxy, Tag
 
 
 def patch_profile(client, auth_headers, profile, **changes):
@@ -423,6 +430,9 @@ def test_concurrent_patches_allow_exactly_one_writer(
         profile_id = original.id
         expected_updated_at = original.updated_at
 
+    frozen_now = profile_service._canonical_utc(expected_updated_at)
+    monkeypatch.setattr(profile_service, "utc_now", lambda: frozen_now)
+
     barrier = Barrier(2)
     original_validator = profile_service._validate_identity_modes
 
@@ -463,4 +473,279 @@ def test_concurrent_patches_allow_exactly_one_writer(
     assert conflict_current == winner
 
     with db_session_factory() as session:
-        assert profile_service.get_profile(session, profile_id).notes == winner
+        persisted = profile_service.get_profile(session, profile_id)
+        assert persisted.notes == winner
+        assert profile_service._canonical_utc(persisted.updated_at) > frozen_now
+
+
+def test_proxy_delete_between_request_start_and_cas_returns_reference_error(
+    db_session_factory, settings
+):
+    with db_session_factory() as session:
+        proxy = Proxy(label="Race proxy", scheme="direct")
+        session.add(proxy)
+        session.commit()
+        profile = profile_service.create_profile(session, ProfileCreate(name="Proxy race"))
+        proxy_id = proxy.id
+        profile_id = profile.id
+        expected_updated_at = profile.updated_at
+
+    cas_reached = Barrier(2)
+    release_cas = Barrier(2)
+    engine = db_session_factory.kw["bind"]
+    cas_paused = False
+
+    def pause_profile_cas(_conn, _cursor, statement, _parameters, _context, _many):
+        nonlocal cas_paused
+        normalized = " ".join(statement.lower().split())
+        if not cas_paused and normalized.startswith(
+            "update profiles set updated_at=profiles.updated_at"
+        ):
+            cas_paused = True
+            cas_reached.wait(timeout=5)
+            release_cas.wait(timeout=5)
+
+    event.listen(engine, "before_cursor_execute", pause_profile_cas)
+
+    def patch_proxy():
+        with db_session_factory() as session:
+            try:
+                return profile_service.update_profile(
+                    session,
+                    profile_id,
+                    ProfilePatch(
+                        expected_updated_at=expected_updated_at,
+                        proxy_id=proxy_id,
+                    ),
+                    settings=settings,
+                )
+            except Exception as error:
+                return error
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending_patch = executor.submit(patch_proxy)
+            cas_reached.wait(timeout=5)
+            with db_session_factory() as session:
+                delete_proxy(session, MemoryCredentialStore(), proxy_id)
+            release_cas.wait(timeout=5)
+            result = pending_patch.result(timeout=5)
+    finally:
+        if event.contains(engine, "before_cursor_execute", pause_profile_cas):
+            event.remove(engine, "before_cursor_execute", pause_profile_cas)
+
+    assert isinstance(result, ManagerError)
+    assert result.code == "invalid_profile_reference"
+    assert result.status_code == 422
+    assert result.field_errors == {"proxy_id": "not_found"}
+    with db_session_factory() as session:
+        assert session.get(Proxy, proxy_id).deleted_at is not None
+        assert session.get(Profile, profile_id).proxy_id is None
+
+
+def test_reserved_proxy_patch_makes_concurrent_delete_fail_as_in_use(
+    db_session_factory, settings, monkeypatch
+):
+    with db_session_factory() as session:
+        proxy = Proxy(label="Reserved proxy", scheme="direct")
+        session.add(proxy)
+        session.commit()
+        profile = profile_service.create_profile(
+            session, ProfileCreate(name="Reserved proxy race")
+        )
+        proxy_id = proxy.id
+        profile_id = profile.id
+        expected_updated_at = profile.updated_at
+
+    patch_validated = Barrier(2)
+    release_patch = Barrier(2)
+    delete_write_reached = Barrier(2)
+    original_validator = profile_service._validate_references
+    engine = db_session_factory.kw["bind"]
+    delete_write_seen = False
+
+    def pause_after_reference_validation(*args, **kwargs):
+        result = original_validator(*args, **kwargs)
+        patch_validated.wait(timeout=5)
+        release_patch.wait(timeout=5)
+        return result
+
+    def observe_proxy_delete(_conn, _cursor, statement, _parameters, _context, _many):
+        nonlocal delete_write_seen
+        normalized = " ".join(statement.lower().split())
+        if not delete_write_seen and normalized.startswith("update proxies set"):
+            delete_write_seen = True
+            delete_write_reached.wait(timeout=5)
+
+    monkeypatch.setattr(
+        profile_service,
+        "_validate_references",
+        pause_after_reference_validation,
+    )
+    event.listen(engine, "before_cursor_execute", observe_proxy_delete)
+
+    def patch_proxy():
+        with db_session_factory() as session:
+            try:
+                return profile_service.update_profile(
+                    session,
+                    profile_id,
+                    ProfilePatch(
+                        expected_updated_at=expected_updated_at,
+                        proxy_id=proxy_id,
+                    ),
+                    settings=settings,
+                )
+            except Exception as error:
+                return error
+
+    def remove_proxy():
+        with db_session_factory() as session:
+            try:
+                delete_proxy(session, MemoryCredentialStore(), proxy_id)
+                return None
+            except Exception as error:
+                return error
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            pending_patch = executor.submit(patch_proxy)
+            patch_validated.wait(timeout=5)
+            pending_delete = executor.submit(remove_proxy)
+            delete_write_reached.wait(timeout=5)
+            release_patch.wait(timeout=5)
+            patch_result = pending_patch.result(timeout=5)
+            delete_result = pending_delete.result(timeout=5)
+    finally:
+        if event.contains(engine, "before_cursor_execute", observe_proxy_delete):
+            event.remove(engine, "before_cursor_execute", observe_proxy_delete)
+
+    assert isinstance(patch_result, Profile)
+    assert isinstance(delete_result, ManagerError)
+    assert delete_result.code == "proxy_in_use"
+    assert delete_result.status_code == 409
+    with db_session_factory() as session:
+        assert session.get(Profile, profile_id).proxy_id == proxy_id
+        assert session.get(Proxy, proxy_id).deleted_at is None
+
+
+def test_tag_delete_between_request_start_and_cas_returns_reference_error(
+    db_session_factory, settings
+):
+    with db_session_factory() as session:
+        tag = Tag(name="Race tag", color="#64748B")
+        session.add(tag)
+        session.commit()
+        profile = profile_service.create_profile(session, ProfileCreate(name="Tag race"))
+        tag_id = tag.id
+        profile_id = profile.id
+        expected_updated_at = profile.updated_at
+
+    cas_reached = Barrier(2)
+    release_cas = Barrier(2)
+    engine = db_session_factory.kw["bind"]
+    cas_paused = False
+
+    def pause_profile_cas(_conn, _cursor, statement, _parameters, _context, _many):
+        nonlocal cas_paused
+        normalized = " ".join(statement.lower().split())
+        if not cas_paused and normalized.startswith(
+            "update profiles set updated_at=profiles.updated_at"
+        ):
+            cas_paused = True
+            cas_reached.wait(timeout=5)
+            release_cas.wait(timeout=5)
+
+    event.listen(engine, "before_cursor_execute", pause_profile_cas)
+
+    def patch_tag():
+        with db_session_factory() as session:
+            try:
+                return profile_service.update_profile(
+                    session,
+                    profile_id,
+                    ProfilePatch(
+                        expected_updated_at=expected_updated_at,
+                        tag_ids=[tag_id],
+                    ),
+                    settings=settings,
+                )
+            except Exception as error:
+                return error
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending_patch = executor.submit(patch_tag)
+            cas_reached.wait(timeout=5)
+            with db_session_factory() as session:
+                delete_catalog(session, Tag, tag_id)
+            release_cas.wait(timeout=5)
+            result = pending_patch.result(timeout=5)
+    finally:
+        if event.contains(engine, "before_cursor_execute", pause_profile_cas):
+            event.remove(engine, "before_cursor_execute", pause_profile_cas)
+
+    assert isinstance(result, ManagerError)
+    assert result.code == "invalid_profile_reference"
+    assert result.status_code == 422
+    assert result.field_errors == {"tag_ids": "contains_unknown_id"}
+    with db_session_factory() as session:
+        assert session.get(Tag, tag_id) is None
+        assert profile_service.get_profile(session, profile_id).tags == []
+
+
+def test_residual_tag_foreign_key_failure_maps_to_safe_reference_error(
+    db_session_factory, settings
+):
+    with db_session_factory() as session:
+        tag = Tag(name="Vanishing tag", color="#64748B")
+        session.add(tag)
+        session.commit()
+        profile = profile_service.create_profile(session, ProfileCreate(name="FK race"))
+        tag_id = tag.id
+        profile_id = profile.id
+        expected_updated_at = profile.updated_at
+
+    engine = db_session_factory.kw["bind"]
+    delete_injected = False
+
+    def delete_tag_before_association_insert(
+        _conn, cursor, statement, _parameters, _context, _many
+    ):
+        nonlocal delete_injected
+        if not delete_injected and statement.lower().startswith("insert into profile_tags"):
+            delete_injected = True
+            cursor.execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+
+    event.listen(engine, "before_cursor_execute", delete_tag_before_association_insert)
+    try:
+        with db_session_factory() as session:
+            with pytest.raises(ManagerError) as caught:
+                profile_service.update_profile(
+                    session,
+                    profile_id,
+                    ProfilePatch(
+                        expected_updated_at=expected_updated_at,
+                        tag_ids=[tag_id],
+                    ),
+                    settings=settings,
+                )
+    finally:
+        if event.contains(
+            engine,
+            "before_cursor_execute",
+            delete_tag_before_association_insert,
+        ):
+            event.remove(
+                engine,
+                "before_cursor_execute",
+                delete_tag_before_association_insert,
+            )
+
+    assert caught.value.code == "invalid_profile_reference"
+    assert caught.value.status_code == 422
+    assert caught.value.field_errors == {"references": "changed_during_update"}
+    assert "foreign key" not in caught.value.message.lower()
+    with db_session_factory() as session:
+        assert session.get(Tag, tag_id) is not None
+        assert profile_service.get_profile(session, profile_id).tags == []

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func, or_, select, update as sql_update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, selectinload
 
 from ...config import ManagerSettings
@@ -78,6 +78,15 @@ def _validate_references(
         )
     by_id = {tag.id: tag for tag in tags}
     return [by_id[tag_id] for tag_id in unique_tag_ids]
+
+
+def _concurrent_reference_error() -> ManagerError:
+    return ManagerError(
+        "invalid_profile_reference",
+        "One or more profile references do not exist.",
+        422,
+        {"references": "changed_during_update"},
+    )
 
 
 def _fingerprint_identity(seed: str, values: dict[str, Any]):
@@ -274,6 +283,11 @@ def _canonical_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _next_updated_at(stored_updated_at: datetime) -> datetime:
+    minimum = _canonical_utc(stored_updated_at) + timedelta(microseconds=1)
+    return max(_canonical_utc(utc_now()), minimum)
+
+
 def _current_safe_profile(profile: Profile, settings: ManagerSettings) -> dict[str, Any]:
     return ProfileRead.model_validate(
         profile_to_dict(profile, settings=settings)
@@ -336,20 +350,44 @@ def update_profile(
             changes[nested] = getattr(payload, nested).model_dump(mode="json")
 
     _validate_identity_modes(profile, changes)
-    tags = None
-    if (
-        tag_ids_were_provided
-        or "folder_id" in changes
-        or "status_id" in changes
-        or "proxy_id" in changes
-    ):
-        tags = _validate_references(
-            session,
-            folder_id=changes.get("folder_id", profile.folder_id),
-            status_id=changes.get("status_id", profile.status_id),
-            tag_ids=tag_ids if tag_ids_were_provided else [tag.id for tag in profile.tags],
-            proxy_id=changes.get("proxy_id", profile.proxy_id),
+
+    stored_updated_at = profile.updated_at
+    try:
+        guard = session.execute(
+            sql_update(Profile)
+            .where(Profile.id == profile.id, Profile.updated_at == stored_updated_at)
+            .values(updated_at=Profile.updated_at)
+            .execution_options(synchronize_session=False)
         )
+    except OperationalError:
+        session.rollback()
+        _raise_profile_conflict(get_profile(session, profile_id), settings)
+    if guard.rowcount != 1:
+        session.rollback()
+        _raise_profile_conflict(get_profile(session, profile_id), settings)
+
+    tags = None
+    try:
+        if (
+            tag_ids_were_provided
+            or "folder_id" in changes
+            or "status_id" in changes
+            or "proxy_id" in changes
+        ):
+            tags = _validate_references(
+                session,
+                folder_id=changes.get("folder_id", profile.folder_id),
+                status_id=changes.get("status_id", profile.status_id),
+                tag_ids=(
+                    tag_ids
+                    if tag_ids_were_provided
+                    else [tag.id for tag in profile.tags]
+                ),
+                proxy_id=changes.get("proxy_id", profile.proxy_id),
+            )
+    except ManagerError:
+        session.rollback()
+        raise
 
     semantic_changes = {
         field: value
@@ -359,17 +397,6 @@ def update_profile(
     tags_changed = tags is not None and {
         tag.id for tag in tags
     } != {tag.id for tag in profile.tags}
-
-    stored_updated_at = profile.updated_at
-    guard = session.execute(
-        sql_update(Profile)
-        .where(Profile.id == profile.id, Profile.updated_at == stored_updated_at)
-        .values(updated_at=Profile.updated_at)
-        .execution_options(synchronize_session=False)
-    )
-    if guard.rowcount != 1:
-        session.rollback()
-        _raise_profile_conflict(get_profile(session, profile_id), settings)
 
     for field, value in semantic_changes.items():
         setattr(profile, field, value)
@@ -383,9 +410,14 @@ def update_profile(
             if identity.config_hash != profile.fingerprint_config_hash:
                 profile.fingerprint_revision += 1
                 profile.fingerprint_config_hash = identity.config_hash
-        profile.updated_at = utc_now()
+        profile.updated_at = _next_updated_at(stored_updated_at)
 
-    session.commit()
+    try:
+        session.flush()
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise _concurrent_reference_error() from None
     return get_profile(session, profile.id)
 
 

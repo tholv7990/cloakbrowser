@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, select, update as sql_update
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from ...errors import ManagerError
@@ -124,9 +124,34 @@ def update_proxy(
 
 
 def delete_proxy(session: Session, store: CredentialStore, proxy_id: str) -> None:
+    try:
+        guard = session.execute(
+            sql_update(Proxy)
+            .where(Proxy.id == proxy_id, Proxy.deleted_at.is_(None))
+            .values(updated_at=Proxy.updated_at)
+            .execution_options(synchronize_session=False)
+        )
+    except OperationalError:
+        session.rollback()
+        if _assigned_count(session, proxy_id):
+            raise ManagerError(
+                "proxy_in_use",
+                "This proxy is assigned to one or more profiles.",
+                409,
+            ) from None
+        raise ManagerError(
+            "proxy_conflict",
+            "The proxy changed while it was being deleted.",
+            409,
+        ) from None
+    if guard.rowcount != 1:
+        session.rollback()
+        raise _not_found()
+
     proxy = get_proxy(session, proxy_id)
     count = _assigned_count(session, proxy.id)
     if count:
+        session.rollback()
         raise ManagerError("proxy_in_use", "This proxy is assigned to one or more profiles.", 409)
     reference = proxy.credential_ref
     proxy.deleted_at = datetime.now(timezone.utc)
