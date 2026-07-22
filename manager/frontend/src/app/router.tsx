@@ -9,6 +9,7 @@ import { DiagnosticsPage } from '@/features/diagnostics/DiagnosticsPage';
 import { ResourcesPage } from '@/features/diagnostics/ResourcesPage';
 import { AutomationPage } from '@/features/automation/AutomationPage';
 import { ShopifyPage } from '@/features/shopify/ShopifyPage';
+import { MediaPage } from '@/features/media/MediaPage';
 import { SettingsPage } from '@/features/settings/SettingsPage';
 import { EmptyState } from '@/components/ui/states';
 import { useCapabilities } from '@/hooks/useAppData';
@@ -92,6 +93,14 @@ export const router = createBrowserRouter([
         element: (
           <RequireCapability cap="shopify_builder">
             <ShopifyPage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: 'media',
+        element: (
+          <RequireCapability cap="media">
+            <MediaPage />
           </RequireCapability>
         ),
       },

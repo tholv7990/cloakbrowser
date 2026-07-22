@@ -378,6 +378,8 @@ export interface AppCapabilities {
   automation?: boolean;
   /** Optional — present once the Shopify Builder backend ships. Treated as false when absent. */
   shopify_builder?: boolean;
+  /** Optional — present once the media engine backend ships. Treated as false when absent. */
+  media?: boolean;
 }
 
 export interface Settings {
@@ -720,6 +722,64 @@ export interface CreatePlanPayload {
   catalog_id?: string | null;
   niche_override?: string | null;
   ai_hero: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Session history — one record per profile launch (read-only).
+// ---------------------------------------------------------------------------
+
+export type SessionExitReason = 'closed' | 'stopped' | 'crashed' | 'timeout' | 'unknown';
+
+export interface RuntimeSessionRecord {
+  id: string;
+  profile_id: string;
+  profile_name: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_seconds: number | null;
+  startup_ms: number | null;
+  exit_reason: SessionExitReason | null;
+}
+
+// ---------------------------------------------------------------------------
+// Backups — verified local snapshots of manager metadata (never browser data).
+// ---------------------------------------------------------------------------
+
+export interface BackupArchive {
+  id: string;
+  created_at: string;
+  size_bytes: number;
+  automatic: boolean;
+  verified: boolean;
+  /** e.g. ['profiles','proxies','workspaces','extensions']. */
+  contents: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Media engine — virtual camera/mic/screen assets injected into profiles.
+// ---------------------------------------------------------------------------
+
+export type MediaKind = 'camera' | 'microphone' | 'screen';
+
+export interface MediaAsset {
+  id: string;
+  name: string;
+  kind: MediaKind;
+  /** MIME type, e.g. 'image/jpeg', 'video/mp4', 'audio/wav'. */
+  format: string;
+  size_bytes: number;
+  assigned_profile_count: number;
+  created_at: string;
+}
+
+export interface MediaSettings {
+  enabled: boolean;
+}
+
+export interface CreateMediaAssetPayload {
+  name: string;
+  kind: MediaKind;
+  format: string;
 }
 
 // ---------------------------------------------------------------------------

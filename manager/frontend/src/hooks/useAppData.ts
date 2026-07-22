@@ -33,6 +33,7 @@ const ALL_CAPABILITIES: AppCapabilities = {
   settings: true,
   automation: true,
   shopify_builder: true,
+  media: true,
 };
 
 export function useCapabilities(): AppCapabilities {

@@ -47,3 +47,43 @@ export function useCheckBrowserUpdate() {
       }),
   });
 }
+
+export function useBackups() {
+  return useQuery({ queryKey: queryKeys.backups, queryFn: () => api.listBackups() });
+}
+
+export function useCreateBackup() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  return useMutation({
+    mutationFn: () => api.createBackup(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.backups });
+      toast({ title: 'Backup created', tone: 'success' });
+    },
+    onError: (error) =>
+      toast({ title: 'Backup failed', description: (error as Error).message, tone: 'danger' }),
+  });
+}
+
+export function useRestoreBackup() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  return useMutation({
+    mutationFn: (id: string) => api.restoreBackup(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      toast({ title: 'Backup restored', tone: 'success' });
+    },
+    onError: (error) =>
+      toast({ title: 'Restore failed', description: (error as Error).message, tone: 'danger' }),
+  });
+}
+
+export function useDeleteBackup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteBackup(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.backups }),
+  });
+}

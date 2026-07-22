@@ -260,3 +260,36 @@ describe('mock shopify builder contract', () => {
     expect(running.status).toBe('running');
   });
 });
+
+describe('mock runtime extras contract', () => {
+  it('lists per-launch session history', async () => {
+    const sessions = await mockApi.listSessions(5);
+    expect(sessions.length).toBeGreaterThan(0);
+    expect(sessions[0]).toHaveProperty('startup_ms');
+    expect(sessions[0]).toHaveProperty('exit_reason');
+  });
+
+  it('creates and deletes backups; restore of a missing id fails', async () => {
+    const before = (await mockApi.listBackups()).length;
+    const created = await mockApi.createBackup();
+    expect((await mockApi.listBackups()).length).toBe(before + 1);
+    expect(created.verified).toBe(true);
+    await expect(mockApi.restoreBackup('bkp_missing')).rejects.toBeInstanceOf(ApiError);
+    await mockApi.deleteBackup(created.id);
+    expect((await mockApi.listBackups()).length).toBe(before);
+  });
+
+  it('adds and removes media assets and toggles injection', async () => {
+    const before = (await mockApi.listMediaAssets()).length;
+    const asset = await mockApi.createMediaAsset({
+      name: 'Test cam',
+      kind: 'camera',
+      format: 'video/mp4',
+    });
+    expect((await mockApi.listMediaAssets()).length).toBe(before + 1);
+    const settings = await mockApi.updateMediaSettings({ enabled: true });
+    expect(settings.enabled).toBe(true);
+    await mockApi.deleteMediaAsset(asset.id);
+    expect((await mockApi.listMediaAssets()).length).toBe(before);
+  });
+});

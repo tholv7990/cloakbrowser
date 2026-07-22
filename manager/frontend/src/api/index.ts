@@ -43,4 +43,8 @@ export const queryKeys = {
   shopifyThemes: (storeId: string) => ['shopify', 'themes', storeId] as const,
   shopifyCatalogs: ['shopify', 'catalogs'] as const,
   shopifyPlan: (planId: string) => ['shopify', 'plan', planId] as const,
+  sessions: ['sessions'] as const,
+  backups: ['backups'] as const,
+  mediaSettings: ['media', 'settings'] as const,
+  mediaAssets: ['media', 'assets'] as const,
 };

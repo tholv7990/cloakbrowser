@@ -12,6 +12,7 @@ import type {
   AutomationRun,
   AutomationStep,
   AutomationTemplate,
+  BackupArchive,
   BuildPlan,
   BulkProfileRequest,
   BulkProfileResult,
@@ -19,12 +20,16 @@ import type {
   ConnectStorePayload,
   CookieImportPayload,
   CookieImportResult,
+  CreateMediaAssetPayload,
   CreatePlanPayload,
   CredentialPoolSummary,
   DiagnosticRun,
+  MediaAsset,
+  MediaSettings,
   ProductCatalog,
   ProductCsvInspection,
   ProfileFactoryJob,
+  RuntimeSessionRecord,
   ShopifyStore,
   StartFactoryPayload,
   StartRunPayload,
@@ -173,4 +178,20 @@ export interface ApiAdapter {
   createBuildPlan(storeId: string, payload: CreatePlanPayload): Promise<BuildPlan>;
   getBuildPlan(storeId: string, planId: string): Promise<BuildPlan>;
   executeBuildPlan(storeId: string, planId: string, confirm: boolean): Promise<BuildPlan>;
+
+  // Session history (read-only)
+  listSessions(limit?: number): Promise<RuntimeSessionRecord[]>;
+
+  // Backups
+  listBackups(): Promise<BackupArchive[]>;
+  createBackup(): Promise<BackupArchive>;
+  restoreBackup(id: string): Promise<void>;
+  deleteBackup(id: string): Promise<void>;
+
+  // Media engine
+  getMediaSettings(): Promise<MediaSettings>;
+  updateMediaSettings(patch: Partial<MediaSettings>): Promise<MediaSettings>;
+  listMediaAssets(): Promise<MediaAsset[]>;
+  createMediaAsset(payload: CreateMediaAssetPayload): Promise<MediaAsset>;
+  deleteMediaAsset(id: string): Promise<void>;
 }

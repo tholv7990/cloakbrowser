@@ -28,6 +28,15 @@ export function useResources(enabled = true) {
   });
 }
 
+/** Read-only per-launch session history. */
+export function useSessions(limit = 25) {
+  return useQuery({
+    queryKey: queryKeys.sessions,
+    queryFn: () => api.listSessions(limit),
+    staleTime: 10_000,
+  });
+}
+
 export function useRunDirectGoogleControl() {
   const queryClient = useQueryClient();
   const { toast } = useToast();

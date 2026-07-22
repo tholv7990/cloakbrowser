@@ -9,6 +9,7 @@ import type {
   AutomationRunItem,
   AutomationStep,
   AutomationTemplate,
+  BackupArchive,
   BuildPlan,
   BulkProfileRequest,
   BulkProfileResult,
@@ -17,12 +18,16 @@ import type {
   CookieImportResult,
   CredentialPoolSummary,
   DiagnosticRun,
+  MediaAsset,
+  MediaSettings,
   PlanStep,
   ProductCatalog,
   ProductCsvInspection,
   ProductRow,
   ProfileFactoryItem,
   ProfileFactoryJob,
+  RuntimeSessionRecord,
+  SessionExitReason,
   ShopifyStore,
   StoreCapabilityKey,
   StoreProfile,
@@ -256,6 +261,41 @@ function progressPlan(plan: BuildPlan): void {
     plan.preview_url = `https://${domain}?preview_theme_id=99001`;
   }
 }
+
+// --- Session history / backups / media mock state ----------------------------
+const EXIT_REASONS: SessionExitReason[] = ['closed', 'stopped', 'crashed', 'timeout'];
+const mockSessions: RuntimeSessionRecord[] = [];
+const mockBackups: BackupArchive[] = [
+  {
+    id: 'bkp_seed',
+    created_at: now(),
+    size_bytes: 2_400_000,
+    automatic: true,
+    verified: true,
+    contents: ['profiles', 'proxies', 'workspaces', 'extensions'],
+  },
+];
+let mockMediaSettings: MediaSettings = { enabled: false };
+const mockMediaAssets: MediaAsset[] = [
+  {
+    id: 'media_cam1',
+    name: 'Office webcam',
+    kind: 'camera',
+    format: 'video/mp4',
+    size_bytes: 5_800_000,
+    assigned_profile_count: 2,
+    created_at: now(),
+  },
+  {
+    id: 'media_still',
+    name: 'Portrait still',
+    kind: 'camera',
+    format: 'image/jpeg',
+    size_bytes: 240_000,
+    assigned_profile_count: 0,
+    created_at: now(),
+  },
+];
 
 function makeSession(): OwnerSession {
   return { email: mockStore.owner.email ?? ownerEmail, csrf_token: 'mock-csrf-token' };
@@ -517,6 +557,7 @@ export const mockApi: ApiAdapter = {
         settings: true,
         automation: true,
         shopify_builder: true,
+        media: true,
       },
     };
   },
@@ -1567,5 +1608,88 @@ export const mockApi: ApiAdapter = {
       planStart.set(plan.id, Date.now());
     }
     return structuredClone(plan);
+  },
+
+  async listSessions(limit = 25): Promise<RuntimeSessionRecord[]> {
+    await delay(60);
+    if (mockSessions.length === 0) {
+      const profiles = mockStore.profiles.filter((p) => !p.deleted_at).slice(0, 6);
+      profiles.forEach((profile, index) => {
+        const startedMs = Date.parse(now()) - (index + 1) * 3_600_000;
+        const duration = 300 + index * 220;
+        mockSessions.push({
+          id: newId('sess'),
+          profile_id: profile.id,
+          profile_name: profile.name,
+          started_at: new Date(startedMs).toISOString(),
+          ended_at: new Date(startedMs + duration * 1000).toISOString(),
+          duration_seconds: duration,
+          startup_ms: 600 + index * 90,
+          exit_reason: EXIT_REASONS[index % EXIT_REASONS.length],
+        });
+      });
+    }
+    return structuredClone(mockSessions.slice(0, limit));
+  },
+
+  async listBackups(): Promise<BackupArchive[]> {
+    await delay(60);
+    return structuredClone(mockBackups);
+  },
+  async createBackup(): Promise<BackupArchive> {
+    await delay(320);
+    const archive: BackupArchive = {
+      id: newId('bkp'),
+      created_at: now(),
+      size_bytes: 2_000_000 + Math.floor(Math.random() * 2_000_000),
+      automatic: false,
+      verified: true,
+      contents: ['profiles', 'proxies', 'workspaces', 'extensions'],
+    };
+    mockBackups.unshift(archive);
+    return structuredClone(archive);
+  },
+  async restoreBackup(id: string): Promise<void> {
+    await delay(400);
+    if (!mockBackups.some((b) => b.id === id))
+      throw new ApiError(404, 'backup_not_found', 'Backup not found.');
+  },
+  async deleteBackup(id: string): Promise<void> {
+    await delay(80);
+    const index = mockBackups.findIndex((b) => b.id === id);
+    if (index >= 0) mockBackups.splice(index, 1);
+  },
+
+  async getMediaSettings(): Promise<MediaSettings> {
+    await delay(40);
+    return { ...mockMediaSettings };
+  },
+  async updateMediaSettings(patch): Promise<MediaSettings> {
+    await delay(80);
+    mockMediaSettings = { ...mockMediaSettings, ...patch };
+    return { ...mockMediaSettings };
+  },
+  async listMediaAssets(): Promise<MediaAsset[]> {
+    await delay(60);
+    return structuredClone(mockMediaAssets);
+  },
+  async createMediaAsset(payload): Promise<MediaAsset> {
+    await delay(140);
+    const asset: MediaAsset = {
+      id: newId('media'),
+      name: payload.name,
+      kind: payload.kind,
+      format: payload.format,
+      size_bytes: 100_000 + Math.floor(Math.random() * 4_000_000),
+      assigned_profile_count: 0,
+      created_at: now(),
+    };
+    mockMediaAssets.unshift(asset);
+    return structuredClone(asset);
+  },
+  async deleteMediaAsset(id: string): Promise<void> {
+    await delay(80);
+    const index = mockMediaAssets.findIndex((a) => a.id === id);
+    if (index >= 0) mockMediaAssets.splice(index, 1);
   },
 };

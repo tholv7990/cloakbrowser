@@ -7,6 +7,7 @@ import type {
   AutomationRecording,
   AutomationRun,
   AutomationTemplate,
+  BackupArchive,
   BuildPlan,
   BulkProfileRequest,
   BulkProfileResult,
@@ -15,9 +16,12 @@ import type {
   CookieImportResult,
   CredentialPoolSummary,
   DiagnosticRun,
+  MediaAsset,
+  MediaSettings,
   ProductCatalog,
   ProductCsvInspection,
   ProfileFactoryJob,
+  RuntimeSessionRecord,
   ShopifyStore,
   StoreProfile,
   ThemeLibrary,
@@ -243,4 +247,20 @@ export const realApi: ApiAdapter = {
       method: 'POST',
       body: { confirm },
     }),
+
+  listSessions: (limit) =>
+    apiRequest<RuntimeSessionRecord[]>(`/sessions${limit ? `?limit=${limit}` : ''}`),
+
+  listBackups: () => apiRequest<BackupArchive[]>('/backups'),
+  createBackup: () => apiRequest<BackupArchive>('/backups', { method: 'POST' }),
+  restoreBackup: (id) => apiRequest<void>(`/backups/${id}/restore`, { method: 'POST' }),
+  deleteBackup: (id) => apiRequest<void>(`/backups/${id}`, { method: 'DELETE' }),
+
+  getMediaSettings: () => apiRequest<MediaSettings>('/media/settings'),
+  updateMediaSettings: (patch) =>
+    apiRequest<MediaSettings>('/media/settings', { method: 'PATCH', body: patch }),
+  listMediaAssets: () => apiRequest<MediaAsset[]>('/media/assets'),
+  createMediaAsset: (payload) =>
+    apiRequest<MediaAsset>('/media/assets', { method: 'POST', body: payload }),
+  deleteMediaAsset: (id) => apiRequest<void>(`/media/assets/${id}`, { method: 'DELETE' }),
 };
