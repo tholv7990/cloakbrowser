@@ -31,6 +31,7 @@ const ALL_CAPABILITIES: AppCapabilities = {
   browser_runtime: true,
   fingerprint_diagnostics: true,
   settings: true,
+  automation: true,
 };
 
 export function useCapabilities(): AppCapabilities {

@@ -374,6 +374,8 @@ export interface AppCapabilities {
   browser_runtime: boolean;
   fingerprint_diagnostics: boolean;
   settings: boolean;
+  /** Optional — present once the Automation backend ships. Treated as false when absent. */
+  automation?: boolean;
 }
 
 export interface Settings {
@@ -447,6 +449,152 @@ export interface ResourceSnapshot {
   browsers: ProcessGroupResources & { profiles_running: number };
   /** Only running profiles, sorted heaviest-first by the backend. */
   profiles: ProfileResourceRow[];
+}
+
+// ---------------------------------------------------------------------------
+// Automation — record a flow, save it as a template, replay across profiles.
+// Contract: docs/backend-contract-automation.md. No step value ever holds a
+// website credential — email/password are variable references.
+// ---------------------------------------------------------------------------
+
+export type AutomationStepType = 'goto' | 'click' | 'fill' | 'select' | 'wait_url';
+
+/** Ordered locator strategies; replay tries them in order (stable id/name for
+ * fields, role + accessible name for clicks). */
+export interface AutomationSelector {
+  css?: string;
+  id?: string;
+  name?: string;
+  role?: string;
+  accessible_name?: string;
+  placeholder?: string;
+  aria_label?: string;
+  text?: string;
+  testid?: string;
+}
+
+export interface AutomationStep {
+  type: AutomationStepType;
+  url?: string;
+  url_pattern?: string;
+  success_url_pattern?: string;
+  selectors?: AutomationSelector[];
+  /** A literal value, OR a variable ref via `variable`. Credentials are never literals. */
+  value?: string | null;
+  variable?: string | null;
+}
+
+export interface AutomationTemplate {
+  id: string;
+  name: string;
+  description: string;
+  steps: AutomationStep[];
+  /** Variable names the template needs at run time, e.g. ['email','password']. */
+  variables: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export type RecordingStatus = 'recording' | 'stopped' | 'cancelled';
+
+export interface AutomationRecording {
+  id: string;
+  name: string;
+  description: string;
+  profile_id: string;
+  status: RecordingStatus;
+  step_count: number;
+  /** Set once stopped and converted to a template. */
+  template_id: string | null;
+  created_at: string;
+}
+
+export type RunItemStatus =
+  | 'pending'
+  | 'running'
+  | 'attention'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export interface AutomationRunItem {
+  profile_id: string;
+  profile_name: string;
+  status: RunItemStatus;
+  current_step: number;
+  total_steps: number;
+  last_completed_step: number;
+  message: string | null;
+  /** Human-readable gate reason when status is 'attention' (CAPTCHA/OTP/…). */
+  attention_reason: string | null;
+  error: string | null;
+}
+
+export type RunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface AutomationRun {
+  id: string;
+  template_id: string;
+  template_name: string;
+  status: RunStatus;
+  max_parallel: number;
+  total: number;
+  completed_count: number;
+  failed_count: number;
+  attention_count: number;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  items: AutomationRunItem[];
+}
+
+export interface AutomationRunAssignment {
+  profile_id: string;
+  variables: Record<string, string>;
+  credential_id?: string | null;
+}
+
+export interface StartRunPayload {
+  assignments: AutomationRunAssignment[];
+  max_parallel: number;
+}
+
+/** Pool counts only — never the credentials themselves. */
+export interface CredentialPoolSummary {
+  available: number;
+  reserved: number;
+  used: number;
+  failed: number;
+  total: number;
+}
+
+export type FactoryJobStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface ProfileFactoryItem {
+  id: string;
+  profile_id: string | null;
+  status: string;
+  message: string | null;
+}
+
+export interface ProfileFactoryJob {
+  id: string;
+  status: FactoryJobStatus;
+  quantity: number;
+  name_prefix: string;
+  automation_template_id: string | null;
+  start_automation: boolean;
+  created_count: number;
+  failed_count: number;
+  items: ProfileFactoryItem[];
+  created_at: string;
+}
+
+export interface StartFactoryPayload {
+  quantity: number;
+  name_prefix: string;
+  automation_template_id?: string | null;
+  start_automation: boolean;
 }
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ import { ProxiesPage } from '@/features/proxies/ProxiesPage';
 import { FoldersPage } from '@/features/folders/FoldersPage';
 import { DiagnosticsPage } from '@/features/diagnostics/DiagnosticsPage';
 import { ResourcesPage } from '@/features/diagnostics/ResourcesPage';
+import { AutomationPage } from '@/features/automation/AutomationPage';
 import { SettingsPage } from '@/features/settings/SettingsPage';
 import { EmptyState } from '@/components/ui/states';
 import { useCapabilities } from '@/hooks/useAppData';
@@ -74,6 +75,14 @@ export const router = createBrowserRouter([
         element: (
           <RequireCapability cap="browser_runtime">
             <ResourcesPage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: 'automation',
+        element: (
+          <RequireCapability cap="automation">
+            <AutomationPage />
           </RequireCapability>
         ),
       },

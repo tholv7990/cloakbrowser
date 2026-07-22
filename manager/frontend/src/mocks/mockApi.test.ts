@@ -177,3 +177,44 @@ describe('mock proxy contract (secret safety)', () => {
     await expect(mockApi.deleteProxy(assigned.id)).rejects.toBeInstanceOf(ApiError);
   });
 });
+
+describe('mock automation contract', () => {
+  it('records a flow into a template with derived variables', async () => {
+    const profile = (await mockApi.listProfiles({ page: 1, page_size: 1, sort: 'name' })).items[0];
+    const rec = await mockApi.startRecording({
+      name: 'Signup',
+      profile_id: profile.id,
+      description: '',
+    });
+    expect(rec.status).toBe('recording');
+    const tpl = await mockApi.stopRecording(rec.id);
+    expect(tpl.steps.length).toBeGreaterThanOrEqual(3);
+    expect(tpl.variables).toContain('email');
+    expect((await mockApi.getRecording(rec.id)).template_id).toBe(tpl.id);
+  });
+
+  it('starts a run with one pending item per assignment and honors run actions', async () => {
+    const templates = await mockApi.listTemplates();
+    const profiles = (await mockApi.listProfiles({ page: 1, page_size: 2, sort: 'name' })).items;
+    const run = await mockApi.startRun(templates[0].id, {
+      assignments: profiles.map((p) => ({ profile_id: p.id, variables: {}, credential_id: 'pool' })),
+      max_parallel: 2,
+    });
+    expect(run.total).toBe(2);
+    expect(run.items.every((i) => i.status === 'pending')).toBe(true);
+
+    const done = await mockApi.markRunProfileCompleted(run.id, profiles[0].id);
+    expect(done.items.find((i) => i.profile_id === profiles[0].id)!.status).toBe('completed');
+    expect(done.completed_count).toBe(1);
+
+    const cancelled = await mockApi.cancelRun(run.id);
+    expect(cancelled.status).toBe('cancelled');
+  });
+
+  it('imports credentials as counts only (no secrets returned)', async () => {
+    const before = await mockApi.getCredentialPool();
+    const after = await mockApi.importCredentials('a@x.com:pw1\nb@x.com:pw2\nnot-a-credential');
+    expect(after.available).toBe(before.available + 2);
+    expect(JSON.stringify(after)).not.toContain('pw1');
+  });
+});

@@ -31,4 +31,10 @@ export const queryKeys = {
   proxyReports: (id: string) => ['proxy', id, 'reports'] as const,
   diagnostics: ['diagnostics'] as const,
   resources: ['resources'] as const,
+  automationTemplates: ['automation', 'templates'] as const,
+  automationTemplate: (id: string) => ['automation', 'template', id] as const,
+  automationRecording: (id: string) => ['automation', 'recording', id] as const,
+  automationRun: (id: string) => ['automation', 'run', id] as const,
+  automationCredentials: ['automation', 'credentials'] as const,
+  automationFactory: ['automation', 'factory'] as const,
 };

@@ -7,6 +7,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Users,
+  Workflow,
 } from 'lucide-react';
 import { Settings as SettingsIcon } from 'lucide-react';
 import { Wordmark } from '@/components/Logo';
@@ -21,6 +22,7 @@ const NAV: { to: string; key: TranslationKey; icon: typeof Users; cap?: keyof Ap
   { to: '/profiles', key: 'nav.profiles', icon: Users },
   { to: '/folders', key: 'nav.folders', icon: FolderClosed, cap: 'catalogs' },
   { to: '/proxies', key: 'nav.proxies', icon: Globe, cap: 'proxy_management' },
+  { to: '/automation', key: 'nav.automation', icon: Workflow, cap: 'automation' },
   { to: '/diagnostics', key: 'nav.diagnostics', icon: Activity, cap: 'fingerprint_diagnostics' },
   { to: '/resources', key: 'nav.resources', icon: Gauge, cap: 'browser_runtime' },
   { to: '/settings', key: 'nav.settings', icon: SettingsIcon, cap: 'settings' },

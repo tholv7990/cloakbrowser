@@ -7,12 +7,20 @@ import type {
   AppBootstrap,
   AppVersion,
   AuthStatus,
+  AutomationRecording,
+  AutomationRun,
+  AutomationStep,
+  AutomationTemplate,
   BulkProfileRequest,
   BulkProfileResult,
   ChangePasswordRequest,
   CookieImportPayload,
   CookieImportResult,
+  CredentialPoolSummary,
   DiagnosticRun,
+  ProfileFactoryJob,
+  StartFactoryPayload,
+  StartRunPayload,
   EmailPasswordRequest,
   Folder,
   OwnerSession,
@@ -103,4 +111,37 @@ export interface ApiAdapter {
 
   // Resource monitor (read-only)
   getResources(): Promise<ResourceSnapshot>;
+
+  // Automation — templates / recordings / runs / credentials / factory
+  listTemplates(): Promise<AutomationTemplate[]>;
+  getTemplate(id: string): Promise<AutomationTemplate>;
+  saveTemplate(
+    id: string,
+    payload: { name: string; description: string; steps: AutomationStep[] },
+  ): Promise<AutomationTemplate>;
+  deleteTemplate(id: string): Promise<void>;
+
+  startRecording(payload: {
+    name: string;
+    profile_id: string;
+    description: string;
+  }): Promise<AutomationRecording>;
+  getRecording(id: string): Promise<AutomationRecording>;
+  stopRecording(id: string): Promise<AutomationTemplate>;
+  cancelRecording(id: string): Promise<void>;
+
+  startRun(templateId: string, payload: StartRunPayload): Promise<AutomationRun>;
+  getRun(id: string): Promise<AutomationRun>;
+  cancelRun(id: string): Promise<AutomationRun>;
+  continueRunProfile(runId: string, profileId: string): Promise<AutomationRun>;
+  retryRunProfile(runId: string, profileId: string): Promise<AutomationRun>;
+  markRunProfileCompleted(runId: string, profileId: string): Promise<AutomationRun>;
+
+  getCredentialPool(): Promise<CredentialPoolSummary>;
+  importCredentials(text: string): Promise<CredentialPoolSummary>;
+
+  listFactoryJobs(): Promise<ProfileFactoryJob[]>;
+  startFactoryJob(payload: StartFactoryPayload): Promise<ProfileFactoryJob>;
+  getFactoryJob(id: string): Promise<ProfileFactoryJob>;
+  cancelFactoryJob(id: string): Promise<ProfileFactoryJob>;
 }

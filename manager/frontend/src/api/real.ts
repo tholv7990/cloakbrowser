@@ -3,12 +3,17 @@ import type {
   AppBootstrap,
   AppVersion,
   AuthStatus,
+  AutomationRecording,
+  AutomationRun,
+  AutomationTemplate,
   BulkProfileRequest,
   BulkProfileResult,
   ChangePasswordRequest,
   CookieImportPayload,
   CookieImportResult,
+  CredentialPoolSummary,
   DiagnosticRun,
+  ProfileFactoryJob,
   EmailPasswordRequest,
   Folder,
   OwnerSession,
@@ -131,4 +136,56 @@ export const realApi: ApiAdapter = {
     apiRequest<Settings>('/settings/browser/check-update', { method: 'POST' }),
 
   getResources: () => apiRequest<ResourceSnapshot>('/resources'),
+
+  listTemplates: () => apiRequest<AutomationTemplate[]>('/automations/templates'),
+  getTemplate: (id) => apiRequest<AutomationTemplate>(`/automations/templates/${id}`),
+  saveTemplate: (id, payload) =>
+    apiRequest<AutomationTemplate>(`/automations/templates/${id}`, {
+      method: 'PUT',
+      body: payload,
+    }),
+  deleteTemplate: (id) =>
+    apiRequest<void>(`/automations/templates/${id}`, { method: 'DELETE' }),
+
+  startRecording: (payload) =>
+    apiRequest<AutomationRecording>('/automations/recordings', { method: 'POST', body: payload }),
+  getRecording: (id) => apiRequest<AutomationRecording>(`/automations/recordings/${id}`),
+  stopRecording: (id) =>
+    apiRequest<AutomationTemplate>(`/automations/recordings/${id}/stop`, { method: 'POST' }),
+  cancelRecording: (id) =>
+    apiRequest<void>(`/automations/recordings/${id}/cancel`, { method: 'POST' }),
+
+  startRun: (templateId, payload) =>
+    apiRequest<AutomationRun>(`/automations/templates/${templateId}/runs`, {
+      method: 'POST',
+      body: payload,
+    }),
+  getRun: (id) => apiRequest<AutomationRun>(`/automations/runs/${id}`),
+  cancelRun: (id) => apiRequest<AutomationRun>(`/automations/runs/${id}/cancel`, { method: 'POST' }),
+  continueRunProfile: (runId, profileId) =>
+    apiRequest<AutomationRun>(`/automations/runs/${runId}/profiles/${profileId}/continue`, {
+      method: 'POST',
+    }),
+  retryRunProfile: (runId, profileId) =>
+    apiRequest<AutomationRun>(`/automations/runs/${runId}/profiles/${profileId}/retry`, {
+      method: 'POST',
+    }),
+  markRunProfileCompleted: (runId, profileId) =>
+    apiRequest<AutomationRun>(`/automations/runs/${runId}/profiles/${profileId}/mark-completed`, {
+      method: 'POST',
+    }),
+
+  getCredentialPool: () => apiRequest<CredentialPoolSummary>('/automations/credentials'),
+  importCredentials: (text) =>
+    apiRequest<CredentialPoolSummary>('/automations/credentials/import', {
+      method: 'POST',
+      body: { text },
+    }),
+
+  listFactoryJobs: () => apiRequest<ProfileFactoryJob[]>('/automations/factory/jobs'),
+  startFactoryJob: (payload) =>
+    apiRequest<ProfileFactoryJob>('/automations/factory/jobs', { method: 'POST', body: payload }),
+  getFactoryJob: (id) => apiRequest<ProfileFactoryJob>(`/automations/factory/jobs/${id}`),
+  cancelFactoryJob: (id) =>
+    apiRequest<ProfileFactoryJob>(`/automations/factory/jobs/${id}/cancel`, { method: 'POST' }),
 };

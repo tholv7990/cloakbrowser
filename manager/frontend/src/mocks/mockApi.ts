@@ -3,12 +3,20 @@ import type {
   AppBootstrap,
   AppVersion,
   AuthStatus,
+  AutomationRecording,
+  AutomationRun,
+  AutomationRunItem,
+  AutomationStep,
+  AutomationTemplate,
   BulkProfileRequest,
   BulkProfileResult,
   ChangePasswordRequest,
   CookieImportPayload,
   CookieImportResult,
+  CredentialPoolSummary,
   DiagnosticRun,
+  ProfileFactoryItem,
+  ProfileFactoryJob,
   EmailPasswordRequest,
   Folder,
   OwnerSession,
@@ -44,6 +52,114 @@ import { mockStore, newId } from './store';
 const now = () => new Date().toISOString();
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const randomSeed = () => String(Math.floor(Math.random() * 2 ** 32));
+
+// --- Automation mock state + time-based live simulation ----------------------
+function sampleSteps(): AutomationStep[] {
+  return [
+    { type: 'goto', url: 'https://example.com/signup', url_pattern: 'https://example.com/signup' },
+    { type: 'fill', selectors: [{ id: 'email', name: 'email' }], variable: 'email' },
+    { type: 'fill', selectors: [{ id: 'password', name: 'password' }], variable: 'password' },
+    {
+      type: 'click',
+      selectors: [{ role: 'button', accessible_name: 'Create account' }],
+      success_url_pattern: 'https://example.com/welcome',
+    },
+    { type: 'wait_url', url_pattern: 'https://example.com/welcome' },
+    { type: 'click', selectors: [{ text: 'Continue' }] },
+  ];
+}
+function deriveVars(steps: AutomationStep[]): string[] {
+  const set = new Set<string>();
+  for (const step of steps) if (step.variable) set.add(step.variable);
+  return [...set];
+}
+
+const mockTemplates: AutomationTemplate[] = [
+  {
+    id: 'tpl_demo_signup',
+    name: 'Marketplace sign-up',
+    description: 'Create an account and confirm the welcome page.',
+    steps: sampleSteps(),
+    variables: ['email', 'password'],
+    created_at: now(),
+    updated_at: now(),
+  },
+];
+const mockRecordings: AutomationRecording[] = [];
+const mockRuns: AutomationRun[] = [];
+const mockFactoryJobs: ProfileFactoryJob[] = [];
+let mockPool: CredentialPoolSummary = { available: 4, reserved: 0, used: 0, failed: 0, total: 4 };
+
+/** gateProfile stalls at the midpoint until continued; failProfile fails at the end until retried. */
+const runSim = new Map<
+  string,
+  { gateProfile: string | null; gatePassed: boolean; failProfile: string | null }
+>();
+const factoryStart = new Map<string, number>();
+const TERMINAL: AutomationRunItem['status'][] = ['completed', 'failed', 'cancelled'];
+
+function progressRecording(rec: AutomationRecording): void {
+  if (rec.status !== 'recording') return;
+  const elapsed = Date.now() - Date.parse(rec.created_at);
+  rec.step_count = Math.min(8, Math.max(rec.step_count, Math.floor(elapsed / 1200)));
+}
+function recomputeRun(run: AutomationRun): void {
+  run.completed_count = run.items.filter((i) => i.status === 'completed').length;
+  run.failed_count = run.items.filter((i) => i.status === 'failed').length;
+  run.attention_count = run.items.filter((i) => i.status === 'attention').length;
+  const active = run.items.some((i) => !TERMINAL.includes(i.status));
+  if (!active && run.status === 'running') {
+    run.status = run.failed_count > 0 && run.completed_count === 0 ? 'failed' : 'completed';
+    run.finished_at = now();
+  }
+}
+function progressRun(run: AutomationRun): void {
+  if (run.status !== 'running') return;
+  const sim = runSim.get(run.id);
+  const gateStep = Math.ceil((run.items[0]?.total_steps ?? 6) / 2);
+  for (const item of run.items) {
+    if (TERMINAL.includes(item.status) || item.status === 'attention') continue;
+    if (item.status === 'pending') item.status = 'running';
+    if (sim && item.profile_id === sim.gateProfile && !sim.gatePassed && item.current_step >= gateStep) {
+      item.status = 'attention';
+      item.attention_reason = 'CAPTCHA detected';
+      item.message = 'Waiting for you to solve the challenge';
+      continue;
+    }
+    item.current_step = Math.min(item.total_steps, item.current_step + 1);
+    item.last_completed_step = item.current_step;
+    if (item.current_step >= item.total_steps) {
+      if (sim && item.profile_id === sim.failProfile) {
+        item.status = 'failed';
+        item.error = 'Selector not found: button[name="submit"]';
+        item.message = 'Final step failed';
+      } else {
+        item.status = 'completed';
+        item.message = 'Completed';
+      }
+    }
+  }
+  recomputeRun(run);
+}
+function progressFactory(job: ProfileFactoryJob): void {
+  if (job.status !== 'running') return;
+  const start = factoryStart.get(job.id) ?? Date.parse(job.created_at);
+  const target = Math.min(job.quantity, Math.floor((Date.now() - start) / 1500));
+  for (let i = 0; i < target; i += 1) {
+    const item = job.items[i];
+    if (item && item.status === 'pending') {
+      item.profile_id = newId('prof');
+      item.status = job.start_automation ? 'Setup complete' : 'Ready';
+      job.created_count += 1;
+    }
+  }
+  if (job.created_count >= job.quantity) job.status = 'completed';
+}
+function requireRun(id: string): AutomationRun {
+  const run = mockRuns.find((x) => x.id === id);
+  if (!run) throw new ApiError(404, 'run_not_found', 'Automation run not found.');
+  return run;
+}
 
 function makeSession(): OwnerSession {
   return { email: mockStore.owner.email ?? ownerEmail, csrf_token: 'mock-csrf-token' };
@@ -303,6 +419,7 @@ export const mockApi: ApiAdapter = {
         browser_runtime: true,
         fingerprint_diagnostics: true,
         settings: true,
+        automation: true,
       },
     };
   },
@@ -913,5 +1030,257 @@ export const mockApi: ApiAdapter = {
       },
       profiles,
     };
+  },
+
+  async listTemplates(): Promise<AutomationTemplate[]> {
+    await delay(60);
+    return structuredClone(mockTemplates);
+  },
+  async getTemplate(id: string): Promise<AutomationTemplate> {
+    await delay(40);
+    const tpl = mockTemplates.find((x) => x.id === id);
+    if (!tpl) throw new ApiError(404, 'template_not_found', 'Template not found.');
+    return structuredClone(tpl);
+  },
+  async saveTemplate(id, payload): Promise<AutomationTemplate> {
+    await delay(80);
+    const variables = deriveVars(payload.steps);
+    const existing = mockTemplates.find((x) => x.id === id);
+    if (existing) {
+      Object.assign(existing, { ...payload, variables, updated_at: now() });
+      return structuredClone(existing);
+    }
+    const created: AutomationTemplate = {
+      id,
+      ...payload,
+      variables,
+      created_at: now(),
+      updated_at: now(),
+    };
+    mockTemplates.push(created);
+    return structuredClone(created);
+  },
+  async deleteTemplate(id: string): Promise<void> {
+    await delay(60);
+    const index = mockTemplates.findIndex((x) => x.id === id);
+    if (index >= 0) mockTemplates.splice(index, 1);
+  },
+
+  async startRecording(payload): Promise<AutomationRecording> {
+    await delay(120);
+    const rec: AutomationRecording = {
+      id: newId('rec'),
+      name: payload.name,
+      description: payload.description,
+      profile_id: payload.profile_id,
+      status: 'recording',
+      step_count: 0,
+      template_id: null,
+      created_at: now(),
+    };
+    mockRecordings.push(rec);
+    return structuredClone(rec);
+  },
+  async getRecording(id: string): Promise<AutomationRecording> {
+    await delay(40);
+    const rec = mockRecordings.find((x) => x.id === id);
+    if (!rec) throw new ApiError(404, 'recording_not_found', 'Recording not found.');
+    progressRecording(rec);
+    return structuredClone(rec);
+  },
+  async stopRecording(id: string): Promise<AutomationTemplate> {
+    await delay(120);
+    const rec = mockRecordings.find((x) => x.id === id);
+    if (!rec) throw new ApiError(404, 'recording_not_found', 'Recording not found.');
+    progressRecording(rec);
+    rec.status = 'stopped';
+    const steps = sampleSteps().slice(0, Math.max(3, Math.min(6, rec.step_count || 6)));
+    const tpl: AutomationTemplate = {
+      id: newId('tpl'),
+      name: rec.name,
+      description: rec.description,
+      steps,
+      variables: deriveVars(steps),
+      created_at: now(),
+      updated_at: now(),
+    };
+    mockTemplates.push(tpl);
+    rec.template_id = tpl.id;
+    return structuredClone(tpl);
+  },
+  async cancelRecording(id: string): Promise<void> {
+    await delay(60);
+    const rec = mockRecordings.find((x) => x.id === id);
+    if (rec) rec.status = 'cancelled';
+  },
+
+  async startRun(templateId, payload): Promise<AutomationRun> {
+    await delay(140);
+    const tpl = mockTemplates.find((x) => x.id === templateId);
+    if (!tpl) throw new ApiError(404, 'template_not_found', 'Template not found.');
+    if (payload.assignments.length === 0)
+      throw new ApiError(422, 'no_assignments', 'Select at least one profile.');
+    const total = Math.max(3, tpl.steps.length);
+    const items: AutomationRunItem[] = payload.assignments.map((assignment) => {
+      const profile = mockStore.profiles.find((x) => x.id === assignment.profile_id);
+      return {
+        profile_id: assignment.profile_id,
+        profile_name: profile?.name ?? assignment.profile_id,
+        status: 'pending',
+        current_step: 0,
+        total_steps: total,
+        last_completed_step: 0,
+        message: null,
+        attention_reason: null,
+        error: null,
+      };
+    });
+    const run: AutomationRun = {
+      id: newId('run'),
+      template_id: tpl.id,
+      template_name: tpl.name,
+      status: 'running',
+      max_parallel: payload.max_parallel,
+      total: items.length,
+      completed_count: 0,
+      failed_count: 0,
+      attention_count: 0,
+      created_at: now(),
+      started_at: now(),
+      finished_at: null,
+      items,
+    };
+    mockRuns.unshift(run);
+    runSim.set(run.id, {
+      gateProfile: items[0]?.profile_id ?? null,
+      gatePassed: false,
+      failProfile: items.length > 1 ? items[items.length - 1].profile_id : null,
+    });
+    return structuredClone(run);
+  },
+  async getRun(id: string): Promise<AutomationRun> {
+    await delay(40);
+    const run = requireRun(id);
+    progressRun(run);
+    return structuredClone(run);
+  },
+  async cancelRun(id: string): Promise<AutomationRun> {
+    await delay(80);
+    const run = requireRun(id);
+    run.items.forEach((item) => {
+      if (!TERMINAL.includes(item.status)) item.status = 'cancelled';
+    });
+    run.status = 'cancelled';
+    run.finished_at = now();
+    recomputeRun(run);
+    return structuredClone(run);
+  },
+  async continueRunProfile(runId, profileId): Promise<AutomationRun> {
+    await delay(80);
+    const run = requireRun(runId);
+    const sim = runSim.get(runId);
+    if (sim && sim.gateProfile === profileId) sim.gatePassed = true;
+    const item = run.items.find((i) => i.profile_id === profileId);
+    if (item && item.status === 'attention') {
+      item.status = 'running';
+      item.attention_reason = null;
+      item.message = 'Resumed';
+    }
+    recomputeRun(run);
+    return structuredClone(run);
+  },
+  async retryRunProfile(runId, profileId): Promise<AutomationRun> {
+    await delay(80);
+    const run = requireRun(runId);
+    const sim = runSim.get(runId);
+    if (sim && sim.failProfile === profileId) sim.failProfile = null;
+    const item = run.items.find((i) => i.profile_id === profileId);
+    if (item) {
+      item.status = 'running';
+      item.current_step = item.last_completed_step;
+      item.error = null;
+      item.message = 'Retrying';
+    }
+    if (run.status !== 'running') {
+      run.status = 'running';
+      run.finished_at = null;
+    }
+    recomputeRun(run);
+    return structuredClone(run);
+  },
+  async markRunProfileCompleted(runId, profileId): Promise<AutomationRun> {
+    await delay(60);
+    const run = requireRun(runId);
+    const item = run.items.find((i) => i.profile_id === profileId);
+    if (item) {
+      item.status = 'completed';
+      item.current_step = item.total_steps;
+      item.attention_reason = null;
+      item.error = null;
+      item.message = 'Marked completed';
+    }
+    recomputeRun(run);
+    return structuredClone(run);
+  },
+
+  async getCredentialPool(): Promise<CredentialPoolSummary> {
+    await delay(40);
+    return { ...mockPool };
+  },
+  async importCredentials(text: string): Promise<CredentialPoolSummary> {
+    await delay(100);
+    const added = text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.includes(':')).length;
+    mockPool = { ...mockPool, available: mockPool.available + added, total: mockPool.total + added };
+    return { ...mockPool };
+  },
+
+  async listFactoryJobs(): Promise<ProfileFactoryJob[]> {
+    await delay(60);
+    mockFactoryJobs.forEach(progressFactory);
+    return structuredClone(mockFactoryJobs);
+  },
+  async startFactoryJob(payload): Promise<ProfileFactoryJob> {
+    await delay(140);
+    const items: ProfileFactoryItem[] = Array.from({ length: payload.quantity }, () => ({
+      id: newId('fi'),
+      profile_id: null,
+      status: 'pending',
+      message: null,
+    }));
+    const job: ProfileFactoryJob = {
+      id: newId('fac'),
+      status: 'running',
+      quantity: payload.quantity,
+      name_prefix: payload.name_prefix,
+      automation_template_id: payload.automation_template_id ?? null,
+      start_automation: payload.start_automation,
+      created_count: 0,
+      failed_count: 0,
+      items,
+      created_at: now(),
+    };
+    mockFactoryJobs.unshift(job);
+    factoryStart.set(job.id, Date.now());
+    return structuredClone(job);
+  },
+  async getFactoryJob(id: string): Promise<ProfileFactoryJob> {
+    await delay(40);
+    const job = mockFactoryJobs.find((x) => x.id === id);
+    if (!job) throw new ApiError(404, 'factory_not_found', 'Factory job not found.');
+    progressFactory(job);
+    return structuredClone(job);
+  },
+  async cancelFactoryJob(id: string): Promise<ProfileFactoryJob> {
+    await delay(80);
+    const job = mockFactoryJobs.find((x) => x.id === id);
+    if (!job) throw new ApiError(404, 'factory_not_found', 'Factory job not found.');
+    job.items.forEach((item) => {
+      if (item.status === 'pending') item.status = 'cancelled';
+    });
+    job.status = 'cancelled';
+    return structuredClone(job);
   },
 };
