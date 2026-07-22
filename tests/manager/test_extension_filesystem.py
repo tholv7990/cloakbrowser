@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import json
+import stat
 from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
 
@@ -291,3 +292,49 @@ def test_posix_missing_manifest_remains_manifest_read_failure(monkeypatch):
 
     with pytest.raises(ManifestReadFailure):
         SecureManifestFilesystem._read_posix(approved, 1024)
+
+
+def test_posix_manifest_open_is_nonblocking(monkeypatch):
+    approved = ApprovedDirectory(Path("/safe/extension"), device=1, inode=2)
+    opens = []
+
+    def fake_open(path, flags, **kwargs):
+        opens.append((path, flags, kwargs))
+        return 30 + len(opens)
+
+    monkeypatch.setattr(
+        "manager_backend.features.extensions.filesystem.os.O_NOFOLLOW", 0x20000,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "manager_backend.features.extensions.filesystem.os.O_DIRECTORY", 0x10000,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "manager_backend.features.extensions.filesystem.os.O_NONBLOCK", 0x4000,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "manager_backend.features.extensions.filesystem.os.open", fake_open
+    )
+    monkeypatch.setattr(
+        "manager_backend.features.extensions.filesystem.os.close", lambda _fd: None
+    )
+    monkeypatch.setattr(
+        "manager_backend.features.extensions.filesystem.os.fstat",
+        lambda _fd: SimpleNamespace(
+            st_dev=1,
+            st_ino=2,
+            st_mode=stat.S_IFREG if len(opens) == 4 else stat.S_IFDIR,
+            st_size=0,
+        ),
+    )
+    monkeypatch.setattr(
+        "manager_backend.features.extensions.filesystem.os.read", lambda _fd, _size: b""
+    )
+
+    SecureManifestFilesystem._read_posix(approved, 1024)
+
+    manifest_open = opens[-1]
+    assert manifest_open[0] == "manifest.json"
+    assert manifest_open[1] & 0x4000

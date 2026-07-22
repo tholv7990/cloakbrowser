@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
 
 import pytest
 
 from manager_backend.errors import ManagerError
+from manager_backend.features.extensions import service as extension_service
+from manager_backend.features.runtime.launcher import persistent_context_kwargs
 from manager_backend.features.runtime.manager import RuntimeManager
 from manager_backend.models import Profile, RuntimeSession
 
@@ -76,6 +79,151 @@ def _wait_state(session_factory, runtime_id, expected, timeout=3):
             return
         time.sleep(0.01)
     raise AssertionError(f"runtime did not reach {expected}; last state was {state}")
+
+
+def _register_extension(
+    session_factory,
+    settings,
+    profile_id,
+    directory,
+    *,
+    name,
+    enabled=True,
+    assigned=True,
+):
+    directory.mkdir()
+    (directory / "manifest.json").write_text(
+        json.dumps({"manifest_version": 3, "name": name, "version": "1"}),
+        encoding="utf-8",
+    )
+    with session_factory() as session:
+        extension, _created = extension_service.register_extension(
+            session, settings, str(directory)
+        )
+        extension.enabled = enabled
+        if assigned:
+            profile = session.get(Profile, profile_id)
+            profile.extensions.append(extension)
+        session.commit()
+        return extension.id
+
+
+def test_launch_builder_uses_structured_extension_option_not_chromium_arguments():
+    extension_paths = [r"C:\extensions\one;not-a-command", r"C:\extensions\two"]
+    kwargs = persistent_context_kwargs(
+        {
+            "fingerprint_seed": "42",
+            "fingerprint_preset": "consistent",
+            "extension_paths": extension_paths,
+            "args": ["--fingerprint=999", r"--load-extension=C:\unmanaged"],
+        },
+        headless=False,
+    )
+
+    assert kwargs["extension_paths"] == extension_paths
+    assert isinstance(kwargs["extension_paths"], list)
+    assert kwargs["args"] == ["--fingerprint=42"]
+    assert all("load-extension" not in argument for argument in kwargs["args"])
+
+
+def test_start_passes_only_enabled_assigned_extensions_in_deterministic_order(
+    db_session_factory, settings, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(extension_service, "_temporary_roots", lambda: ())
+    launcher = FakeLauncher()
+    manager = RuntimeManager(db_session_factory, settings, launcher=launcher)
+    profile_id = _profile(db_session_factory, "extensions")
+    z_path = tmp_path / "z-extension"
+    a_path = tmp_path / "a-extension"
+    _register_extension(
+        db_session_factory, settings, profile_id, z_path, name="Zulu"
+    )
+    _register_extension(
+        db_session_factory, settings, profile_id, a_path, name="Alpha"
+    )
+    _register_extension(
+        db_session_factory,
+        settings,
+        profile_id,
+        tmp_path / "disabled",
+        name="Disabled",
+        enabled=False,
+    )
+    _register_extension(
+        db_session_factory,
+        settings,
+        profile_id,
+        tmp_path / "unassigned",
+        name="Unassigned",
+        assigned=False,
+    )
+
+    runtime = manager.start(profile_id)
+    _wait_state(db_session_factory, runtime.id, "running")
+
+    assert launcher.snapshots[profile_id]["extension_paths"] == [
+        str(a_path.resolve()),
+        str(z_path.resolve()),
+    ]
+    manager.shutdown()
+
+
+def test_start_omits_extension_unregistered_after_assignment(
+    db_session_factory, settings, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(extension_service, "_temporary_roots", lambda: ())
+    launcher = FakeLauncher()
+    manager = RuntimeManager(db_session_factory, settings, launcher=launcher)
+    profile_id = _profile(db_session_factory, "unregistered-extension")
+    extension_id = _register_extension(
+        db_session_factory,
+        settings,
+        profile_id,
+        tmp_path / "removed",
+        name="Removed",
+    )
+    with db_session_factory() as session:
+        extension_service.unregister_extension(session, extension_id)
+
+    runtime = manager.start(profile_id)
+    _wait_state(db_session_factory, runtime.id, "running")
+
+    assert launcher.snapshots[profile_id]["extension_paths"] == []
+    manager.shutdown()
+
+
+def test_start_revalidates_registered_extension_before_creating_runtime(
+    db_session_factory, settings, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(extension_service, "_temporary_roots", lambda: ())
+    launcher = FakeLauncher()
+    manager = RuntimeManager(db_session_factory, settings, launcher=launcher)
+    profile_id = _profile(db_session_factory, "changed-extension")
+    directory = tmp_path / "changed"
+    _register_extension(
+        db_session_factory, settings, profile_id, directory, name="Original"
+    )
+    (directory / "manifest.json").write_text(
+        json.dumps({"manifest_version": 3, "name": "Changed", "version": "2"}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ManagerError) as caught:
+        manager.start(profile_id)
+
+    assert caught.value.code == "extension_manifest_changed"
+    assert str(directory) not in caught.value.message
+    assert launcher.snapshots == {}
+    with db_session_factory() as session:
+        assert session.query(RuntimeSession).count() == 0
+
+    with db_session_factory() as session:
+        extension = session.query(Profile).filter_by(id=profile_id).one().extensions[0]
+        extension.enabled = False
+        session.commit()
+    runtime = manager.start(profile_id)
+    _wait_state(db_session_factory, runtime.id, "running")
+    manager.shutdown()
 
 
 def test_start_and_stop_keep_launcher_on_worker_thread(db_session_factory, settings):

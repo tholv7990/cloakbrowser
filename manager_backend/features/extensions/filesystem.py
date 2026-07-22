@@ -202,6 +202,7 @@ class SecureManifestFilesystem:
     def _read_posix(approved: ApprovedDirectory, maximum_bytes: int) -> bytes:
         no_follow = getattr(os, "O_NOFOLLOW", None)
         directory_flag = getattr(os, "O_DIRECTORY", None)
+        non_blocking = getattr(os, "O_NONBLOCK", 0)
         if no_follow is None or directory_flag is None:
             raise UnsafeManifestPath
         current_fd: int | None = None
@@ -235,7 +236,9 @@ class SecureManifestFilesystem:
                 raise UnsafeManifestPath
             try:
                 manifest_fd = os.open(
-                    "manifest.json", os.O_RDONLY | no_follow, dir_fd=current_fd
+                    "manifest.json",
+                    os.O_RDONLY | no_follow | non_blocking,
+                    dir_fd=current_fd,
                 )
             except OSError as error:
                 if error.errno in {errno.ELOOP, errno.ENOTDIR}:

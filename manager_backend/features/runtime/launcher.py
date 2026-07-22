@@ -4,9 +4,12 @@ from typing import Any, Protocol
 from datetime import datetime, timezone
 
 import psutil
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from ...config import ManagerSettings
-from ...models import Profile
+from ...models import Extension, Profile, profile_extensions
+from ..extensions.service import validate_registered_extension_path
 
 
 class BrowserHandle(Protocol):
@@ -19,7 +22,37 @@ class BrowserLauncher(Protocol):
     def launch(self, snapshot: dict[str, Any]) -> BrowserHandle: ...
 
 
-def profile_launch_snapshot(profile: Profile, settings: ManagerSettings) -> dict[str, Any]:
+def enabled_profile_extension_paths(
+    session: Session, profile_id: str, settings: ManagerSettings
+) -> list[str]:
+    """Return launch-safe enabled assignments in deterministic path order."""
+
+    extensions = list(
+        session.scalars(
+            select(Extension)
+            .join(
+                profile_extensions,
+                profile_extensions.c.extension_id == Extension.id,
+            )
+            .where(
+                profile_extensions.c.profile_id == profile_id,
+                Extension.enabled.is_(True),
+            )
+        )
+    )
+    paths = [
+        validate_registered_extension_path(settings, extension)
+        for extension in extensions
+    ]
+    return sorted(paths, key=lambda path: (path.casefold(), path))
+
+
+def profile_launch_snapshot(
+    profile: Profile,
+    settings: ManagerSettings,
+    *,
+    extension_paths: list[str] | None = None,
+) -> dict[str, Any]:
     """Build the one canonical Manager launch snapshot for a profile."""
 
     location = profile.location or {}
@@ -38,6 +71,7 @@ def profile_launch_snapshot(profile: Profile, settings: ManagerSettings) -> dict
         "timezone": location.get("timezone"),
         "startup_urls": list(profile.startup_urls or []),
         "proxy_id": profile.proxy_id,
+        "extension_paths": list(extension_paths or []),
     }
 
 
@@ -46,7 +80,7 @@ def persistent_context_kwargs(
 ) -> dict[str, Any]:
     """Translate a Manager snapshot into CloakBrowser persistent-context options."""
 
-    return {
+    kwargs = {
         "headless": headless,
         "fingerprint_preset": snapshot["fingerprint_preset"],
         "args": [f"--fingerprint={snapshot['fingerprint_seed']}"],
@@ -56,6 +90,10 @@ def persistent_context_kwargs(
         "locale": snapshot.get("locale"),
         "timezone": snapshot.get("timezone"),
     }
+    extension_paths = snapshot.get("extension_paths")
+    if extension_paths:
+        kwargs["extension_paths"] = list(extension_paths)
+    return kwargs
 
 
 class _PersistentContextHandle:

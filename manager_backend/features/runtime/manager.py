@@ -12,7 +12,11 @@ from ...config import ManagerSettings
 from ...errors import ManagerError
 from ...models import Profile, RuntimeSession
 from ..profiles.service import get_profile
-from .launcher import CloakPersistentLauncher, profile_launch_snapshot
+from .launcher import (
+    CloakPersistentLauncher,
+    enabled_profile_extension_paths,
+    profile_launch_snapshot,
+)
 from .locks import ProfileFileLock
 from .logs import append_profile_log
 from .service import create_runtime_session
@@ -47,8 +51,13 @@ class RuntimeManager:
         self._workers: dict[str, ProfileWorker] = {}
         self._lock = threading.Lock()
 
-    def _snapshot(self, profile: Profile) -> dict[str, Any]:
-        return profile_launch_snapshot(profile, self._settings)
+    def _snapshot(self, session, profile: Profile) -> dict[str, Any]:
+        extension_paths = enabled_profile_extension_paths(
+            session, profile.id, self._settings
+        )
+        return profile_launch_snapshot(
+            profile, self._settings, extension_paths=extension_paths
+        )
 
     def start(self, profile_id: str) -> RuntimeSession:
         with self._lock:
@@ -62,6 +71,7 @@ class RuntimeManager:
             try:
                 with self._session_factory() as session:
                     profile = get_profile(session, profile_id)
+                    snapshot = self._snapshot(session, profile)
                     runtime = create_runtime_session(session, profile)
                     runtime.manager_instance_id = self._instance_id
                     runtime.manager_pid = self._process_id
@@ -75,7 +85,6 @@ class RuntimeManager:
                         "runtime.start_requested",
                         settings=self._settings,
                     )
-                    snapshot = self._snapshot(profile)
                     runtime_id = runtime.id
             except Exception:
                 profile_lock.release()

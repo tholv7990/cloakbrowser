@@ -365,6 +365,29 @@ def list_extensions(session: Session) -> list[Extension]:
     return list(session.scalars(select(Extension).order_by(Extension.name, Extension.id)))
 
 
+def validate_registered_extension_path(
+    settings: ManagerSettings,
+    extension: Extension,
+    *,
+    filesystem: ManifestFilesystem = DEFAULT_MANIFEST_FILESYSTEM,
+    path_security: PathSecurityAdapter = DEFAULT_PATH_SECURITY,
+) -> str:
+    """Revalidate one registered extension immediately before browser launch."""
+
+    directory, metadata = _read_manifest_metadata(
+        settings, extension.directory, filesystem, path_security
+    )
+    if directory != Path(extension.directory):
+        raise _path_error()
+    if metadata.manifest_hash != extension.manifest_hash:
+        raise ManagerError(
+            "extension_manifest_changed",
+            "A registered extension changed; refresh it before launching.",
+            409,
+        )
+    return str(directory)
+
+
 def register_extension(
     session: Session,
     settings: ManagerSettings,
