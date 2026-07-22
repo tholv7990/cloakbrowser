@@ -42,6 +42,24 @@ profile_tags = Table(
 )
 
 
+profile_extensions = Table(
+    "profile_extensions",
+    Base.metadata,
+    Column(
+        "profile_id",
+        String(36),
+        ForeignKey("profiles.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "extension_id",
+        String(36),
+        ForeignKey("extensions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
+
+
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -207,6 +225,9 @@ class Profile(TimestampMixin, Base):
     runtime_sessions: Mapped[list["RuntimeSession"]] = relationship(
         back_populates="profile", cascade="all, delete-orphan"
     )
+    extensions: Mapped[list["Extension"]] = relationship(
+        secondary=profile_extensions, back_populates="profiles"
+    )
 
     @property
     def runtime_state(self) -> str:
@@ -216,6 +237,32 @@ class Profile(TimestampMixin, Base):
             None,
         )
         return current.state if current is not None else "stopped"
+
+
+class Extension(TimestampMixin, Base):
+    __tablename__ = "extensions"
+    __table_args__ = (
+        CheckConstraint(
+            "manifest_version IN (2, 3)", name="ck_extensions_manifest_version"
+        ),
+        Index("uq_extensions_directory", "directory", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    directory: Mapped[str] = mapped_column(String(2048, collation="NOCASE"), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    version: Mapped[str] = mapped_column(String(64), nullable=False)
+    description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    manifest_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    permissions: Mapped[list[str]] = mapped_column(
+        "permissions_json", JSON, nullable=False, default=list
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    manifest_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    profiles: Mapped[list[Profile]] = relationship(
+        secondary=profile_extensions, back_populates="extensions"
+    )
 
 
 class RuntimeSession(Base):

@@ -52,6 +52,7 @@ def _load_export_profile(session: Session, profile_id: str) -> Profile:
             selectinload(Profile.workflow_status),
             selectinload(Profile.tags),
             selectinload(Profile.proxy),
+            selectinload(Profile.extensions),
         )
         .where(Profile.id == profile_id)
     )
@@ -132,10 +133,26 @@ def export_profile(
     return document
 
 
-def _export_extensions(_source: Profile) -> list[PortableExtension]:
-    # Extension persistence is introduced by the extension-management task. Keeping
-    # this seam here makes v1 documents stable before and after that model exists.
-    return []
+def _export_extensions(source: Profile) -> list[PortableExtension]:
+    extensions = [
+        PortableExtension(
+            name=extension.name,
+            version=extension.version,
+            manifest_version=extension.manifest_version,
+            manifest_hash=extension.manifest_hash,
+        )
+        for extension in source.extensions
+    ]
+    return sorted(
+        extensions,
+        key=lambda item: (
+            _normalized_name(item.name),
+            item.name,
+            item.version,
+            item.manifest_version,
+            item.manifest_hash,
+        ),
+    )
 
 
 def _normalized_name(value: str) -> str:

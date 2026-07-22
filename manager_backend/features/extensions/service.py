@@ -1,0 +1,383 @@
+from __future__ import annotations
+
+import ctypes
+import hashlib
+import json
+import os
+import stat
+import tempfile
+import unicodedata
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from ...config import ManagerSettings
+from ...errors import ManagerError
+from ...models import Extension, Profile
+
+
+MAX_MANIFEST_BYTES = 1024 * 1024
+MAX_PERMISSIONS = 100
+MAX_PERMISSION_LENGTH = 256
+_PERMISSION_FIELDS = (
+    "permissions",
+    "optional_permissions",
+    "host_permissions",
+    "optional_host_permissions",
+)
+_REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+
+@dataclass(frozen=True, slots=True)
+class ManifestMetadata:
+    name: str
+    version: str
+    description: str
+    manifest_version: int
+    permissions: list[str]
+    manifest_hash: str
+
+
+def _path_error() -> ManagerError:
+    return ManagerError(
+        "extension_path_forbidden",
+        "The extension directory is not an allowed local path.",
+        422,
+        {"directory": "forbidden"},
+    )
+
+
+def _manifest_error() -> ManagerError:
+    return ManagerError(
+        "extension_manifest_invalid",
+        "The extension manifest is not a supported Manifest V2 or V3 document.",
+        422,
+        {"manifest": "invalid"},
+    )
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _temporary_roots() -> tuple[Path, ...]:
+    values = [tempfile.gettempdir(), os.environ.get("TEMP"), os.environ.get("TMP")]
+    return tuple(
+        Path(value).resolve(strict=False)
+        for value in dict.fromkeys(value for value in values if value)
+    )
+
+
+def _system_roots() -> tuple[Path, ...]:
+    names = ("SYSTEMROOT", "WINDIR", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMDATA")
+    return tuple(
+        Path(value).resolve(strict=False)
+        for value in dict.fromkeys(os.environ.get(name) for name in names)
+        if value
+    )
+
+
+def _is_network_path(value: str, path: Path) -> bool:
+    normalized = value.replace("/", "\\")
+    if normalized.startswith("\\\\"):
+        return True
+    if os.name != "nt" or not path.drive:
+        return False
+    try:
+        return ctypes.windll.kernel32.GetDriveTypeW(f"{path.drive}\\") == 4
+    except (AttributeError, OSError):
+        return False
+
+
+def _path_has_reparse_component(path: Path) -> bool:
+    absolute = path.absolute()
+    candidates = [absolute, *absolute.parents]
+    for candidate in candidates:
+        try:
+            info = os.lstat(candidate)
+        except OSError:
+            continue
+        attributes = getattr(info, "st_file_attributes", 0)
+        if candidate.is_symlink() or attributes & _REPARSE_POINT:
+            return True
+    return False
+
+
+def _canonical_directory(settings: ManagerSettings, supplied: str) -> Path:
+    if "\0" in supplied:
+        raise _path_error()
+    candidate = Path(supplied).expanduser()
+    if _is_network_path(supplied, candidate):
+        raise _path_error()
+    try:
+        absolute = candidate.absolute()
+        if _path_has_reparse_component(absolute):
+            raise _path_error()
+        resolved = absolute.resolve(strict=True)
+    except (OSError, RuntimeError):
+        raise ManagerError(
+            "extension_directory_not_found",
+            "The extension directory was not found.",
+            422,
+            {"directory": "not_found"},
+        ) from None
+    if not resolved.is_dir():
+        raise ManagerError(
+            "extension_directory_not_found",
+            "The extension directory was not found.",
+            422,
+            {"directory": "not_directory"},
+        )
+    forbidden = (settings.profile_root.resolve(strict=False), *_temporary_roots(), *_system_roots())
+    if any(_is_within(resolved, root) for root in forbidden):
+        raise _path_error()
+    return resolved
+
+
+def _load_json_object(raw: bytes) -> dict[str, Any]:
+    def reject_constant(_value: str):
+        raise ValueError("non-finite number")
+
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate key")
+            result[key] = value
+        return result
+
+    try:
+        value = json.loads(
+            raw.decode("utf-8"),
+            parse_constant=reject_constant,
+            object_pairs_hook=unique_object,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError):
+        raise _manifest_error() from None
+    if not isinstance(value, dict):
+        raise _manifest_error()
+    return value
+
+
+def _bounded_text(value: Any, *, maximum: int, required: bool) -> str:
+    if not isinstance(value, str):
+        raise _manifest_error()
+    normalized = unicodedata.normalize("NFKC", " ".join(value.split()))
+    if required and not normalized:
+        raise _manifest_error()
+    if len(normalized) > maximum:
+        if required:
+            raise _manifest_error()
+        return normalized[:maximum]
+    return normalized
+
+
+def _permission_summary(manifest: dict[str, Any]) -> list[str]:
+    values: set[str] = set()
+    for field in _PERMISSION_FIELDS:
+        raw = manifest.get(field, [])
+        if not isinstance(raw, list):
+            raise _manifest_error()
+        for item in raw:
+            if not isinstance(item, str) or not item or len(item) > MAX_PERMISSION_LENGTH:
+                raise _manifest_error()
+            values.add(item)
+    return sorted(values)[:MAX_PERMISSIONS]
+
+
+def _manifest_metadata(directory: Path) -> ManifestMetadata:
+    manifest_path = directory / "manifest.json"
+    try:
+        if _path_has_reparse_component(manifest_path):
+            raise _path_error()
+        before = manifest_path.stat()
+        if not stat.S_ISREG(before.st_mode):
+            raise _manifest_error()
+        if before.st_size > MAX_MANIFEST_BYTES:
+            raise ManagerError(
+                "extension_manifest_too_large",
+                "The extension manifest exceeds the 1 MiB limit.",
+                413,
+                {"manifest": "too_large"},
+            )
+        raw = manifest_path.read_bytes()
+        after = manifest_path.stat()
+    except ManagerError:
+        raise
+    except OSError:
+        raise _manifest_error() from None
+    if before.st_ino != after.st_ino or before.st_size != after.st_size:
+        raise _manifest_error()
+    if len(raw) > MAX_MANIFEST_BYTES:
+        raise ManagerError(
+            "extension_manifest_too_large",
+            "The extension manifest exceeds the 1 MiB limit.",
+            413,
+            {"manifest": "too_large"},
+        )
+    manifest = _load_json_object(raw)
+    manifest_version = manifest.get("manifest_version")
+    if type(manifest_version) is not int or manifest_version not in (2, 3):
+        raise _manifest_error()
+    name = _bounded_text(manifest.get("name"), maximum=160, required=True)
+    version = _bounded_text(manifest.get("version"), maximum=64, required=True)
+    description_value = manifest.get("description", "")
+    description = _bounded_text(description_value, maximum=500, required=False)
+    try:
+        canonical = json.dumps(
+            manifest,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError):
+        raise _manifest_error() from None
+    return ManifestMetadata(
+        name=name,
+        version=version,
+        description=description,
+        manifest_version=manifest_version,
+        permissions=_permission_summary(manifest),
+        manifest_hash=hashlib.sha256(canonical).hexdigest(),
+    )
+
+
+def _apply_metadata(extension: Extension, metadata: ManifestMetadata) -> None:
+    extension.name = metadata.name
+    extension.version = metadata.version
+    extension.description = metadata.description
+    extension.manifest_version = metadata.manifest_version
+    extension.permissions = metadata.permissions
+    extension.manifest_hash = metadata.manifest_hash
+
+
+def get_extension(session: Session, extension_id: str) -> Extension:
+    extension = session.get(Extension, extension_id)
+    if extension is None:
+        raise ManagerError(
+            "extension_not_found", "The requested extension was not found.", 404
+        )
+    return extension
+
+
+def list_extensions(session: Session) -> list[Extension]:
+    return list(session.scalars(select(Extension).order_by(Extension.name, Extension.id)))
+
+
+def register_extension(
+    session: Session, settings: ManagerSettings, supplied: str
+) -> tuple[Extension, bool]:
+    directory = _canonical_directory(settings, supplied)
+    metadata = _manifest_metadata(directory)
+    normalized = str(directory)
+    existing = session.scalar(select(Extension).where(Extension.directory == normalized))
+    if existing is not None:
+        if existing.manifest_hash != metadata.manifest_hash:
+            raise ManagerError(
+                "extension_manifest_changed",
+                "The registered manifest changed; refresh the extension metadata.",
+                409,
+            )
+        return existing, False
+    extension = Extension(directory=normalized)
+    _apply_metadata(extension, metadata)
+    session.add(extension)
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        existing = session.scalar(select(Extension).where(Extension.directory == normalized))
+        if existing is not None and existing.manifest_hash == metadata.manifest_hash:
+            return existing, False
+        raise ManagerError(
+            "extension_manifest_changed",
+            "The extension directory is already registered with different metadata.",
+            409,
+        ) from None
+    session.refresh(extension)
+    return extension, True
+
+
+def update_extension(
+    session: Session,
+    settings: ManagerSettings,
+    extension_id: str,
+    *,
+    enabled: bool | None,
+    refresh: bool,
+) -> Extension:
+    extension = get_extension(session, extension_id)
+    if refresh:
+        directory = _canonical_directory(settings, extension.directory)
+        _apply_metadata(extension, _manifest_metadata(directory))
+    if enabled is not None:
+        extension.enabled = enabled
+    session.commit()
+    session.refresh(extension)
+    return extension
+
+
+def unregister_extension(session: Session, extension_id: str) -> None:
+    extension = get_extension(session, extension_id)
+    session.delete(extension)
+    session.commit()
+
+
+def set_profile_extensions(
+    session: Session, profile_id: str, ids: list[str]
+) -> list[Extension]:
+    profile = session.get(Profile, profile_id)
+    if profile is None or profile.deleted_at is not None:
+        raise ManagerError("profile_not_found", "The requested profile was not found.", 404)
+    unique_ids = list(dict.fromkeys(ids))
+    extensions = (
+        list(session.scalars(select(Extension).where(Extension.id.in_(unique_ids))))
+        if unique_ids
+        else []
+    )
+    if len(extensions) != len(unique_ids):
+        raise ManagerError(
+            "invalid_extension_reference",
+            "One or more extension references do not exist.",
+            422,
+            {"extension_ids": "contains_unknown_id"},
+        )
+    by_id = {extension.id: extension for extension in extensions}
+    ordered = [by_id[extension_id] for extension_id in unique_ids]
+    profile.extensions = ordered
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise ManagerError(
+            "invalid_extension_reference",
+            "One or more extension references changed during assignment.",
+            422,
+            {"extension_ids": "changed_during_update"},
+        ) from None
+    return ordered
+
+
+def extension_to_dict(extension: Extension) -> dict[str, Any]:
+    return {
+        "id": extension.id,
+        "directory": extension.directory,
+        "name": extension.name,
+        "version": extension.version,
+        "description": extension.description,
+        "manifest_version": extension.manifest_version,
+        "permissions": extension.permissions,
+        "enabled": extension.enabled,
+        "manifest_hash": extension.manifest_hash,
+        "created_at": extension.created_at,
+        "updated_at": extension.updated_at,
+    }
