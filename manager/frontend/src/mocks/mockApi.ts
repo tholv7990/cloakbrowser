@@ -3,12 +3,36 @@ import type {
   AppBootstrap,
   AppVersion,
   AuthStatus,
+  AiImageSettings,
+  AutomationRecording,
+  AutomationRun,
+  AutomationRunItem,
+  AutomationStep,
+  AutomationTemplate,
+  BackupArchive,
+  BuildPlan,
   BulkProfileRequest,
   BulkProfileResult,
   ChangePasswordRequest,
   CookieImportPayload,
   CookieImportResult,
+  CredentialPoolSummary,
   DiagnosticRun,
+  MediaAsset,
+  MediaSettings,
+  PlanStep,
+  ProductCatalog,
+  ProductCsvInspection,
+  ProductRow,
+  ProfileFactoryItem,
+  ProfileFactoryJob,
+  RuntimeSessionRecord,
+  SessionExitReason,
+  ShopifyStore,
+  StoreCapabilityKey,
+  StoreProfile,
+  ThemeInfo,
+  ThemeLibrary,
   EmailPasswordRequest,
   Folder,
   OwnerSession,
@@ -24,6 +48,7 @@ import type {
   ProxyQuickTest,
   ProxyScheme,
   ProxyWritePayload,
+  ResourceSnapshot,
   RuntimeState,
   Settings,
 } from '@/types/api';
@@ -43,6 +68,234 @@ import { mockStore, newId } from './store';
 const now = () => new Date().toISOString();
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const randomSeed = () => String(Math.floor(Math.random() * 2 ** 32));
+
+// --- Automation mock state + time-based live simulation ----------------------
+function sampleSteps(): AutomationStep[] {
+  return [
+    { type: 'goto', url: 'https://example.com/signup', url_pattern: 'https://example.com/signup' },
+    { type: 'fill', selectors: [{ id: 'email', name: 'email' }], variable: 'email' },
+    { type: 'fill', selectors: [{ id: 'password', name: 'password' }], variable: 'password' },
+    {
+      type: 'click',
+      selectors: [{ role: 'button', accessible_name: 'Create account' }],
+      success_url_pattern: 'https://example.com/welcome',
+    },
+    { type: 'wait_url', url_pattern: 'https://example.com/welcome' },
+    { type: 'click', selectors: [{ text: 'Continue' }] },
+  ];
+}
+function deriveVars(steps: AutomationStep[]): string[] {
+  const set = new Set<string>();
+  for (const step of steps) if (step.variable) set.add(step.variable);
+  return [...set];
+}
+
+const mockTemplates: AutomationTemplate[] = [
+  {
+    id: 'tpl_demo_signup',
+    name: 'Marketplace sign-up',
+    description: 'Create an account and confirm the welcome page.',
+    steps: sampleSteps(),
+    variables: ['email', 'password'],
+    created_at: now(),
+    updated_at: now(),
+  },
+];
+const mockRecordings: AutomationRecording[] = [];
+const mockRuns: AutomationRun[] = [];
+const mockFactoryJobs: ProfileFactoryJob[] = [];
+let mockPool: CredentialPoolSummary = { available: 4, reserved: 0, used: 0, failed: 0, total: 4 };
+
+/** gateProfile stalls at the midpoint until continued; failProfile fails at the end until retried. */
+const runSim = new Map<
+  string,
+  { gateProfile: string | null; gatePassed: boolean; failProfile: string | null }
+>();
+const factoryStart = new Map<string, number>();
+const TERMINAL: AutomationRunItem['status'][] = ['completed', 'failed', 'cancelled'];
+
+function progressRecording(rec: AutomationRecording): void {
+  if (rec.status !== 'recording') return;
+  const elapsed = Date.now() - Date.parse(rec.created_at);
+  rec.step_count = Math.min(8, Math.max(rec.step_count, Math.floor(elapsed / 1200)));
+}
+function recomputeRun(run: AutomationRun): void {
+  run.completed_count = run.items.filter((i) => i.status === 'completed').length;
+  run.failed_count = run.items.filter((i) => i.status === 'failed').length;
+  run.attention_count = run.items.filter((i) => i.status === 'attention').length;
+  const active = run.items.some((i) => !TERMINAL.includes(i.status));
+  if (!active && run.status === 'running') {
+    run.status = run.failed_count > 0 && run.completed_count === 0 ? 'failed' : 'completed';
+    run.finished_at = now();
+  }
+}
+function progressRun(run: AutomationRun): void {
+  if (run.status !== 'running') return;
+  const sim = runSim.get(run.id);
+  const gateStep = Math.ceil((run.items[0]?.total_steps ?? 6) / 2);
+  for (const item of run.items) {
+    if (TERMINAL.includes(item.status) || item.status === 'attention') continue;
+    if (item.status === 'pending') item.status = 'running';
+    if (sim && item.profile_id === sim.gateProfile && !sim.gatePassed && item.current_step >= gateStep) {
+      item.status = 'attention';
+      item.attention_reason = 'CAPTCHA detected';
+      item.message = 'Waiting for you to solve the challenge';
+      continue;
+    }
+    item.current_step = Math.min(item.total_steps, item.current_step + 1);
+    item.last_completed_step = item.current_step;
+    if (item.current_step >= item.total_steps) {
+      if (sim && item.profile_id === sim.failProfile) {
+        item.status = 'failed';
+        item.error = 'Selector not found: button[name="submit"]';
+        item.message = 'Final step failed';
+      } else {
+        item.status = 'completed';
+        item.message = 'Completed';
+      }
+    }
+  }
+  recomputeRun(run);
+}
+function progressFactory(job: ProfileFactoryJob): void {
+  if (job.status !== 'running') return;
+  const start = factoryStart.get(job.id) ?? Date.parse(job.created_at);
+  const target = Math.min(job.quantity, Math.floor((Date.now() - start) / 1500));
+  for (let i = 0; i < target; i += 1) {
+    const item = job.items[i];
+    if (item && item.status === 'pending') {
+      item.profile_id = newId('prof');
+      item.status = job.start_automation ? 'Setup complete' : 'Ready';
+      job.created_count += 1;
+    }
+  }
+  if (job.created_count >= job.quantity) job.status = 'completed';
+}
+function requireRun(id: string): AutomationRun {
+  const run = mockRuns.find((x) => x.id === id);
+  if (!run) throw new ApiError(404, 'run_not_found', 'Automation run not found.');
+  return run;
+}
+
+// --- Shopify Builder mock state + draft-build simulation ---------------------
+const PLAN_STEP_KEYS = [
+  'product_csv',
+  'analysis',
+  'identity',
+  'content',
+  'policies',
+  'navigation',
+  'preset',
+  'design',
+  'theme',
+] as const;
+const CAP_FOR_STEP: Partial<Record<(typeof PLAN_STEP_KEYS)[number], StoreCapabilityKey>> = {
+  product_csv: 'write_products',
+  content: 'write_pages',
+  policies: 'write_legal_policies',
+  navigation: 'write_navigation',
+  design: 'write_themes',
+  theme: 'write_themes',
+};
+const mockThemes: ThemeLibrary = {
+  integrated: [
+    { id: 'thm_dawn', name: 'Dawn', role: 'demo', presets: ['Default', 'Bright', 'Studio'] },
+    { id: 'thm_horizon', name: 'Horizon', role: 'demo', presets: ['Default', 'Bold'] },
+  ],
+  store: [{ id: 'thm_main', name: 'Live theme', role: 'main', presets: ['Default'] }],
+};
+const mockCatalogs: ProductCatalog[] = [
+  { id: 'cat_vst', name: 'VST plugins', niche: 'audio-software', product_count: 24 },
+  { id: 'cat_moto', name: 'Motorsport gear', niche: 'motorsport', product_count: 40 },
+  { id: 'cat_home', name: 'Home & living', niche: 'home', product_count: 60 },
+];
+const mockStores: ShopifyStore[] = [];
+const mockPlans: BuildPlan[] = [];
+let mockAi: AiImageSettings = {
+  enabled: false,
+  provider: 'openai',
+  model: 'gpt-image-2',
+  has_api_key: false,
+};
+const planStart = new Map<string, number>();
+const storeProfiles = new Map<string, StoreProfile>();
+
+function capsFromScopes(scopes: string[]): Record<StoreCapabilityKey, boolean> {
+  const has = (scope: string) => scopes.includes(scope);
+  return {
+    write_products: has('write_products'),
+    write_pages: has('write_content'),
+    write_legal_policies: has('write_legal_policies') || has('write_content'),
+    write_navigation: has('write_navigation') || has('write_content'),
+    write_themes: has('write_themes'),
+  };
+}
+function requireStore(id: string): ShopifyStore {
+  const store = mockStores.find((x) => x.id === id);
+  if (!store) throw new ApiError(404, 'store_not_found', 'Store not found.');
+  return store;
+}
+function requirePlan(planId: string): BuildPlan {
+  const plan = mockPlans.find((x) => x.id === planId);
+  if (!plan) throw new ApiError(404, 'plan_not_found', 'Build plan not found.');
+  return plan;
+}
+function themeById(id: string): ThemeInfo | undefined {
+  return [...mockThemes.integrated, ...mockThemes.store].find((t) => t.id === id);
+}
+function progressPlan(plan: BuildPlan): void {
+  if (plan.status !== 'running') return;
+  const start = planStart.get(plan.id) ?? Date.parse(plan.created_at);
+  const done = Math.floor((Date.now() - start) / 800);
+  const runnable = plan.steps.filter((s) => s.status !== 'blocked');
+  runnable.forEach((step, index) => {
+    if (index < done) step.status = 'completed';
+    else if (index === done) step.status = 'running';
+    else step.status = 'ready';
+  });
+  if (done >= runnable.length) {
+    const blocked = plan.steps.some((s) => s.status === 'blocked');
+    plan.status = blocked ? 'partial' : 'completed';
+    const domain = mockStores.find((s) => s.id === plan.store_id)?.shop_domain ?? 'example.myshopify.com';
+    plan.admin_url = `https://${domain}/admin/themes`;
+    plan.preview_url = `https://${domain}?preview_theme_id=99001`;
+  }
+}
+
+// --- Session history / backups / media mock state ----------------------------
+const EXIT_REASONS: SessionExitReason[] = ['closed', 'stopped', 'crashed', 'timeout'];
+const mockSessions: RuntimeSessionRecord[] = [];
+const mockBackups: BackupArchive[] = [
+  {
+    id: 'bkp_seed',
+    created_at: now(),
+    size_bytes: 2_400_000,
+    automatic: true,
+    verified: true,
+    contents: ['profiles', 'proxies', 'workspaces', 'extensions'],
+  },
+];
+let mockMediaSettings: MediaSettings = { enabled: false };
+const mockMediaAssets: MediaAsset[] = [
+  {
+    id: 'media_cam1',
+    name: 'Office webcam',
+    kind: 'camera',
+    format: 'video/mp4',
+    size_bytes: 5_800_000,
+    assigned_profile_count: 2,
+    created_at: now(),
+  },
+  {
+    id: 'media_still',
+    name: 'Portrait still',
+    kind: 'camera',
+    format: 'image/jpeg',
+    size_bytes: 240_000,
+    assigned_profile_count: 0,
+    created_at: now(),
+  },
+];
 
 function makeSession(): OwnerSession {
   return { email: mockStore.owner.email ?? ownerEmail, csrf_token: 'mock-csrf-token' };
@@ -302,6 +555,9 @@ export const mockApi: ApiAdapter = {
         browser_runtime: true,
         fingerprint_diagnostics: true,
         settings: true,
+        automation: true,
+        shopify_builder: true,
+        media: true,
       },
     };
   },
@@ -868,5 +1124,572 @@ export const mockApi: ApiAdapter = {
   async checkBrowserUpdate(): Promise<Settings> {
     await delay(80);
     return structuredClone(mockStore.settings);
+  },
+
+  async getResources(): Promise<ResourceSnapshot> {
+    await delay(60);
+    const running = mockStore.profiles.filter(
+      (p) => !p.deleted_at && ['running', 'starting', 'stopping'].includes(p.runtime_state),
+    );
+    const profiles = running
+      .map((p) => ({
+        profile_id: p.id,
+        profile_name: p.name,
+        runtime_state: p.runtime_state,
+        cpu_percent: Math.round(Math.random() * 180) / 10,
+        memory_bytes: Math.round(180e6 + Math.random() * 420e6),
+        process_count: 4 + Math.floor(Math.random() * 6),
+      }))
+      .sort((a, b) => b.cpu_percent - a.cpu_percent || b.memory_bytes - a.memory_bytes);
+    const browsersMem = profiles.reduce((sum, r) => sum + r.memory_bytes, 0);
+    const browsersCpu = Math.round(profiles.reduce((sum, r) => sum + r.cpu_percent, 0) * 10) / 10;
+    const browsersProc = profiles.reduce((sum, r) => sum + r.process_count, 0);
+    const totalMem = 16 * 1024 ** 3;
+    const usedMem = 6 * 1024 ** 3 + browsersMem;
+    return {
+      generated_at: new Date().toISOString(),
+      system: {
+        cpu_percent: Math.round((10 + Math.random() * 30) * 10) / 10,
+        memory_percent: Math.round((usedMem / totalMem) * 1000) / 10,
+        memory_used_bytes: usedMem,
+        memory_total_bytes: totalMem,
+        logical_cpus: 12,
+      },
+      backend: {
+        cpu_percent: Math.round(Math.random() * 30) / 10,
+        memory_bytes: Math.round(120e6 + Math.random() * 40e6),
+        process_count: 1,
+      },
+      browsers: {
+        cpu_percent: browsersCpu,
+        memory_bytes: browsersMem,
+        process_count: browsersProc,
+        profiles_running: profiles.length,
+      },
+      profiles,
+    };
+  },
+
+  async listTemplates(): Promise<AutomationTemplate[]> {
+    await delay(60);
+    return structuredClone(mockTemplates);
+  },
+  async getTemplate(id: string): Promise<AutomationTemplate> {
+    await delay(40);
+    const tpl = mockTemplates.find((x) => x.id === id);
+    if (!tpl) throw new ApiError(404, 'template_not_found', 'Template not found.');
+    return structuredClone(tpl);
+  },
+  async saveTemplate(id, payload): Promise<AutomationTemplate> {
+    await delay(80);
+    const variables = deriveVars(payload.steps);
+    const existing = mockTemplates.find((x) => x.id === id);
+    if (existing) {
+      Object.assign(existing, { ...payload, variables, updated_at: now() });
+      return structuredClone(existing);
+    }
+    const created: AutomationTemplate = {
+      id,
+      ...payload,
+      variables,
+      created_at: now(),
+      updated_at: now(),
+    };
+    mockTemplates.push(created);
+    return structuredClone(created);
+  },
+  async deleteTemplate(id: string): Promise<void> {
+    await delay(60);
+    const index = mockTemplates.findIndex((x) => x.id === id);
+    if (index >= 0) mockTemplates.splice(index, 1);
+  },
+
+  async startRecording(payload): Promise<AutomationRecording> {
+    await delay(120);
+    const rec: AutomationRecording = {
+      id: newId('rec'),
+      name: payload.name,
+      description: payload.description,
+      profile_id: payload.profile_id,
+      status: 'recording',
+      step_count: 0,
+      template_id: null,
+      created_at: now(),
+    };
+    mockRecordings.push(rec);
+    return structuredClone(rec);
+  },
+  async getRecording(id: string): Promise<AutomationRecording> {
+    await delay(40);
+    const rec = mockRecordings.find((x) => x.id === id);
+    if (!rec) throw new ApiError(404, 'recording_not_found', 'Recording not found.');
+    progressRecording(rec);
+    return structuredClone(rec);
+  },
+  async stopRecording(id: string): Promise<AutomationTemplate> {
+    await delay(120);
+    const rec = mockRecordings.find((x) => x.id === id);
+    if (!rec) throw new ApiError(404, 'recording_not_found', 'Recording not found.');
+    progressRecording(rec);
+    rec.status = 'stopped';
+    const steps = sampleSteps().slice(0, Math.max(3, Math.min(6, rec.step_count || 6)));
+    const tpl: AutomationTemplate = {
+      id: newId('tpl'),
+      name: rec.name,
+      description: rec.description,
+      steps,
+      variables: deriveVars(steps),
+      created_at: now(),
+      updated_at: now(),
+    };
+    mockTemplates.push(tpl);
+    rec.template_id = tpl.id;
+    return structuredClone(tpl);
+  },
+  async cancelRecording(id: string): Promise<void> {
+    await delay(60);
+    const rec = mockRecordings.find((x) => x.id === id);
+    if (rec) rec.status = 'cancelled';
+  },
+
+  async startRun(templateId, payload): Promise<AutomationRun> {
+    await delay(140);
+    const tpl = mockTemplates.find((x) => x.id === templateId);
+    if (!tpl) throw new ApiError(404, 'template_not_found', 'Template not found.');
+    if (payload.assignments.length === 0)
+      throw new ApiError(422, 'no_assignments', 'Select at least one profile.');
+    const total = Math.max(3, tpl.steps.length);
+    const items: AutomationRunItem[] = payload.assignments.map((assignment) => {
+      const profile = mockStore.profiles.find((x) => x.id === assignment.profile_id);
+      return {
+        profile_id: assignment.profile_id,
+        profile_name: profile?.name ?? assignment.profile_id,
+        status: 'pending',
+        current_step: 0,
+        total_steps: total,
+        last_completed_step: 0,
+        message: null,
+        attention_reason: null,
+        error: null,
+      };
+    });
+    const run: AutomationRun = {
+      id: newId('run'),
+      template_id: tpl.id,
+      template_name: tpl.name,
+      status: 'running',
+      max_parallel: payload.max_parallel,
+      total: items.length,
+      completed_count: 0,
+      failed_count: 0,
+      attention_count: 0,
+      created_at: now(),
+      started_at: now(),
+      finished_at: null,
+      items,
+    };
+    mockRuns.unshift(run);
+    runSim.set(run.id, {
+      gateProfile: items[0]?.profile_id ?? null,
+      gatePassed: false,
+      failProfile: items.length > 1 ? items[items.length - 1].profile_id : null,
+    });
+    return structuredClone(run);
+  },
+  async getRun(id: string): Promise<AutomationRun> {
+    await delay(40);
+    const run = requireRun(id);
+    progressRun(run);
+    return structuredClone(run);
+  },
+  async cancelRun(id: string): Promise<AutomationRun> {
+    await delay(80);
+    const run = requireRun(id);
+    run.items.forEach((item) => {
+      if (!TERMINAL.includes(item.status)) item.status = 'cancelled';
+    });
+    run.status = 'cancelled';
+    run.finished_at = now();
+    recomputeRun(run);
+    return structuredClone(run);
+  },
+  async continueRunProfile(runId, profileId): Promise<AutomationRun> {
+    await delay(80);
+    const run = requireRun(runId);
+    const sim = runSim.get(runId);
+    if (sim && sim.gateProfile === profileId) sim.gatePassed = true;
+    const item = run.items.find((i) => i.profile_id === profileId);
+    if (item && item.status === 'attention') {
+      item.status = 'running';
+      item.attention_reason = null;
+      item.message = 'Resumed';
+    }
+    recomputeRun(run);
+    return structuredClone(run);
+  },
+  async retryRunProfile(runId, profileId): Promise<AutomationRun> {
+    await delay(80);
+    const run = requireRun(runId);
+    const sim = runSim.get(runId);
+    if (sim && sim.failProfile === profileId) sim.failProfile = null;
+    const item = run.items.find((i) => i.profile_id === profileId);
+    if (item) {
+      item.status = 'running';
+      item.current_step = item.last_completed_step;
+      item.error = null;
+      item.message = 'Retrying';
+    }
+    if (run.status !== 'running') {
+      run.status = 'running';
+      run.finished_at = null;
+    }
+    recomputeRun(run);
+    return structuredClone(run);
+  },
+  async markRunProfileCompleted(runId, profileId): Promise<AutomationRun> {
+    await delay(60);
+    const run = requireRun(runId);
+    const item = run.items.find((i) => i.profile_id === profileId);
+    if (item) {
+      item.status = 'completed';
+      item.current_step = item.total_steps;
+      item.attention_reason = null;
+      item.error = null;
+      item.message = 'Marked completed';
+    }
+    recomputeRun(run);
+    return structuredClone(run);
+  },
+
+  async getCredentialPool(): Promise<CredentialPoolSummary> {
+    await delay(40);
+    return { ...mockPool };
+  },
+  async importCredentials(text: string): Promise<CredentialPoolSummary> {
+    await delay(100);
+    const added = text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.includes(':')).length;
+    mockPool = { ...mockPool, available: mockPool.available + added, total: mockPool.total + added };
+    return { ...mockPool };
+  },
+
+  async listFactoryJobs(): Promise<ProfileFactoryJob[]> {
+    await delay(60);
+    mockFactoryJobs.forEach(progressFactory);
+    return structuredClone(mockFactoryJobs);
+  },
+  async startFactoryJob(payload): Promise<ProfileFactoryJob> {
+    await delay(140);
+    const items: ProfileFactoryItem[] = Array.from({ length: payload.quantity }, () => ({
+      id: newId('fi'),
+      profile_id: null,
+      status: 'pending',
+      message: null,
+    }));
+    const job: ProfileFactoryJob = {
+      id: newId('fac'),
+      status: 'running',
+      quantity: payload.quantity,
+      name_prefix: payload.name_prefix,
+      automation_template_id: payload.automation_template_id ?? null,
+      start_automation: payload.start_automation,
+      created_count: 0,
+      failed_count: 0,
+      items,
+      created_at: now(),
+    };
+    mockFactoryJobs.unshift(job);
+    factoryStart.set(job.id, Date.now());
+    return structuredClone(job);
+  },
+  async getFactoryJob(id: string): Promise<ProfileFactoryJob> {
+    await delay(40);
+    const job = mockFactoryJobs.find((x) => x.id === id);
+    if (!job) throw new ApiError(404, 'factory_not_found', 'Factory job not found.');
+    progressFactory(job);
+    return structuredClone(job);
+  },
+  async cancelFactoryJob(id: string): Promise<ProfileFactoryJob> {
+    await delay(80);
+    const job = mockFactoryJobs.find((x) => x.id === id);
+    if (!job) throw new ApiError(404, 'factory_not_found', 'Factory job not found.');
+    job.items.forEach((item) => {
+      if (item.status === 'pending') item.status = 'cancelled';
+    });
+    job.status = 'cancelled';
+    return structuredClone(job);
+  },
+
+  async listStores(): Promise<ShopifyStore[]> {
+    await delay(60);
+    return structuredClone(mockStores);
+  },
+  async connectStore(payload): Promise<ShopifyStore> {
+    await delay(220);
+    if (!payload.shop_domain.trim() || !payload.client_id.trim())
+      throw new ApiError(422, 'invalid_store', 'A shop domain and client ID are required.');
+    const domain = payload.shop_domain.trim().replace(/^https?:\/\//, '');
+    const scopes = [
+      'read_products',
+      'write_products',
+      'write_content',
+      'write_themes',
+      'write_navigation',
+    ];
+    const store: ShopifyStore = {
+      id: newId('store'),
+      label: payload.label.trim() || domain,
+      shop_domain: domain,
+      connected: true,
+      scopes,
+      capabilities: capsFromScopes(scopes),
+      shop_name: payload.label.trim() || domain.split('.')[0],
+      product_count: 12 + Math.floor(Math.random() * 40),
+      proxy_id: payload.proxy_id ?? null,
+      exit_ip: payload.proxy_id ? `203.0.113.${10 + Math.floor(Math.random() * 200)}` : null,
+      niche: null,
+      language: null,
+      created_at: now(),
+      updated_at: now(),
+    };
+    mockStores.unshift(store);
+    storeProfiles.set(store.id, {
+      niche: null,
+      language: null,
+      store_name: store.shop_name ?? domain,
+      support_email: `support@${domain}`,
+    });
+    return structuredClone(store);
+  },
+  async inspectStore(id: string): Promise<ShopifyStore> {
+    await delay(200);
+    const store = requireStore(id);
+    store.niche = mockCatalogs[Math.floor(Math.random() * mockCatalogs.length)].niche;
+    store.language = 'en';
+    store.product_count = store.product_count ?? 12;
+    store.updated_at = now();
+    const profile = storeProfiles.get(id);
+    if (profile) {
+      profile.niche = store.niche;
+      profile.language = store.language;
+    }
+    return structuredClone(store);
+  },
+  async setStoreNetworkRoute(id, proxyId): Promise<ShopifyStore> {
+    await delay(120);
+    const store = requireStore(id);
+    store.proxy_id = proxyId;
+    store.exit_ip = proxyId ? `203.0.113.${10 + Math.floor(Math.random() * 200)}` : null;
+    store.updated_at = now();
+    return structuredClone(store);
+  },
+  async deleteStore(id: string): Promise<void> {
+    await delay(80);
+    const index = mockStores.findIndex((x) => x.id === id);
+    if (index >= 0) mockStores.splice(index, 1);
+    storeProfiles.delete(id);
+  },
+  async getStoreProfile(id: string): Promise<StoreProfile> {
+    await delay(40);
+    const profile = storeProfiles.get(id);
+    if (!profile) throw new ApiError(404, 'store_not_found', 'Store not found.');
+    return { ...profile };
+  },
+  async updateStoreProfile(id, patch): Promise<StoreProfile> {
+    await delay(100);
+    const profile = storeProfiles.get(id);
+    if (!profile) throw new ApiError(404, 'store_not_found', 'Store not found.');
+    const next = { ...profile, ...patch };
+    storeProfiles.set(id, next);
+    const store = requireStore(id);
+    if (patch.niche !== undefined) store.niche = patch.niche;
+    if (patch.language !== undefined) store.language = patch.language;
+    if (patch.store_name !== undefined) store.shop_name = patch.store_name;
+    return { ...next };
+  },
+
+  async getAiSettings(): Promise<AiImageSettings> {
+    await delay(40);
+    return { ...mockAi };
+  },
+  async updateAiSettings(patch): Promise<AiImageSettings> {
+    await delay(100);
+    const { api_key, ...rest } = patch;
+    mockAi = { ...mockAi, ...rest, has_api_key: api_key ? true : mockAi.has_api_key };
+    return { ...mockAi };
+  },
+
+  async getThemeLibrary(): Promise<ThemeLibrary> {
+    await delay(80);
+    return structuredClone(mockThemes);
+  },
+  async inspectProductCsv(_storeId, content): Promise<ProductCsvInspection> {
+    await delay(160);
+    const rows = content
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(1);
+    const sample: ProductRow[] = rows.slice(0, 5).map((line, index) => {
+      const cols = line.split(',');
+      return {
+        handle: (cols[0] || `product-${index + 1}`).toLowerCase().replace(/\s+/g, '-'),
+        title: cols[1] || cols[0] || `Product ${index + 1}`,
+        price: cols[2] || '19.00',
+        variants: 1 + (index % 3),
+      };
+    });
+    return {
+      total: rows.length,
+      sample,
+      columns_mapped: ['Handle', 'Title', 'Variant Price', 'Image Src'],
+      columns_unmapped: [],
+    };
+  },
+  async listCatalogs(): Promise<ProductCatalog[]> {
+    await delay(60);
+    return structuredClone(mockCatalogs);
+  },
+
+  async createBuildPlan(storeId, payload): Promise<BuildPlan> {
+    await delay(220);
+    const store = requireStore(storeId);
+    const theme = themeById(payload.theme_id);
+    const catalog =
+      payload.product_source === 'catalog'
+        ? mockCatalogs.find((c) => c.id === payload.catalog_id)
+        : undefined;
+    const steps: PlanStep[] = PLAN_STEP_KEYS.map((key) => {
+      const cap = CAP_FOR_STEP[key];
+      const blocked = cap ? !store.capabilities[cap] : false;
+      return {
+        key,
+        status: blocked ? 'blocked' : 'ready',
+        reason: blocked ? `Missing scope for ${key.replace(/_/g, ' ')}` : null,
+        error: null,
+      };
+    });
+    const plan: BuildPlan = {
+      id: newId('plan'),
+      store_id: storeId,
+      status: 'staged',
+      mode: 'draft_only',
+      niche: payload.niche_override || catalog?.niche || store.niche || 'General store',
+      language: store.language || 'en',
+      theme_name: theme?.name ?? 'Dawn',
+      preset: payload.preset,
+      product_count: catalog?.product_count ?? store.product_count ?? 0,
+      ai_hero: payload.ai_hero && mockAi.enabled,
+      steps,
+      admin_url: null,
+      preview_url: null,
+      created_at: now(),
+    };
+    mockPlans.unshift(plan);
+    return structuredClone(plan);
+  },
+  async getBuildPlan(_storeId, planId): Promise<BuildPlan> {
+    await delay(40);
+    const plan = requirePlan(planId);
+    progressPlan(plan);
+    return structuredClone(plan);
+  },
+  async executeBuildPlan(_storeId, planId, confirm): Promise<BuildPlan> {
+    await delay(160);
+    const plan = requirePlan(planId);
+    if (!confirm) throw new ApiError(422, 'confirm_required', 'Execution must be confirmed.');
+    if (plan.status === 'staged' || plan.status === 'failed') {
+      plan.status = 'running';
+      plan.steps.forEach((step) => {
+        if (step.status !== 'blocked') step.status = 'ready';
+      });
+      planStart.set(plan.id, Date.now());
+    }
+    return structuredClone(plan);
+  },
+
+  async listSessions(limit = 25): Promise<RuntimeSessionRecord[]> {
+    await delay(60);
+    if (mockSessions.length === 0) {
+      const profiles = mockStore.profiles.filter((p) => !p.deleted_at).slice(0, 6);
+      profiles.forEach((profile, index) => {
+        const startedMs = Date.parse(now()) - (index + 1) * 3_600_000;
+        const duration = 300 + index * 220;
+        mockSessions.push({
+          id: newId('sess'),
+          profile_id: profile.id,
+          profile_name: profile.name,
+          started_at: new Date(startedMs).toISOString(),
+          ended_at: new Date(startedMs + duration * 1000).toISOString(),
+          duration_seconds: duration,
+          startup_ms: 600 + index * 90,
+          exit_reason: EXIT_REASONS[index % EXIT_REASONS.length],
+        });
+      });
+    }
+    return structuredClone(mockSessions.slice(0, limit));
+  },
+
+  async listBackups(): Promise<BackupArchive[]> {
+    await delay(60);
+    return structuredClone(mockBackups);
+  },
+  async createBackup(): Promise<BackupArchive> {
+    await delay(320);
+    const archive: BackupArchive = {
+      id: newId('bkp'),
+      created_at: now(),
+      size_bytes: 2_000_000 + Math.floor(Math.random() * 2_000_000),
+      automatic: false,
+      verified: true,
+      contents: ['profiles', 'proxies', 'workspaces', 'extensions'],
+    };
+    mockBackups.unshift(archive);
+    return structuredClone(archive);
+  },
+  async restoreBackup(id: string): Promise<void> {
+    await delay(400);
+    if (!mockBackups.some((b) => b.id === id))
+      throw new ApiError(404, 'backup_not_found', 'Backup not found.');
+  },
+  async deleteBackup(id: string): Promise<void> {
+    await delay(80);
+    const index = mockBackups.findIndex((b) => b.id === id);
+    if (index >= 0) mockBackups.splice(index, 1);
+  },
+
+  async getMediaSettings(): Promise<MediaSettings> {
+    await delay(40);
+    return { ...mockMediaSettings };
+  },
+  async updateMediaSettings(patch): Promise<MediaSettings> {
+    await delay(80);
+    mockMediaSettings = { ...mockMediaSettings, ...patch };
+    return { ...mockMediaSettings };
+  },
+  async listMediaAssets(): Promise<MediaAsset[]> {
+    await delay(60);
+    return structuredClone(mockMediaAssets);
+  },
+  async createMediaAsset(payload): Promise<MediaAsset> {
+    await delay(140);
+    const asset: MediaAsset = {
+      id: newId('media'),
+      name: payload.name,
+      kind: payload.kind,
+      format: payload.format,
+      size_bytes: 100_000 + Math.floor(Math.random() * 4_000_000),
+      assigned_profile_count: 0,
+      created_at: now(),
+    };
+    mockMediaAssets.unshift(asset);
+    return structuredClone(asset);
+  },
+  async deleteMediaAsset(id: string): Promise<void> {
+    await delay(80);
+    const index = mockMediaAssets.findIndex((a) => a.id === id);
+    if (index >= 0) mockMediaAssets.splice(index, 1);
   },
 };

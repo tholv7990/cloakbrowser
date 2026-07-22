@@ -3,6 +3,7 @@ import type { AlignmentFinding, ProxyQualityReport, ProxyQuickTest } from '@/typ
 import { Badge, type Tone } from '@/components/ui/Badge';
 import { formatLatency, formatPercent } from '@/lib/format';
 import { cn } from '@/lib/cn';
+import { useT, type TranslationKey } from '@/i18n';
 
 function KeyVal({
   label,
@@ -22,35 +23,36 @@ function KeyVal({
 }
 
 export function ProxyQuickResult({ result }: { result: ProxyQuickTest }) {
+  const t = useT();
   return (
     <div className="space-y-3 rounded-lg border border-line bg-surface-sunken p-3">
       <div className="flex items-center gap-2">
         {result.ok ? (
           <Badge tone="success">
-            <Check className="h-3 w-3" /> Reachable
+            <Check className="h-3 w-3" /> {t('pxr.reachable')}
           </Badge>
         ) : (
           <Badge tone="danger">
-            <X className="h-3 w-3" /> Unreachable
+            <X className="h-3 w-3" /> {t('pxr.unreachable')}
           </Badge>
         )}
         {result.exit_ip_matches != null && (
           <Badge tone={result.exit_ip_matches ? 'success' : 'warning'}>
-            {result.exit_ip_matches ? 'Exit IP agrees' : 'Exit IP mismatch'}
+            {t(result.exit_ip_matches ? 'pxr.exitIpAgrees' : 'pxr.exitIpMismatch')}
           </Badge>
         )}
         <span className="ml-auto text-2xs text-ink-faint">
-          Median {formatLatency(result.latency_ms)}
+          {t('pxr.median', { latency: formatLatency(result.latency_ms) })}
         </span>
       </div>
       {result.error && <p className="text-2xs text-danger">{result.error}</p>}
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <KeyVal label="Exit IP" value={result.exit_ip} mono />
-        <KeyVal label="Country" value={result.country} />
-        <KeyVal label="City" value={result.city} />
-        <KeyVal label="Timezone" value={result.timezone} mono />
-        <KeyVal label="ASN" value={result.asn} mono />
-        <KeyVal label="Organization" value={result.organization} />
+        <KeyVal label={t('proxies.col.exitIp')} value={result.exit_ip} mono />
+        <KeyVal label={t('pxr.country')} value={result.country} />
+        <KeyVal label={t('pxr.city')} value={result.city} />
+        <KeyVal label={t('editor.timezone')} value={result.timezone} mono />
+        <KeyVal label={t('pxr.asn')} value={result.asn} mono />
+        <KeyVal label={t('pxr.organization')} value={result.organization} />
       </dl>
     </div>
   );
@@ -72,6 +74,7 @@ const ALIGNMENT_ICON_CLASS: Record<AlignmentFinding['status'], string> = {
 };
 
 function AlignmentRow({ label, finding }: { label: string; finding: AlignmentFinding }) {
+  const t = useT();
   const Icon =
     finding.status === 'aligned' ? Check : finding.status === 'leak' ? TriangleAlert : CircleAlert;
   const tone = ALIGNMENT_TONE[finding.status];
@@ -83,7 +86,7 @@ function AlignmentRow({ label, finding }: { label: string; finding: AlignmentFin
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-[13px] font-medium text-ink">{label}</span>
-          <Badge tone={tone}>{finding.status}</Badge>
+          <Badge tone={tone}>{t(`pxr.status.${finding.status}` as TranslationKey)}</Badge>
         </div>
         <p className="text-2xs text-ink-muted">{finding.detail}</p>
       </div>
@@ -101,12 +104,16 @@ const OUTCOME_TONE: Record<string, Tone> = {
 };
 
 export function ProxyQualityReportView({ report }: { report: ProxyQualityReport }) {
+  const t = useT();
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         {report.proxy_type && (
           <Badge tone="info">
-            {report.proxy_type} · {formatPercent(report.type_confidence)} confidence
+            {t('pxr.confidence', {
+              type: t(`enum.proxyType.${report.proxy_type}` as TranslationKey),
+              pct: formatPercent(report.type_confidence),
+            })}
           </Badge>
         )}
         {report.reputation && (
@@ -119,59 +126,74 @@ export function ProxyQualityReportView({ report }: { report: ProxyQualityReport 
                   : 'warning'
             }
           >
-            Reputation: {report.reputation}
+            {t('pxr.reputation', {
+              rep: t(`enum.reputation.${report.reputation}` as TranslationKey),
+            })}
           </Badge>
         )}
         {report.google_outcome && (
-          <Badge tone={OUTCOME_TONE[report.google_outcome]}>Google: {report.google_outcome}</Badge>
+          <Badge tone={OUTCOME_TONE[report.google_outcome]}>
+            {t('pxr.google', {
+              outcome: t(`enum.outcome.${report.google_outcome}` as TranslationKey),
+            })}
+          </Badge>
         )}
         {report.turnstile_outcome && (
           <Badge tone={OUTCOME_TONE[report.turnstile_outcome]}>
-            Turnstile: {report.turnstile_outcome}
+            {t('pxr.turnstile', {
+              outcome: t(`enum.outcome.${report.turnstile_outcome}` as TranslationKey),
+            })}
           </Badge>
         )}
         <span className="ml-auto text-2xs text-ink-faint">
-          Median {formatLatency(report.latency_ms)}
+          {t('pxr.median', { latency: formatLatency(report.latency_ms) })}
         </span>
       </div>
 
       {report.matched_lists.length > 0 && (
-        <p className="text-2xs text-warning">Matched lists: {report.matched_lists.join(', ')}</p>
+        <p className="text-2xs text-warning">
+          {t('pxr.matchedLists', { lists: report.matched_lists.join(', ') })}
+        </p>
       )}
 
       <dl className="grid grid-cols-2 gap-3 rounded-lg border border-line bg-surface-sunken p-3 sm:grid-cols-3">
-        <KeyVal label="Exit IP" value={report.exit_ip} mono />
-        <KeyVal label="Country" value={report.country} />
-        <KeyVal label="City" value={report.city} />
-        <KeyVal label="Timezone" value={report.timezone} mono />
-        <KeyVal label="ASN" value={report.asn} mono />
-        <KeyVal label="Organization" value={report.organization} />
+        <KeyVal label={t('proxies.col.exitIp')} value={report.exit_ip} mono />
+        <KeyVal label={t('pxr.country')} value={report.country} />
+        <KeyVal label={t('pxr.city')} value={report.city} />
+        <KeyVal label={t('editor.timezone')} value={report.timezone} mono />
+        <KeyVal label={t('pxr.asn')} value={report.asn} mono />
+        <KeyVal label={t('pxr.organization')} value={report.organization} />
       </dl>
 
       <div className="rounded-lg border border-line p-3">
         <p className="mb-1 text-2xs font-semibold uppercase tracking-wide text-ink-faint">
-          Alignment
+          {t('pxr.alignment')}
         </p>
         <div className="divide-y divide-line">
-          <AlignmentRow label="HTTP headers" finding={report.alignment.http} />
-          <AlignmentRow label="WebRTC" finding={report.alignment.webrtc} />
-          <AlignmentRow label="DNS" finding={report.alignment.dns} />
-          <AlignmentRow label="Timezone" finding={report.alignment.timezone} />
-          <AlignmentRow label="Locale" finding={report.alignment.locale} />
+          <AlignmentRow label={t('pxr.httpHeaders')} finding={report.alignment.http} />
+          <AlignmentRow label={t('editor.webrtc')} finding={report.alignment.webrtc} />
+          <AlignmentRow label={t('pxr.dns')} finding={report.alignment.dns} />
+          <AlignmentRow label={t('editor.timezone')} finding={report.alignment.timezone} />
+          <AlignmentRow label={t('editor.locale')} finding={report.alignment.locale} />
         </div>
       </div>
 
       {(report.screenshot_path || report.report_path) && (
         <div className="space-y-1 text-2xs text-ink-muted">
           {report.screenshot_path && (
-            <p className="data truncate">Screenshot: {report.screenshot_path}</p>
+            <p className="data truncate">
+              {t('pxr.screenshot', { path: report.screenshot_path })}
+            </p>
           )}
-          {report.report_path && <p className="data truncate">Report: {report.report_path}</p>}
+          {report.report_path && (
+            <p className="data truncate">{t('pxr.report', { path: report.report_path })}</p>
+          )}
         </div>
       )}
 
       <p className="text-2xs text-ink-faint">
-        {report.observed_scope} Checked {new Date(report.checked_at).toLocaleString()}.
+        {report.observed_scope}{' '}
+        {t('pxr.checked', { date: new Date(report.checked_at).toLocaleString() })}
       </p>
     </div>
   );

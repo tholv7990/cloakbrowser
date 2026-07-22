@@ -10,6 +10,33 @@ export function useDiagnostics() {
   });
 }
 
+/**
+ * Live resource sampling. Polls every 2s while the panel is mounted, and pauses
+ * automatically when the tab is hidden (`refetchIntervalInBackground: false`),
+ * so nothing is sampled when nobody is looking — matching Quantum's "two-second
+ * view" without pushing continuous traffic over the WebSocket.
+ */
+export function useResources(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.resources,
+    queryFn: () => api.getResources(),
+    enabled,
+    refetchInterval: 2000,
+    refetchIntervalInBackground: false,
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
+/** Read-only per-launch session history. */
+export function useSessions(limit = 25) {
+  return useQuery({
+    queryKey: queryKeys.sessions,
+    queryFn: () => api.listSessions(limit),
+    staleTime: 10_000,
+  });
+}
+
 export function useRunDirectGoogleControl() {
   const queryClient = useQueryClient();
   const { toast } = useToast();

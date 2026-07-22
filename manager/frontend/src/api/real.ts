@@ -3,12 +3,28 @@ import type {
   AppBootstrap,
   AppVersion,
   AuthStatus,
+  AiImageSettings,
+  AutomationRecording,
+  AutomationRun,
+  AutomationTemplate,
+  BackupArchive,
+  BuildPlan,
   BulkProfileRequest,
   BulkProfileResult,
   ChangePasswordRequest,
   CookieImportPayload,
   CookieImportResult,
+  CredentialPoolSummary,
   DiagnosticRun,
+  MediaAsset,
+  MediaSettings,
+  ProductCatalog,
+  ProductCsvInspection,
+  ProfileFactoryJob,
+  RuntimeSessionRecord,
+  ShopifyStore,
+  StoreProfile,
+  ThemeLibrary,
   EmailPasswordRequest,
   Folder,
   OwnerSession,
@@ -23,6 +39,7 @@ import type {
   ProxyQualityReport,
   ProxyQuickTest,
   ProxyWritePayload,
+  ResourceSnapshot,
   Settings,
   Tag,
   WorkflowStatus,
@@ -128,4 +145,122 @@ export const realApi: ApiAdapter = {
     apiRequest<Settings>('/settings', { method: 'PATCH', body: patch }),
   checkBrowserUpdate: () =>
     apiRequest<Settings>('/settings/browser/check-update', { method: 'POST' }),
+
+  getResources: () => apiRequest<ResourceSnapshot>('/resources'),
+
+  listTemplates: () => apiRequest<AutomationTemplate[]>('/automations/templates'),
+  getTemplate: (id) => apiRequest<AutomationTemplate>(`/automations/templates/${id}`),
+  saveTemplate: (id, payload) =>
+    apiRequest<AutomationTemplate>(`/automations/templates/${id}`, {
+      method: 'PUT',
+      body: payload,
+    }),
+  deleteTemplate: (id) =>
+    apiRequest<void>(`/automations/templates/${id}`, { method: 'DELETE' }),
+
+  startRecording: (payload) =>
+    apiRequest<AutomationRecording>('/automations/recordings', { method: 'POST', body: payload }),
+  getRecording: (id) => apiRequest<AutomationRecording>(`/automations/recordings/${id}`),
+  stopRecording: (id) =>
+    apiRequest<AutomationTemplate>(`/automations/recordings/${id}/stop`, { method: 'POST' }),
+  cancelRecording: (id) =>
+    apiRequest<void>(`/automations/recordings/${id}/cancel`, { method: 'POST' }),
+
+  startRun: (templateId, payload) =>
+    apiRequest<AutomationRun>(`/automations/templates/${templateId}/runs`, {
+      method: 'POST',
+      body: payload,
+    }),
+  getRun: (id) => apiRequest<AutomationRun>(`/automations/runs/${id}`),
+  cancelRun: (id) => apiRequest<AutomationRun>(`/automations/runs/${id}/cancel`, { method: 'POST' }),
+  continueRunProfile: (runId, profileId) =>
+    apiRequest<AutomationRun>(`/automations/runs/${runId}/profiles/${profileId}/continue`, {
+      method: 'POST',
+    }),
+  retryRunProfile: (runId, profileId) =>
+    apiRequest<AutomationRun>(`/automations/runs/${runId}/profiles/${profileId}/retry`, {
+      method: 'POST',
+    }),
+  markRunProfileCompleted: (runId, profileId) =>
+    apiRequest<AutomationRun>(`/automations/runs/${runId}/profiles/${profileId}/mark-completed`, {
+      method: 'POST',
+    }),
+
+  getCredentialPool: () => apiRequest<CredentialPoolSummary>('/automations/credentials'),
+  importCredentials: (text) =>
+    apiRequest<CredentialPoolSummary>('/automations/credentials/import', {
+      method: 'POST',
+      body: { text },
+    }),
+
+  listFactoryJobs: () => apiRequest<ProfileFactoryJob[]>('/automations/factory/jobs'),
+  startFactoryJob: (payload) =>
+    apiRequest<ProfileFactoryJob>('/automations/factory/jobs', { method: 'POST', body: payload }),
+  getFactoryJob: (id) => apiRequest<ProfileFactoryJob>(`/automations/factory/jobs/${id}`),
+  cancelFactoryJob: (id) =>
+    apiRequest<ProfileFactoryJob>(`/automations/factory/jobs/${id}/cancel`, { method: 'POST' }),
+
+  listStores: () => apiRequest<ShopifyStore[]>('/shopify-builder/stores'),
+  connectStore: (payload) =>
+    apiRequest<ShopifyStore>('/shopify-builder/stores/connect', { method: 'POST', body: payload }),
+  inspectStore: (id) =>
+    apiRequest<ShopifyStore>(`/shopify-builder/stores/${id}/inspect`, { method: 'POST' }),
+  setStoreNetworkRoute: (id, proxyId) =>
+    apiRequest<ShopifyStore>(`/shopify-builder/stores/${id}/network-route`, {
+      method: 'PUT',
+      body: { proxy_id: proxyId },
+    }),
+  deleteStore: (id) =>
+    apiRequest<void>(`/shopify-builder/stores/${id}`, { method: 'DELETE' }),
+  getStoreProfile: (id) => apiRequest<StoreProfile>(`/shopify-builder/stores/${id}/profile`),
+  updateStoreProfile: (id, patch) =>
+    apiRequest<StoreProfile>(`/shopify-builder/stores/${id}/profile`, {
+      method: 'PUT',
+      body: patch,
+    }),
+
+  getAiSettings: () => apiRequest<AiImageSettings>('/shopify-builder/ai-images/settings'),
+  updateAiSettings: (patch) =>
+    apiRequest<AiImageSettings>('/shopify-builder/ai-images/settings', {
+      method: 'PUT',
+      body: patch,
+    }),
+
+  getThemeLibrary: (storeId) =>
+    apiRequest<ThemeLibrary>(`/shopify-builder/stores/${storeId}/themes/library`),
+  inspectProductCsv: (storeId, content) =>
+    apiRequest<ProductCsvInspection>(`/shopify-builder/stores/${storeId}/product-csv/inspect`, {
+      method: 'POST',
+      body: { content },
+    }),
+  listCatalogs: () => apiRequest<ProductCatalog[]>('/shopify-builder/catalogs'),
+
+  createBuildPlan: (storeId, payload) =>
+    apiRequest<BuildPlan>(`/shopify-builder/stores/${storeId}/plans`, {
+      method: 'POST',
+      body: payload,
+    }),
+  getBuildPlan: (storeId, planId) =>
+    apiRequest<BuildPlan>(`/shopify-builder/stores/${storeId}/plans/${planId}`),
+  executeBuildPlan: (storeId, planId, confirm) =>
+    apiRequest<BuildPlan>(`/shopify-builder/stores/${storeId}/plans/${planId}/execute`, {
+      method: 'POST',
+      body: { confirm },
+    }),
+
+  listSessions: (limit) =>
+    apiRequest<RuntimeSessionRecord[]>(`/sessions${limit ? `?limit=${limit}` : ''}`),
+
+  listBackups: () => apiRequest<BackupArchive[]>('/backups'),
+  createBackup: () => apiRequest<BackupArchive>('/backups', { method: 'POST' }),
+  restoreBackup: (id) => apiRequest<void>(`/backups/${id}/restore`, { method: 'POST' }),
+  deleteBackup: (id) => apiRequest<void>(`/backups/${id}`, { method: 'DELETE' }),
+
+  getMediaSettings: () => apiRequest<MediaSettings>('/media/settings'),
+  updateMediaSettings: (patch) =>
+    apiRequest<MediaSettings>('/media/settings', { method: 'PATCH', body: patch }),
+  listMediaAssets: () => apiRequest<MediaAsset[]>('/media/assets'),
+  createMediaAsset: (payload) =>
+    apiRequest<MediaAsset>('/media/assets', { method: 'POST', body: payload }),
+  deleteMediaAsset: (id) => apiRequest<void>(`/media/assets/${id}`, { method: 'DELETE' }),
 };

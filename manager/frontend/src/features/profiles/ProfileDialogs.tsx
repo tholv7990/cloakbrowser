@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Download, ExternalLink, Pencil, Plus } from 'lucide-react';
 import type { CookieFormat, Folder, ProfileView, Proxy, ProfileWrite } from '@/types/api';
 import { api } from '@/api';
+import { useT } from '@/i18n';
 import { Modal } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Button } from '@/components/ui/Button';
@@ -38,6 +39,7 @@ export function ProfileDialogs({
 }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const t = useT();
   const profile = dialog?.profile ?? null;
   const id = profile?.id ?? null;
 
@@ -65,7 +67,7 @@ export function ProfileDialogs({
     },
     onError: (error) =>
       toast({
-        title: 'Could not update profile',
+        title: t('dlg.updateFailed'),
         description: (error as Error).message,
         tone: 'danger',
       }),
@@ -101,9 +103,9 @@ export function ProfileDialogs({
         open
         onClose={onClose}
         onConfirm={() => regenerate.mutate(profile.id, { onSuccess: onClose })}
-        title="Generate a new fingerprint?"
-        message="This allocates a new stable seed and configuration hash. Websites that already know this profile may see it as a different device. Cookies and storage are kept."
-        confirmLabel="Generate new fingerprint"
+        title={t('dlg.regen.title')}
+        message={t('dlg.regen.message')}
+        confirmLabel={t('dlg.regen.action')}
         tone="danger"
         loading={regenerate.isPending}
       />
@@ -116,9 +118,9 @@ export function ProfileDialogs({
         open
         onClose={onClose}
         onConfirm={() => trash.mutate(profile.id, { onSuccess: onClose })}
-        title="Move profile to trash?"
-        message={`"${profile.name}" moves to the recoverable trash. Its browser data is kept and can be restored until trash retention expires.`}
-        confirmLabel="Move to trash"
+        title={t('dlg.trash.title')}
+        message={t('dlg.trash.message', { name: profile.name })}
+        confirmLabel={t('bulk.trash')}
         tone="danger"
         loading={trash.isPending}
       />
@@ -130,13 +132,13 @@ export function ProfileDialogs({
       <Modal
         open
         onClose={onClose}
-        title="Move to folder"
+        title={t('bulk.moveFolder')}
         description={profile.name}
         size="sm"
         footer={
           <>
             <Button variant="ghost" onClick={onClose}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="primary"
@@ -145,17 +147,17 @@ export function ProfileDialogs({
                 patchProfile.mutate({ ...readToWrite(profile.read), folder_id: folderId || null })
               }
             >
-              Move
+              {t('common.move')}
             </Button>
           </>
         }
       >
-        <Field label="Folder" hint="A profile belongs to one folder in this version.">
+        <Field label={t('editor.folder')} hint={t('dlg.moveFolder.hint')}>
           <Select
             value={folderId}
             onChange={(e) => setFolderId(e.target.value)}
             options={[
-              { value: '', label: 'Unfiled (no folder)' },
+              { value: '', label: t('dlg.moveFolder.unfiled') },
               ...folders.map((f) => ({ value: f.id, label: f.name })),
             ]}
           />
@@ -171,12 +173,12 @@ export function ProfileDialogs({
       <Modal
         open
         onClose={onClose}
-        title="Assign proxy"
+        title={t('dlg.assignProxy.title')}
         description={profile.name}
         footer={
           <>
             <Button variant="ghost" onClick={onClose}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="primary"
@@ -185,20 +187,20 @@ export function ProfileDialogs({
                 patchProfile.mutate({ ...readToWrite(profile.read), proxy_id: proxyId || null })
               }
             >
-              Assign
+              {t('dlg.assign')}
             </Button>
           </>
         }
       >
         <div className="space-y-3">
-          <Field label="Reusable proxy">
+          <Field label={t('dlg.reusableProxy')}>
             <div className="flex items-center gap-2">
               <Select
                 className="flex-1"
                 value={proxyId}
                 onChange={(e) => setProxyId(e.target.value)}
                 options={[
-                  { value: '', label: 'Direct connection (no proxy)' },
+                  { value: '', label: t('editor.directNoProxy') },
                   ...proxies.map((p) => ({
                     value: p.id,
                     label: `${p.label} · ${p.masked_endpoint}`,
@@ -213,7 +215,7 @@ export function ProfileDialogs({
                   selectedProxy && setProxyEditor({ open: true, proxy: selectedProxy })
                 }
               >
-                <Pencil className="h-3.5 w-3.5" /> Edit
+                <Pencil className="h-3.5 w-3.5" /> {t('common.edit')}
               </Button>
             </div>
           </Field>
@@ -222,13 +224,12 @@ export function ProfileDialogs({
             size="sm"
             onClick={() => setProxyEditor({ open: true, proxy: null })}
           >
-            <Plus className="h-3.5 w-3.5" /> Add new proxy
+            <Plus className="h-3.5 w-3.5" /> {t('dlg.addNewProxy')}
           </Button>
           {multiAssigned && (
             <p className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-2.5 text-2xs text-warning">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              This proxy is already assigned to {selectedProxy!.assigned_profile_count} profiles.
-              Reusing one exit across identities can link them.
+              {t('dlg.proxyMultiWarn', { count: selectedProxy!.assigned_profile_count })}
             </p>
           )}
           {selectedProxy && selectedProxy.scheme !== 'direct' && (
@@ -239,7 +240,7 @@ export function ProfileDialogs({
                 loading={quickTest.isPending}
                 onClick={() => quickTest.mutate(selectedProxy.id)}
               >
-                Quick-test this proxy
+                {t('dlg.quickTestThis')}
               </Button>
               {quickTest.data && (
                 <div className="mt-3">
@@ -264,12 +265,12 @@ export function ProfileDialogs({
       <Modal
         open
         onClose={onClose}
-        title="Import cookies"
+        title={t('row.importCookies')}
         description={profile.name}
         footer={
           <>
             <Button variant="ghost" onClick={onClose}>
-              Close
+              {t('common.close')}
             </Button>
             <Button
               variant="primary"
@@ -283,39 +284,38 @@ export function ProfileDialogs({
                 })
               }
             >
-              Import
+              {t('common.import')}
             </Button>
           </>
         }
       >
         <div className="space-y-3">
-          <Field label="Format">
+          <Field label={t('dlg.cookies.format')}>
             <Select
               value={cookieFormat}
               onChange={(e) => setCookieFormat(e.target.value as CookieFormat)}
               options={[
-                { value: 'playwright', label: 'Playwright storage state (JSON)' },
-                { value: 'json', label: 'JSON cookie array' },
-                { value: 'netscape', label: 'Netscape cookies.txt' },
+                { value: 'playwright', label: t('dlg.cookies.playwright') },
+                { value: 'json', label: t('dlg.cookies.json') },
+                { value: 'netscape', label: t('dlg.cookies.netscape') },
               ]}
             />
           </Field>
-          <Field
-            label="Paste cookie data"
-            hint="Version 1 supports import/export, not cell-by-cell editing."
-          >
+          <Field label={t('dlg.cookies.paste')} hint={t('dlg.cookies.pasteHint')}>
             <Textarea
               rows={8}
               value={cookieContent}
               onChange={(e) => setCookieContent(e.target.value)}
-              placeholder="Paste the exported cookie file contents…"
+              placeholder={t('dlg.cookies.placeholder')}
               className="font-mono text-[12px]"
             />
           </Field>
           {importCookies.data && (
             <div className="rounded-md border border-success/30 bg-success/10 p-2.5 text-2xs text-success">
-              Imported {importCookies.data.imported_count} cookies (
-              {importCookies.data.skipped_count} skipped).
+              {t('dlg.cookies.imported', {
+                imported: importCookies.data.imported_count,
+                skipped: importCookies.data.skipped_count,
+              })}
               {importCookies.data.warnings.map((w) => (
                 <p key={w} className="mt-1 text-warning">
                   {w}
@@ -348,21 +348,21 @@ export function ProfileDialogs({
       <Modal
         open
         onClose={onClose}
-        title="Export configuration"
-        description={`${profile.name} — secrets are excluded`}
+        title={t('row.exportConfig')}
+        description={t('dlg.export.desc', { name: profile.name })}
         footer={
           <>
             <Button variant="ghost" onClick={onClose}>
-              Close
+              {t('common.close')}
             </Button>
             <Button variant="primary" onClick={download} disabled={!exportQuery.data}>
-              <Download className="h-3.5 w-3.5" /> Download JSON
+              <Download className="h-3.5 w-3.5" /> {t('dlg.export.download')}
             </Button>
           </>
         }
       >
         {exportQuery.isLoading ? (
-          <LoadingBlock label="Preparing export…" />
+          <LoadingBlock label={t('dlg.export.preparing')} />
         ) : exportQuery.isError ? (
           <ErrorState
             message={(exportQuery.error as Error).message}
@@ -379,9 +379,9 @@ export function ProfileDialogs({
 
   if (type === 'logs') {
     return (
-      <Modal open onClose={onClose} title="Runtime logs" description={profile.name} size="lg">
+      <Modal open onClose={onClose} title={t('dlg.logs.title')} description={profile.name} size="lg">
         {logs.isLoading ? (
-          <LoadingBlock label="Loading logs…" />
+          <LoadingBlock label={t('dlg.logs.loading')} />
         ) : logs.isError ? (
           <ErrorState message={(logs.error as Error).message} onRetry={() => logs.refetch()} />
         ) : logs.data && logs.data.entries.length > 0 ? (
@@ -408,8 +408,8 @@ export function ProfileDialogs({
           </div>
         ) : (
           <EmptyState
-            title="No logs yet"
-            description="Logs appear once this profile has been launched."
+            title={t('dlg.logs.empty.title')}
+            description={t('dlg.logs.empty.desc')}
           />
         )}
       </Modal>
@@ -422,17 +422,17 @@ export function ProfileDialogs({
       <Modal
         open
         onClose={onClose}
-        title="Latest proxy-quality report"
+        title={t('dlg.report.title')}
         description={profile.proxy?.label ?? undefined}
         size="lg"
       >
         {!profile.proxy?.id ? (
           <EmptyState
-            title="No proxy assigned"
-            description="Assign a proxy to run quality tests."
+            title={t('dlg.report.noProxy.title')}
+            description={t('dlg.report.noProxy.desc')}
           />
         ) : reports.isLoading ? (
-          <LoadingBlock label="Loading report…" />
+          <LoadingBlock label={t('dlg.report.loading')} />
         ) : reports.isError ? (
           <ErrorState
             message={(reports.error as Error).message}
@@ -441,14 +441,14 @@ export function ProfileDialogs({
         ) : latest ? (
           <div className="space-y-3">
             <p className="text-2xs text-ink-faint">
-              Last checked {relativeTime(latest.checked_at)}
+              {t('dlg.report.lastChecked', { time: relativeTime(latest.checked_at) })}
             </p>
             <ProxyQualityReportView report={latest} />
           </div>
         ) : (
           <EmptyState
-            title="No reports yet"
-            description="Run a full quality test on this proxy from the Proxies screen."
+            title={t('dlg.report.empty.title')}
+            description={t('dlg.report.empty.desc')}
             icon={<ExternalLink className="h-5 w-5" />}
           />
         )}

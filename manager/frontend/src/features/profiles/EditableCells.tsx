@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ProfileView } from '@/types/api';
 import { Plus } from 'lucide-react';
+import { useT } from '@/i18n';
 import { TagChip } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -18,6 +19,7 @@ const inlineInput =
 
 /** Name (with the identity glyph + short id) — click to rename inline. */
 export function EditableNameCell({ profile }: { profile: ProfileView }) {
+  const t = useT();
   const update = useUpdateProfileInline();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(profile.name);
@@ -52,14 +54,14 @@ export function EditableNameCell({ profile }: { profile: ProfileView }) {
               setEditing(false);
             }
           }}
-          aria-label="Profile name"
+          aria-label={t('editor.name')}
           className={cn(inlineInput, 'text-[13px] font-medium')}
         />
       ) : (
         <button
           type="button"
           onClick={() => setEditing(true)}
-          title="Click to rename"
+          title={t('cell.clickRename')}
           className="block max-w-full truncate text-left text-[13px] font-medium text-ink hover:text-accent"
         >
           {profile.name}
@@ -72,6 +74,7 @@ export function EditableNameCell({ profile }: { profile: ProfileView }) {
 
 /** Notes — click to edit inline (blur or Ctrl/⌘+Enter saves, Esc cancels). */
 export function EditableNotesCell({ profile }: { profile: ProfileView }) {
+  const t = useT();
   const update = useUpdateProfileInline();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(profile.notes);
@@ -100,7 +103,7 @@ export function EditableNotesCell({ profile }: { profile: ProfileView }) {
           }
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) commit();
         }}
-        aria-label="Notes"
+        aria-label={t('editor.notes')}
         maxLength={4000}
         className={cn(inlineInput, 'resize-none text-[12px] leading-snug')}
       />
@@ -111,13 +114,13 @@ export function EditableNotesCell({ profile }: { profile: ProfileView }) {
     <button
       type="button"
       onClick={() => setEditing(true)}
-      title="Click to edit note"
+      title={t('cell.clickEditNote')}
       className="w-full text-left"
     >
       {profile.notes ? (
         <span className="line-clamp-2 text-[12px] text-ink-muted">{profile.notes}</span>
       ) : (
-        <span className="text-[12px] text-ink-faint hover:text-ink">Add note…</span>
+        <span className="text-[12px] text-ink-faint hover:text-ink">{t('cell.addNote')}</span>
       )}
     </button>
   );
@@ -125,6 +128,7 @@ export function EditableNotesCell({ profile }: { profile: ProfileView }) {
 
 /** Tags — click opens a popover to toggle tags; each change saves the full set. */
 export function TagsCell({ profile }: { profile: ProfileView }) {
+  const t = useT();
   const tags = useTags();
   const createTag = useCreateTag();
   const update = useUpdateProfileInline();
@@ -154,7 +158,7 @@ export function TagsCell({ profile }: { profile: ProfileView }) {
       trigger={
         <button
           type="button"
-          title="Click to edit tags"
+          title={t('cell.clickEditTags')}
           className="flex w-full flex-wrap items-center gap-1 text-left"
         >
           {profile.tags.length > 0 ? (
@@ -167,13 +171,13 @@ export function TagsCell({ profile }: { profile: ProfileView }) {
               )}
             </>
           ) : (
-            <span className="text-[12px] text-ink-faint hover:text-ink">Add tags…</span>
+            <span className="text-[12px] text-ink-faint hover:text-ink">{t('cell.addTags')}</span>
           )}
         </button>
       }
     >
       <div className="space-y-0.5">
-        <p className="px-1 pb-1 text-[13px] font-semibold text-ink">Tags</p>
+        <p className="px-1 pb-1 text-[13px] font-semibold text-ink">{t('editor.tags')}</p>
         {(tags.data ?? []).map((tag) => (
           <label
             key={tag.id}
@@ -184,7 +188,7 @@ export function TagsCell({ profile }: { profile: ProfileView }) {
           </label>
         ))}
         {(tags.data ?? []).length === 0 && (
-          <p className="px-1 pb-1 text-2xs text-ink-faint">No tags yet — create one below.</p>
+          <p className="px-1 pb-1 text-2xs text-ink-faint">{t('cell.noTagsYet')}</p>
         )}
         <div className="mt-1 flex items-center gap-1.5 border-t border-line pt-2">
           <input
@@ -196,8 +200,8 @@ export function TagsCell({ profile }: { profile: ProfileView }) {
                 void createAndApply();
               }
             }}
-            placeholder="New tag…"
-            aria-label="New tag name"
+            placeholder={t('cell.newTag')}
+            aria-label={t('cell.newTagName')}
             maxLength={80}
             className={cn(inlineInput, 'h-8 text-[13px]')}
           />
@@ -208,7 +212,7 @@ export function TagsCell({ profile }: { profile: ProfileView }) {
             loading={createTag.isPending}
             disabled={!draft.trim()}
           >
-            <Plus className="h-3.5 w-3.5" /> Add
+            <Plus className="h-3.5 w-3.5" /> {t('common.add')}
           </Button>
         </div>
       </div>

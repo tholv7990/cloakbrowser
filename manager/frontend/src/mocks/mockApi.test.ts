@@ -177,3 +177,119 @@ describe('mock proxy contract (secret safety)', () => {
     await expect(mockApi.deleteProxy(assigned.id)).rejects.toBeInstanceOf(ApiError);
   });
 });
+
+describe('mock automation contract', () => {
+  it('records a flow into a template with derived variables', async () => {
+    const profile = (await mockApi.listProfiles({ page: 1, page_size: 1, sort: 'name' })).items[0];
+    const rec = await mockApi.startRecording({
+      name: 'Signup',
+      profile_id: profile.id,
+      description: '',
+    });
+    expect(rec.status).toBe('recording');
+    const tpl = await mockApi.stopRecording(rec.id);
+    expect(tpl.steps.length).toBeGreaterThanOrEqual(3);
+    expect(tpl.variables).toContain('email');
+    expect((await mockApi.getRecording(rec.id)).template_id).toBe(tpl.id);
+  });
+
+  it('starts a run with one pending item per assignment and honors run actions', async () => {
+    const templates = await mockApi.listTemplates();
+    const profiles = (await mockApi.listProfiles({ page: 1, page_size: 2, sort: 'name' })).items;
+    const run = await mockApi.startRun(templates[0].id, {
+      assignments: profiles.map((p) => ({ profile_id: p.id, variables: {}, credential_id: 'pool' })),
+      max_parallel: 2,
+    });
+    expect(run.total).toBe(2);
+    expect(run.items.every((i) => i.status === 'pending')).toBe(true);
+
+    const done = await mockApi.markRunProfileCompleted(run.id, profiles[0].id);
+    expect(done.items.find((i) => i.profile_id === profiles[0].id)!.status).toBe('completed');
+    expect(done.completed_count).toBe(1);
+
+    const cancelled = await mockApi.cancelRun(run.id);
+    expect(cancelled.status).toBe('cancelled');
+  });
+
+  it('imports credentials as counts only (no secrets returned)', async () => {
+    const before = await mockApi.getCredentialPool();
+    const after = await mockApi.importCredentials('a@x.com:pw1\nb@x.com:pw2\nnot-a-credential');
+    expect(after.available).toBe(before.available + 2);
+    expect(JSON.stringify(after)).not.toContain('pw1');
+  });
+});
+
+describe('mock shopify builder contract', () => {
+  it('connects a store without echoing the client secret', async () => {
+    const store = await mockApi.connectStore({
+      label: 'My store',
+      shop_domain: 'my-shop.myshopify.com',
+      client_id: 'abc',
+      client_secret: 'super-secret',
+      proxy_id: null,
+    });
+    expect(store.connected).toBe(true);
+    expect(Object.keys(store.capabilities)).toContain('write_products');
+    expect(JSON.stringify(store)).not.toContain('super-secret');
+  });
+
+  it('stages a draft-only plan and requires confirmation to execute', async () => {
+    const store = await mockApi.connectStore({
+      label: 'Plan store',
+      shop_domain: 'plan-shop.myshopify.com',
+      client_id: 'abc',
+      client_secret: 'x',
+      proxy_id: null,
+    });
+    const plan = await mockApi.createBuildPlan(store.id, {
+      theme_id: 'thm_dawn',
+      preset: 'Default',
+      product_source: 'catalog',
+      catalog_id: 'cat_vst',
+      ai_hero: false,
+    });
+    expect(plan.status).toBe('staged');
+    expect(plan.mode).toBe('draft_only');
+    expect(plan.steps).toHaveLength(9);
+    expect(plan.admin_url).toBeNull();
+
+    await expect(mockApi.executeBuildPlan(store.id, plan.id, false)).rejects.toBeInstanceOf(
+      ApiError,
+    );
+    const running = await mockApi.executeBuildPlan(store.id, plan.id, true);
+    expect(running.status).toBe('running');
+  });
+});
+
+describe('mock runtime extras contract', () => {
+  it('lists per-launch session history', async () => {
+    const sessions = await mockApi.listSessions(5);
+    expect(sessions.length).toBeGreaterThan(0);
+    expect(sessions[0]).toHaveProperty('startup_ms');
+    expect(sessions[0]).toHaveProperty('exit_reason');
+  });
+
+  it('creates and deletes backups; restore of a missing id fails', async () => {
+    const before = (await mockApi.listBackups()).length;
+    const created = await mockApi.createBackup();
+    expect((await mockApi.listBackups()).length).toBe(before + 1);
+    expect(created.verified).toBe(true);
+    await expect(mockApi.restoreBackup('bkp_missing')).rejects.toBeInstanceOf(ApiError);
+    await mockApi.deleteBackup(created.id);
+    expect((await mockApi.listBackups()).length).toBe(before);
+  });
+
+  it('adds and removes media assets and toggles injection', async () => {
+    const before = (await mockApi.listMediaAssets()).length;
+    const asset = await mockApi.createMediaAsset({
+      name: 'Test cam',
+      kind: 'camera',
+      format: 'video/mp4',
+    });
+    expect((await mockApi.listMediaAssets()).length).toBe(before + 1);
+    const settings = await mockApi.updateMediaSettings({ enabled: true });
+    expect(settings.enabled).toBe(true);
+    await mockApi.deleteMediaAsset(asset.id);
+    expect((await mockApi.listMediaAssets()).length).toBe(before);
+  });
+});

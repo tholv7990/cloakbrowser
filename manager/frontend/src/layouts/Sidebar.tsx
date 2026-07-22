@@ -1,23 +1,42 @@
 import { NavLink } from 'react-router-dom';
-import { Activity, FolderClosed, Globe, PanelLeftClose, PanelLeftOpen, Users } from 'lucide-react';
+import {
+  Activity,
+  FolderClosed,
+  Gauge,
+  Globe,
+  Clapperboard,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ShoppingBag,
+  Users,
+  Workflow,
+} from 'lucide-react';
 import { Settings as SettingsIcon } from 'lucide-react';
 import { Wordmark } from '@/components/Logo';
 import { IconButton } from '@/components/ui/IconButton';
 import { useUiStore } from '@/app/uiStore';
+import { useCapabilities } from '@/hooks/useAppData';
+import type { AppCapabilities } from '@/types/api';
 import { useT, type TranslationKey } from '@/i18n';
 import { cn } from '@/lib/cn';
 
-const NAV: { to: string; key: TranslationKey; icon: typeof Users }[] = [
+const NAV: { to: string; key: TranslationKey; icon: typeof Users; cap?: keyof AppCapabilities }[] = [
   { to: '/profiles', key: 'nav.profiles', icon: Users },
-  { to: '/folders', key: 'nav.folders', icon: FolderClosed },
-  { to: '/proxies', key: 'nav.proxies', icon: Globe },
-  { to: '/diagnostics', key: 'nav.diagnostics', icon: Activity },
-  { to: '/settings', key: 'nav.settings', icon: SettingsIcon },
+  { to: '/folders', key: 'nav.folders', icon: FolderClosed, cap: 'catalogs' },
+  { to: '/proxies', key: 'nav.proxies', icon: Globe, cap: 'proxy_management' },
+  { to: '/automation', key: 'nav.automation', icon: Workflow, cap: 'automation' },
+  { to: '/shopify', key: 'nav.shopify', icon: ShoppingBag, cap: 'shopify_builder' },
+  { to: '/media', key: 'nav.media', icon: Clapperboard, cap: 'media' },
+  { to: '/diagnostics', key: 'nav.diagnostics', icon: Activity, cap: 'fingerprint_diagnostics' },
+  { to: '/resources', key: 'nav.resources', icon: Gauge, cap: 'browser_runtime' },
+  { to: '/settings', key: 'nav.settings', icon: SettingsIcon, cap: 'settings' },
 ];
 
 export function Sidebar() {
   const collapsed = useUiStore((state) => state.sidebarCollapsed);
   const toggle = useUiStore((state) => state.toggleSidebar);
+  const capabilities = useCapabilities();
+  const items = NAV.filter((item) => !item.cap || capabilities[item.cap]);
   const t = useT();
 
   return (
@@ -37,7 +56,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 p-2" aria-label="Primary">
-        {NAV.map(({ to, key, icon: Icon }) => (
+        {items.map(({ to, key, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}

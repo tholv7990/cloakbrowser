@@ -8,7 +8,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/states';
 import { ReputationBadge } from '@/components/domain/StatusBadges';
 import { formatLatency, formatPercent, relativeTime } from '@/lib/format';
-import { useT } from '@/i18n';
+import { useT, type TranslationKey } from '@/i18n';
 import { useDeleteProxy, useProxies, useQuickTest } from './api';
 import { ProxyEditorDrawer } from './ProxyEditorDrawer';
 
@@ -109,7 +109,7 @@ export function ProxiesPage() {
                   </td>
                   <td className="px-3 py-2 text-[12px] text-ink-muted">
                     {proxy.proxy_type
-                      ? `${proxy.proxy_type} · ${formatPercent(proxy.type_confidence)}`
+                      ? `${t(`enum.proxyType.${proxy.proxy_type}` as TranslationKey)} · ${formatPercent(proxy.type_confidence)}`
                       : '—'}
                   </td>
                   <td className="px-3 py-2">

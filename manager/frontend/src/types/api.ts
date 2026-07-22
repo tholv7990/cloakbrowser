@@ -374,6 +374,12 @@ export interface AppCapabilities {
   browser_runtime: boolean;
   fingerprint_diagnostics: boolean;
   settings: boolean;
+  /** Optional — present once the Automation backend ships. Treated as false when absent. */
+  automation?: boolean;
+  /** Optional — present once the Shopify Builder backend ships. Treated as false when absent. */
+  shopify_builder?: boolean;
+  /** Optional — present once the media engine backend ships. Treated as false when absent. */
+  media?: boolean;
 }
 
 export interface Settings {
@@ -412,6 +418,368 @@ export interface AppBootstrap {
   platform: string;
   owner_email: string;
   capabilities: AppCapabilities;
+}
+
+// ---------------------------------------------------------------------------
+// Resource monitor (GET /resources) — read-only per-profile CPU/RAM sampling.
+// Observability only: the backend never caps, prioritizes, or allocates.
+// ---------------------------------------------------------------------------
+
+export interface SystemResources {
+  cpu_percent: number;
+  memory_percent: number;
+  memory_used_bytes: number;
+  memory_total_bytes: number;
+  logical_cpus: number;
+}
+
+/** Aggregate usage for a group of OS processes (CPU is 0–100, already ÷ cores). */
+export interface ProcessGroupResources {
+  cpu_percent: number;
+  memory_bytes: number;
+  process_count: number;
+}
+
+export interface ProfileResourceRow extends ProcessGroupResources {
+  profile_id: string;
+  profile_name: string;
+  runtime_state: RuntimeState;
+}
+
+export interface ResourceSnapshot {
+  generated_at: string;
+  system: SystemResources;
+  backend: ProcessGroupResources;
+  browsers: ProcessGroupResources & { profiles_running: number };
+  /** Only running profiles, sorted heaviest-first by the backend. */
+  profiles: ProfileResourceRow[];
+}
+
+// ---------------------------------------------------------------------------
+// Automation — record a flow, save it as a template, replay across profiles.
+// Contract: docs/backend-contract-automation.md. No step value ever holds a
+// website credential — email/password are variable references.
+// ---------------------------------------------------------------------------
+
+export type AutomationStepType = 'goto' | 'click' | 'fill' | 'select' | 'wait_url';
+
+/** Ordered locator strategies; replay tries them in order (stable id/name for
+ * fields, role + accessible name for clicks). */
+export interface AutomationSelector {
+  css?: string;
+  id?: string;
+  name?: string;
+  role?: string;
+  accessible_name?: string;
+  placeholder?: string;
+  aria_label?: string;
+  text?: string;
+  testid?: string;
+}
+
+export interface AutomationStep {
+  type: AutomationStepType;
+  url?: string;
+  url_pattern?: string;
+  success_url_pattern?: string;
+  selectors?: AutomationSelector[];
+  /** A literal value, OR a variable ref via `variable`. Credentials are never literals. */
+  value?: string | null;
+  variable?: string | null;
+}
+
+export interface AutomationTemplate {
+  id: string;
+  name: string;
+  description: string;
+  steps: AutomationStep[];
+  /** Variable names the template needs at run time, e.g. ['email','password']. */
+  variables: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export type RecordingStatus = 'recording' | 'stopped' | 'cancelled';
+
+export interface AutomationRecording {
+  id: string;
+  name: string;
+  description: string;
+  profile_id: string;
+  status: RecordingStatus;
+  step_count: number;
+  /** Set once stopped and converted to a template. */
+  template_id: string | null;
+  created_at: string;
+}
+
+export type RunItemStatus =
+  | 'pending'
+  | 'running'
+  | 'attention'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export interface AutomationRunItem {
+  profile_id: string;
+  profile_name: string;
+  status: RunItemStatus;
+  current_step: number;
+  total_steps: number;
+  last_completed_step: number;
+  message: string | null;
+  /** Human-readable gate reason when status is 'attention' (CAPTCHA/OTP/…). */
+  attention_reason: string | null;
+  error: string | null;
+}
+
+export type RunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface AutomationRun {
+  id: string;
+  template_id: string;
+  template_name: string;
+  status: RunStatus;
+  max_parallel: number;
+  total: number;
+  completed_count: number;
+  failed_count: number;
+  attention_count: number;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  items: AutomationRunItem[];
+}
+
+export interface AutomationRunAssignment {
+  profile_id: string;
+  variables: Record<string, string>;
+  credential_id?: string | null;
+}
+
+export interface StartRunPayload {
+  assignments: AutomationRunAssignment[];
+  max_parallel: number;
+}
+
+/** Pool counts only — never the credentials themselves. */
+export interface CredentialPoolSummary {
+  available: number;
+  reserved: number;
+  used: number;
+  failed: number;
+  total: number;
+}
+
+export type FactoryJobStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface ProfileFactoryItem {
+  id: string;
+  profile_id: string | null;
+  status: string;
+  message: string | null;
+}
+
+export interface ProfileFactoryJob {
+  id: string;
+  status: FactoryJobStatus;
+  quantity: number;
+  name_prefix: string;
+  automation_template_id: string | null;
+  start_automation: boolean;
+  created_count: number;
+  failed_count: number;
+  items: ProfileFactoryItem[];
+  created_at: string;
+}
+
+export interface StartFactoryPayload {
+  quantity: number;
+  name_prefix: string;
+  automation_template_id?: string | null;
+  start_automation: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Shopify Builder — connect a store, analyze, stage a plan, execute as drafts.
+// Contract: docs/backend-contract-shopify-builder.md. Draft-only: nothing is
+// ever published, and secrets (client id/secret, token, AI key) never return.
+// ---------------------------------------------------------------------------
+
+export type StoreCapabilityKey =
+  | 'write_products'
+  | 'write_pages'
+  | 'write_legal_policies'
+  | 'write_navigation'
+  | 'write_themes';
+
+export interface ShopifyStore {
+  id: string;
+  label: string;
+  shop_domain: string;
+  connected: boolean;
+  scopes: string[];
+  capabilities: Record<StoreCapabilityKey, boolean>;
+  shop_name: string | null;
+  product_count: number | null;
+  proxy_id: string | null;
+  exit_ip: string | null;
+  niche: string | null;
+  language: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StoreProfile {
+  niche: string | null;
+  language: string | null;
+  store_name: string;
+  support_email: string;
+}
+
+/** AI image generation settings. `has_api_key` only — the key never returns. */
+export interface AiImageSettings {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  has_api_key: boolean;
+}
+
+export interface ThemeInfo {
+  id: string;
+  name: string;
+  role: 'main' | 'unpublished' | 'demo';
+  presets: string[];
+}
+
+export interface ThemeLibrary {
+  integrated: ThemeInfo[];
+  store: ThemeInfo[];
+}
+
+export interface ProductRow {
+  handle: string;
+  title: string;
+  price: string;
+  variants: number;
+}
+
+export interface ProductCsvInspection {
+  total: number;
+  sample: ProductRow[];
+  columns_mapped: string[];
+  columns_unmapped: string[];
+}
+
+export interface ProductCatalog {
+  id: string;
+  name: string;
+  niche: string;
+  product_count: number;
+}
+
+export type PlanStepStatus = 'planned' | 'ready' | 'blocked' | 'running' | 'completed' | 'failed';
+
+export interface PlanStep {
+  key: string;
+  status: PlanStepStatus;
+  reason: string | null;
+  error: string | null;
+}
+
+export type BuildPlanStatus = 'staged' | 'running' | 'completed' | 'partial' | 'failed';
+
+export interface BuildPlan {
+  id: string;
+  store_id: string;
+  status: BuildPlanStatus;
+  mode: 'draft_only';
+  niche: string;
+  language: string;
+  theme_name: string;
+  preset: string;
+  product_count: number;
+  ai_hero: boolean;
+  steps: PlanStep[];
+  admin_url: string | null;
+  preview_url: string | null;
+  created_at: string;
+}
+
+export interface ConnectStorePayload {
+  label: string;
+  shop_domain: string;
+  client_id: string;
+  client_secret: string;
+  proxy_id?: string | null;
+}
+
+export interface CreatePlanPayload {
+  theme_id: string;
+  preset: string;
+  product_source: 'catalog' | 'csv';
+  catalog_id?: string | null;
+  niche_override?: string | null;
+  ai_hero: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Session history — one record per profile launch (read-only).
+// ---------------------------------------------------------------------------
+
+export type SessionExitReason = 'closed' | 'stopped' | 'crashed' | 'timeout' | 'unknown';
+
+export interface RuntimeSessionRecord {
+  id: string;
+  profile_id: string;
+  profile_name: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_seconds: number | null;
+  startup_ms: number | null;
+  exit_reason: SessionExitReason | null;
+}
+
+// ---------------------------------------------------------------------------
+// Backups — verified local snapshots of manager metadata (never browser data).
+// ---------------------------------------------------------------------------
+
+export interface BackupArchive {
+  id: string;
+  created_at: string;
+  size_bytes: number;
+  automatic: boolean;
+  verified: boolean;
+  /** e.g. ['profiles','proxies','workspaces','extensions']. */
+  contents: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Media engine — virtual camera/mic/screen assets injected into profiles.
+// ---------------------------------------------------------------------------
+
+export type MediaKind = 'camera' | 'microphone' | 'screen';
+
+export interface MediaAsset {
+  id: string;
+  name: string;
+  kind: MediaKind;
+  /** MIME type, e.g. 'image/jpeg', 'video/mp4', 'audio/wav'. */
+  format: string;
+  size_bytes: number;
+  assigned_profile_count: number;
+  created_at: string;
+}
+
+export interface MediaSettings {
+  enabled: boolean;
+}
+
+export interface CreateMediaAssetPayload {
+  name: string;
+  kind: MediaKind;
+  format: string;
 }
 
 // ---------------------------------------------------------------------------

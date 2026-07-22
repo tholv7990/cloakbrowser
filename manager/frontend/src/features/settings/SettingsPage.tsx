@@ -13,6 +13,7 @@ import { LoadingBlock, ErrorState } from '@/components/ui/states';
 import { useToast } from '@/components/ui/Toast';
 import { useT } from '@/i18n';
 import { useCheckBrowserUpdate, useSettings, useUpdateSettings } from './api';
+import { BackupsSection } from './BackupsSection';
 
 function Section({
   title,
@@ -225,6 +226,8 @@ export function SettingsPage() {
           </Button>
         </div>
       </Section>
+
+      <BackupsSection />
 
       <div className="sticky bottom-0 flex justify-end gap-2 border-t border-line bg-canvas/80 py-3 backdrop-blur">
         <Button variant="primary" onClick={save} loading={update.isPending}>
