@@ -205,6 +205,7 @@ class ProfileImportWarning(PortableStrictModel):
     code: Literal[
         "proxy_assignment_skipped",
         "extension_missing",
+        "extension_ambiguous",
         "chrome_extension_startup_url_skipped",
     ]
     message: str = Field(min_length=1, max_length=240)

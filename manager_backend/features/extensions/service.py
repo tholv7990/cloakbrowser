@@ -12,12 +12,20 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from ...config import ManagerSettings
 from ...errors import ManagerError
 from ...models import Extension, Profile
+from .filesystem import (
+    DEFAULT_MANIFEST_FILESYSTEM,
+    ApprovedDirectory,
+    ManifestFilesystem,
+    ManifestReadFailure,
+    ManifestTooLarge,
+    UnsafeManifestPath,
+)
 
 
 MAX_MANIFEST_BYTES = 1024 * 1024
@@ -111,7 +119,9 @@ def _path_has_reparse_component(path: Path) -> bool:
     return False
 
 
-def _canonical_directory(settings: ManagerSettings, supplied: str) -> Path:
+def _canonical_directory(
+    settings: ManagerSettings, supplied: str
+) -> ApprovedDirectory:
     if "\0" in supplied:
         raise _path_error()
     candidate = Path(supplied).expanduser()
@@ -136,10 +146,20 @@ def _canonical_directory(settings: ManagerSettings, supplied: str) -> Path:
             422,
             {"directory": "not_directory"},
         )
-    forbidden = (settings.profile_root.resolve(strict=False), *_temporary_roots(), *_system_roots())
+    forbidden = (
+        settings.profile_root.resolve(strict=False),
+        *_temporary_roots(),
+        *_system_roots(),
+    )
     if any(_is_within(resolved, root) for root in forbidden):
         raise _path_error()
-    return resolved
+    try:
+        identity = os.stat(resolved, follow_symlinks=False)
+    except OSError:
+        raise _path_error() from None
+    if not stat.S_ISDIR(identity.st_mode) or _path_has_reparse_component(resolved):
+        raise _path_error()
+    return ApprovedDirectory(resolved, identity.st_dev, identity.st_ino)
 
 
 def _load_json_object(raw: bytes) -> dict[str, Any]:
@@ -193,36 +213,7 @@ def _permission_summary(manifest: dict[str, Any]) -> list[str]:
     return sorted(values)[:MAX_PERMISSIONS]
 
 
-def _manifest_metadata(directory: Path) -> ManifestMetadata:
-    manifest_path = directory / "manifest.json"
-    try:
-        if _path_has_reparse_component(manifest_path):
-            raise _path_error()
-        before = manifest_path.stat()
-        if not stat.S_ISREG(before.st_mode):
-            raise _manifest_error()
-        if before.st_size > MAX_MANIFEST_BYTES:
-            raise ManagerError(
-                "extension_manifest_too_large",
-                "The extension manifest exceeds the 1 MiB limit.",
-                413,
-                {"manifest": "too_large"},
-            )
-        raw = manifest_path.read_bytes()
-        after = manifest_path.stat()
-    except ManagerError:
-        raise
-    except OSError:
-        raise _manifest_error() from None
-    if before.st_ino != after.st_ino or before.st_size != after.st_size:
-        raise _manifest_error()
-    if len(raw) > MAX_MANIFEST_BYTES:
-        raise ManagerError(
-            "extension_manifest_too_large",
-            "The extension manifest exceeds the 1 MiB limit.",
-            413,
-            {"manifest": "too_large"},
-        )
+def _manifest_metadata(raw: bytes) -> ManifestMetadata:
     manifest = _load_json_object(raw)
     manifest_version = manifest.get("manifest_version")
     if type(manifest_version) is not int or manifest_version not in (2, 3):
@@ -251,6 +242,35 @@ def _manifest_metadata(directory: Path) -> ManifestMetadata:
     )
 
 
+def _read_manifest_metadata(
+    settings: ManagerSettings,
+    supplied: str,
+    filesystem: ManifestFilesystem,
+) -> tuple[Path, ManifestMetadata]:
+    approved = _canonical_directory(settings, supplied)
+    try:
+        raw = filesystem.read_manifest(approved, MAX_MANIFEST_BYTES)
+    except UnsafeManifestPath:
+        raise _path_error() from None
+    except ManifestTooLarge:
+        raise ManagerError(
+            "extension_manifest_too_large",
+            "The extension manifest exceeds the 1 MiB limit.",
+            413,
+            {"manifest": "too_large"},
+        ) from None
+    except ManifestReadFailure:
+        raise _manifest_error() from None
+    if len(raw) > MAX_MANIFEST_BYTES:
+        raise ManagerError(
+            "extension_manifest_too_large",
+            "The extension manifest exceeds the 1 MiB limit.",
+            413,
+            {"manifest": "too_large"},
+        )
+    return approved.path, _manifest_metadata(raw)
+
+
 def _apply_metadata(extension: Extension, metadata: ManifestMetadata) -> None:
     extension.name = metadata.name
     extension.version = metadata.version
@@ -274,10 +294,13 @@ def list_extensions(session: Session) -> list[Extension]:
 
 
 def register_extension(
-    session: Session, settings: ManagerSettings, supplied: str
+    session: Session,
+    settings: ManagerSettings,
+    supplied: str,
+    *,
+    filesystem: ManifestFilesystem = DEFAULT_MANIFEST_FILESYSTEM,
 ) -> tuple[Extension, bool]:
-    directory = _canonical_directory(settings, supplied)
-    metadata = _manifest_metadata(directory)
+    directory, metadata = _read_manifest_metadata(settings, supplied, filesystem)
     normalized = str(directory)
     existing = session.scalar(select(Extension).where(Extension.directory == normalized))
     if existing is not None:
@@ -314,11 +337,14 @@ def update_extension(
     *,
     enabled: bool | None,
     refresh: bool,
+    filesystem: ManifestFilesystem = DEFAULT_MANIFEST_FILESYSTEM,
 ) -> Extension:
     extension = get_extension(session, extension_id)
     if refresh:
-        directory = _canonical_directory(settings, extension.directory)
-        _apply_metadata(extension, _manifest_metadata(directory))
+        _directory, metadata = _read_manifest_metadata(
+            settings, extension.directory, filesystem
+        )
+        _apply_metadata(extension, metadata)
     if enabled is not None:
         extension.enabled = enabled
     session.commit()
@@ -332,29 +358,35 @@ def unregister_extension(session: Session, extension_id: str) -> None:
     session.commit()
 
 
+def _reserve_assignment_transaction(session: Session) -> None:
+    session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+
+
 def set_profile_extensions(
     session: Session, profile_id: str, ids: list[str]
 ) -> list[Extension]:
-    profile = session.get(Profile, profile_id)
-    if profile is None or profile.deleted_at is not None:
-        raise ManagerError("profile_not_found", "The requested profile was not found.", 404)
-    unique_ids = list(dict.fromkeys(ids))
-    extensions = (
-        list(session.scalars(select(Extension).where(Extension.id.in_(unique_ids))))
-        if unique_ids
-        else []
-    )
-    if len(extensions) != len(unique_ids):
-        raise ManagerError(
-            "invalid_extension_reference",
-            "One or more extension references do not exist.",
-            422,
-            {"extension_ids": "contains_unknown_id"},
-        )
-    by_id = {extension.id: extension for extension in extensions}
-    ordered = [by_id[extension_id] for extension_id in unique_ids]
-    profile.extensions = ordered
     try:
+        _reserve_assignment_transaction(session)
+        profile = session.get(Profile, profile_id)
+        if profile is None or profile.deleted_at is not None:
+            raise ManagerError(
+                "profile_not_found", "The requested profile was not found.", 404
+            )
+        extensions = (
+            list(session.scalars(select(Extension).where(Extension.id.in_(ids))))
+            if ids
+            else []
+        )
+        if len(extensions) != len(ids):
+            raise ManagerError(
+                "invalid_extension_reference",
+                "One or more extension references do not exist.",
+                422,
+                {"extension_ids": "contains_unknown_id"},
+            )
+        by_id = {extension.id: extension for extension in extensions}
+        ordered = [by_id[extension_id] for extension_id in ids]
+        profile.extensions = ordered
         session.commit()
     except IntegrityError:
         session.rollback()
@@ -364,6 +396,16 @@ def set_profile_extensions(
             422,
             {"extension_ids": "changed_during_update"},
         ) from None
+    except OperationalError:
+        session.rollback()
+        raise ManagerError(
+            "extension_assignment_conflict",
+            "The profile extension assignment changed concurrently. Try again.",
+            409,
+        ) from None
+    except Exception:
+        session.rollback()
+        raise
     return ordered
 
 

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from ...dependencies import get_session
 from .schemas import (
+    CanonicalUuid,
     ExtensionPatch,
     ExtensionRead,
     ExtensionRegister,
@@ -50,13 +51,13 @@ def register(
 
 
 @router.get("/extensions/{extension_id}", response_model=ExtensionRead)
-def get(extension_id: str, session: SessionDependency):
+def get(extension_id: CanonicalUuid, session: SessionDependency):
     return extension_to_dict(get_extension(session, extension_id))
 
 
 @router.patch("/extensions/{extension_id}", response_model=ExtensionRead)
 def patch(
-    extension_id: str,
+    extension_id: CanonicalUuid,
     payload: ExtensionPatch,
     request: Request,
     session: SessionDependency,
@@ -72,7 +73,7 @@ def patch(
 
 
 @router.delete("/extensions/{extension_id}", status_code=status.HTTP_204_NO_CONTENT)
-def unregister(extension_id: str, session: SessionDependency) -> Response:
+def unregister(extension_id: CanonicalUuid, session: SessionDependency) -> Response:
     unregister_extension(session, extension_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -82,7 +83,9 @@ def unregister(extension_id: str, session: SessionDependency) -> Response:
     response_model=ProfileExtensionAssignmentRead,
 )
 def assign(
-    profile_id: str, payload: ProfileExtensionAssignment, session: SessionDependency
+    profile_id: CanonicalUuid,
+    payload: ProfileExtensionAssignment,
+    session: SessionDependency,
 ):
     assigned = set_profile_extensions(session, profile_id, payload.extension_ids)
     return {"extension_ids": [extension.id for extension in assigned]}

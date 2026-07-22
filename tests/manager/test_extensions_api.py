@@ -2,9 +2,15 @@ from __future__ import annotations
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
 import pytest
+from manager_backend.errors import ManagerError
+from manager_backend.features.extensions import service as extension_service
+from manager_backend.features.extensions.service import set_profile_extensions
+from manager_backend.models import Extension, Profile
 
 
 def _manifest(directory: Path, **changes) -> Path:
@@ -250,7 +256,7 @@ def test_complete_profile_assignment_is_strict_transactional_and_exported(
     assigned = client.put(
         f"/api/v1/profiles/{profile['id']}/extensions",
         headers=auth_headers,
-        json={"extension_ids": [second["id"], first["id"], second["id"]]},
+        json={"extension_ids": [second["id"], first["id"]]},
     )
     assert assigned.status_code == 200
     assert assigned.json() == {"extension_ids": [second["id"], first["id"]]}
@@ -258,7 +264,12 @@ def test_complete_profile_assignment_is_strict_transactional_and_exported(
     rejected = client.put(
         f"/api/v1/profiles/{profile['id']}/extensions",
         headers=auth_headers,
-        json={"extension_ids": [first["id"], "missing"]},
+        json={
+            "extension_ids": [
+                first["id"],
+                "00000000-0000-4000-8000-000000000000",
+            ]
+        },
     )
     assert rejected.status_code == 422
     assert rejected.json()["error"]["code"] == "invalid_extension_reference"
@@ -281,6 +292,149 @@ def test_complete_profile_assignment_is_strict_transactional_and_exported(
     )
     assert cleared.status_code == 200
     assert cleared.json() == {"extension_ids": []}
+
+
+def test_assignment_rejects_duplicate_noncanonical_and_oversized_ids(
+    client, auth_headers
+):
+    profile = client.post(
+        "/api/v1/profiles", headers=auth_headers, json={"name": "Strict IDs"}
+    ).json()
+    canonical = "12345678-1234-4234-9234-123456789abc"
+    cases = [
+        [canonical, canonical],
+        ["12345678-1234-4234-9234-123456789ABC"],
+        ["x" * 37],
+        ["x" * 1_000_000],
+    ]
+
+    for extension_ids in cases:
+        response = client.put(
+            f"/api/v1/profiles/{profile['id']}/extensions",
+            headers=auth_headers,
+            json={"extension_ids": extension_ids},
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "validation_error"
+        assert "xxxxx" not in response.text
+
+    invalid_route = client.get(
+        "/api/v1/extensions/" + "z" * 10_000,
+        headers=auth_headers,
+    )
+    assert invalid_route.status_code == 422
+    assert invalid_route.json()["error"]["code"] == "validation_error"
+    assert "zzzzz" not in invalid_route.text
+
+
+def test_complete_assignment_concurrency_never_merges_lists(
+    db_session_factory, monkeypatch
+):
+    with db_session_factory() as session:
+        profile = Profile(
+            name="Concurrent assignment",
+            fingerprint_seed="901",
+            fingerprint_config_hash="a" * 64,
+        )
+        first = Extension(
+            directory=r"C:\extensions\first",
+            name="First",
+            version="1",
+            manifest_version=3,
+            manifest_hash="1" * 64,
+        )
+        second = Extension(
+            directory=r"C:\extensions\second",
+            name="Second",
+            version="1",
+            manifest_version=3,
+            manifest_hash="2" * 64,
+        )
+        session.add_all([profile, first, second])
+        session.commit()
+        profile_id, first_id, second_id = profile.id, first.id, second.id
+
+    both_ready = Barrier(2)
+    original_reserve = extension_service._reserve_assignment_transaction
+
+    def synchronize_reservation(session):
+        both_ready.wait(timeout=5)
+        original_reserve(session)
+
+    monkeypatch.setattr(
+        extension_service, "_reserve_assignment_transaction", synchronize_reservation
+    )
+
+    def assign(extension_id):
+        with db_session_factory() as session:
+            try:
+                return set_profile_extensions(session, profile_id, [extension_id])
+            except Exception as error:
+                return error
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = [
+            future.result(timeout=10)
+            for future in (
+                executor.submit(assign, first_id),
+                executor.submit(assign, second_id),
+            )
+        ]
+
+    assert all(
+        isinstance(outcome, list)
+        or (
+            isinstance(outcome, ManagerError)
+            and outcome.code == "extension_assignment_conflict"
+            and outcome.status_code == 409
+        )
+        for outcome in outcomes
+    )
+    with db_session_factory() as session:
+        assigned = {item.id for item in session.get(Profile, profile_id).extensions}
+    assert assigned in ({first_id}, {second_id})
+
+
+def test_complete_assignment_stress_keeps_exactly_one_complete_list(db_session_factory):
+    with db_session_factory() as session:
+        profile = Profile(
+            name="Assignment stress",
+            fingerprint_seed="902",
+            fingerprint_config_hash="b" * 64,
+        )
+        extensions = [
+            Extension(
+                directory=rf"C:\extensions\stress-{index}",
+                name=f"Stress {index}",
+                version="1",
+                manifest_version=3,
+                manifest_hash=str(index + 3) * 64,
+            )
+            for index in range(2)
+        ]
+        session.add_all([profile, *extensions])
+        session.commit()
+        profile_id = profile.id
+        extension_ids = [item.id for item in extensions]
+
+    for _attempt in range(20):
+        start = Barrier(2)
+
+        def assign(extension_id):
+            start.wait(timeout=5)
+            with db_session_factory() as session:
+                try:
+                    set_profile_extensions(session, profile_id, [extension_id])
+                except ManagerError as error:
+                    assert error.code == "extension_assignment_conflict"
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(assign, item) for item in extension_ids]
+            for future in futures:
+                future.result(timeout=10)
+        with db_session_factory() as session:
+            assigned = {item.id for item in session.get(Profile, profile_id).extensions}
+        assert assigned in ({extension_ids[0]}, {extension_ids[1]})
 
 
 def test_mutations_require_authentication_origin_csrf_and_strict_payload(

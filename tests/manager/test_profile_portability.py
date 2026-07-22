@@ -24,6 +24,7 @@ from manager_backend.features.portability.schemas import (
     ProfileExportV1,
 )
 from manager_backend.models import (
+    Extension,
     Folder,
     Profile,
     Proxy,
@@ -528,6 +529,98 @@ def test_import_warns_without_assigning_proxy_or_missing_extensions(
     with db_session_factory() as session:
         imported = session.get(Profile, result.profile_id)
         assert imported.proxy_id is None
+
+
+def test_extension_export_import_roundtrip_resolves_enabled_exact_identity(
+    db_session_factory, settings
+):
+    with db_session_factory() as session:
+        extension = Extension(
+            directory=r"C:\extensions\roundtrip",
+            name="  Local   Helper ",
+            version=" 1.2.3 ",
+            manifest_version=3,
+            manifest_hash="a" * 64,
+            enabled=True,
+        )
+        source = _persist_rich_profile(session)
+        source.extensions = [extension]
+        session.add(extension)
+        session.commit()
+        source_id, extension_id = source.id, extension.id
+        document = export_profile(session, source_id, exported_at=FIXED_EXPORTED_AT)
+
+    assert document.extensions[0].model_dump() == {
+        "name": "  Local   Helper ",
+        "version": " 1.2.3 ",
+        "manifest_version": 3,
+        "manifest_hash": "a" * 64,
+    }
+
+    with db_session_factory() as session:
+        result = import_profile(session, settings, document)
+
+    assert "extension_missing" not in [warning.code for warning in result.warnings]
+    assert "extension_ambiguous" not in [warning.code for warning in result.warnings]
+    with db_session_factory() as session:
+        imported = session.get(Profile, result.profile_id)
+        assert [item.id for item in imported.extensions] == [extension_id]
+
+
+def test_import_warns_and_skips_ambiguous_or_disabled_extension_identity(
+    db_session_factory, settings
+):
+    identity = {
+        "name": "Duplicate Helper",
+        "version": "2.0",
+        "manifest_version": 3,
+        "manifest_hash": "b" * 64,
+    }
+    with db_session_factory() as session:
+        session.add_all(
+            [
+                Extension(directory=r"C:\extensions\duplicate-a", enabled=True, **identity),
+                Extension(directory=r"C:\extensions\duplicate-b", enabled=True, **identity),
+                Extension(
+                    directory=r"C:\extensions\disabled",
+                    name="Disabled Helper",
+                    version="1",
+                    manifest_version=2,
+                    manifest_hash="c" * 64,
+                    enabled=False,
+                ),
+            ]
+        )
+        session.commit()
+
+    raw = _document()
+    raw["extensions"] = [
+        {
+            "name": " duplicate   helper ",
+            "version": " 2.0 ",
+            "manifest_version": 3,
+            "manifest_hash": "b" * 64,
+        },
+        {
+            "name": "Disabled Helper",
+            "version": "1",
+            "manifest_version": 2,
+            "manifest_hash": "c" * 64,
+        },
+    ]
+    document = ProfileExportV1.model_validate_json(json.dumps(raw))
+
+    with db_session_factory() as session:
+        result = import_profile(session, settings, document)
+
+    assert [warning.code for warning in result.warnings] == [
+        "extension_ambiguous",
+        "extension_missing",
+    ]
+    assert "Duplicate Helper" not in result.model_dump_json()
+    assert "Disabled Helper" not in result.model_dump_json()
+    with db_session_factory() as session:
+        assert session.get(Profile, result.profile_id).extensions == []
 
 
 def test_import_filters_machine_specific_extension_startup_urls(

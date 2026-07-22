@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, selectinload
 from ...config import ManagerSettings
 from ...errors import ManagerError
 from ...fingerprints import build_fingerprint_identity, generate_unique_seed
-from ...models import Folder, Profile, Tag, WorkflowStatus, utc_now
+from ...models import Extension, Folder, Profile, Tag, WorkflowStatus, utc_now
 from ..profiles.directories import resolve_profile_directory
 from .schemas import (
     PortableBehaviorSettings,
@@ -304,7 +304,66 @@ def _remove_empty_profile_directory(path: Path | None) -> None:
         pass
 
 
-def _warnings(document: ProfileExportV1) -> list[ProfileImportWarning]:
+def _portable_extension_key(
+    value: PortableExtension | Extension,
+) -> tuple[str, str, int, str]:
+    return (
+        _normalized_name(value.name),
+        _normalized_name(value.version),
+        value.manifest_version,
+        value.manifest_hash.lower(),
+    )
+
+
+def _resolve_extensions(
+    session: Session, references: list[PortableExtension]
+) -> tuple[list[Extension], list[ProfileImportWarning]]:
+    if not references:
+        return [], []
+    hashes = {reference.manifest_hash for reference in references}
+    candidates = list(
+        session.scalars(
+            select(Extension).where(
+                Extension.enabled.is_(True), Extension.manifest_hash.in_(hashes)
+            )
+        )
+    )
+    by_identity: dict[tuple[str, str, int, str], list[Extension]] = {}
+    for candidate in candidates:
+        by_identity.setdefault(_portable_extension_key(candidate), []).append(candidate)
+
+    resolved: list[Extension] = []
+    resolved_ids: set[str] = set()
+    warnings: list[ProfileImportWarning] = []
+    for index, reference in enumerate(references):
+        matches = by_identity.get(_portable_extension_key(reference), [])
+        if len(matches) == 1:
+            match = matches[0]
+            if match.id not in resolved_ids:
+                resolved.append(match)
+                resolved_ids.add(match.id)
+            continue
+        ambiguous = len(matches) > 1
+        warnings.append(
+            ProfileImportWarning(
+                code="extension_ambiguous" if ambiguous else "extension_missing",
+                message=(
+                    f"Extension reference {index + 1} was not assigned because "
+                    + (
+                        "multiple registered extensions share its portable identity."
+                        if ambiguous
+                        else "no matching enabled local extension is registered."
+                    )
+                ),
+            )
+        )
+    return resolved, warnings
+
+
+def _warnings(
+    document: ProfileExportV1,
+    extension_warnings: list[ProfileImportWarning],
+) -> list[ProfileImportWarning]:
     warnings: list[ProfileImportWarning] = []
     if document.profile.proxy is not None:
         warnings.append(
@@ -313,16 +372,7 @@ def _warnings(document: ProfileExportV1) -> list[ProfileImportWarning]:
                 message="Proxy metadata was preserved for review, but no proxy was assigned.",
             )
         )
-    warnings.extend(
-        ProfileImportWarning(
-            code="extension_missing",
-            message=(
-                f"Extension reference {index + 1} was not assigned because no matching "
-                "local extension is registered."
-            ),
-        )
-        for index, _extension in enumerate(document.extensions)
-    )
+    warnings.extend(extension_warnings)
     _urls, skipped_extension_urls = _portable_startup_urls(
         document.profile.startup_urls
     )
@@ -346,6 +396,7 @@ def import_profile(
 ) -> ProfileImportResult:
     profile_directory: Path | None = None
     directory_created = False
+    extension_warnings: list[ProfileImportWarning] = []
     try:
         _reserve_import_transaction(session)
         index = _load_import_index(session)
@@ -355,6 +406,7 @@ def import_profile(
             session, index, WorkflowStatus, portable.workflow_status
         )
         tags = _resolve_tags(session, index, portable.tags)
+        extensions, extension_warnings = _resolve_extensions(session, document.extensions)
         seed = _new_seed(session)
         startup_urls, _skipped_extension_urls = _portable_startup_urls(
             portable.startup_urls
@@ -398,6 +450,7 @@ def import_profile(
             behavior=behavior,
             proxy_id=None,
             test_proxy_before_launch=portable.test_proxy_before_launch,
+            extensions=extensions,
         )
         session.add(profile)
         session.flush()
@@ -438,5 +491,5 @@ def import_profile(
     return ProfileImportResult(
         profile_id=profile.id,
         profile_name=profile.name,
-        warnings=_warnings(document),
+        warnings=_warnings(document, extension_warnings),
     )
