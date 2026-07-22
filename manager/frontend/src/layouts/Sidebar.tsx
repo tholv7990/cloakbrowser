@@ -31,7 +31,7 @@ const NAV: { to: string; key: TranslationKey; icon: typeof Users; cap?: keyof Ap
     { to: '/shopify', key: 'nav.shopify', icon: ShoppingBag, cap: 'shopify_builder' },
     { to: '/media', key: 'nav.media', icon: Clapperboard, cap: 'media' },
     { to: '/diagnostics', key: 'nav.diagnostics', icon: Activity, cap: 'fingerprint_diagnostics' },
-    { to: '/resources', key: 'nav.resources', icon: Gauge, cap: 'browser_runtime' },
+    { to: '/resources', key: 'nav.resources', icon: Gauge, cap: 'resources' },
     { to: '/settings', key: 'nav.settings', icon: SettingsIcon, cap: 'settings' },
   ];
 

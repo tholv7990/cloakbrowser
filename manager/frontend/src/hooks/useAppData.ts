@@ -36,6 +36,7 @@ const ALL_CAPABILITIES: AppCapabilities = {
   automation: true,
   shopify_builder: true,
   media: true,
+  resources: true,
 };
 
 export function useCapabilities(): AppCapabilities {

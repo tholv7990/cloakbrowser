@@ -421,6 +421,8 @@ export interface AppCapabilities {
   shopify_builder?: boolean;
   /** Optional — present once the media engine backend ships. Treated as false when absent. */
   media?: boolean;
+  /** Optional — present once the resource monitor / session history backend ships. */
+  resources?: boolean;
 }
 
 export interface Settings {

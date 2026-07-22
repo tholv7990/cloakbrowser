@@ -84,7 +84,7 @@ export const router = createBrowserRouter([
       {
         path: 'resources',
         element: (
-          <RequireCapability cap="browser_runtime">
+          <RequireCapability cap="resources">
             <ResourcesPage />
           </RequireCapability>
         ),

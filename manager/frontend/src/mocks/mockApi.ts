@@ -586,6 +586,7 @@ export const mockApi: ApiAdapter = {
         automation: true,
         shopify_builder: true,
         media: true,
+        resources: true,
       },
       running_session_count: mockStore.profiles.filter(
         (profile) =>
