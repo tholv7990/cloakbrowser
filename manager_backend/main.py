@@ -30,6 +30,9 @@ from .features.proxies.providers import DefaultProviderClient
 from .features.proxies.service import build_proxy_preflight
 from .features.proxies.quality import ProxyQualityManager, recover_orphan_quality_runs
 from .features.backups.service import maybe_auto_backup
+from .features.automation.controller import StubAutomationController
+from .features.automation.coordinator import RunCoordinator, recover_interrupted_runs
+from .features.automation.factory import FactoryCoordinator
 from .features.portability.browser_cookies import CookieContextAdapter
 from .features.settings.store import SettingsStore
 from .features.diagnostics.service import DiagnosticManager
@@ -79,6 +82,9 @@ def create_app(
             application.state.proxy_quality_recovered = recover_orphan_quality_runs(
                 application.state.session_factory
             )
+            application.state.automation_recovered = recover_interrupted_runs(
+                application.state.session_factory
+            )
             application.state.diagnostic_recovered = (
                 application.state.diagnostic_manager.recover_orphans()
             )
@@ -101,6 +107,8 @@ def create_app(
                     diagnostic_shutdown_error = error
             application.state.runtime_manager.shutdown()
             application.state.proxy_quality_manager.shutdown()
+            application.state.automation_runs.shutdown()
+            application.state.automation_factory.shutdown()
             application.state.engine.dispose()
             if diagnostic_shutdown_error is not None:
                 raise diagnostic_shutdown_error
@@ -143,6 +151,15 @@ def create_app(
     app.state.cookie_context_adapter = CookieContextAdapter(resolved)
     app.state.proxy_quick_tester = ScannerQuickTester()
     app.state.proxy_provider_client = DefaultProviderClient()
+    app.state.automation_controller = StubAutomationController()
+    app.state.automation_runs = RunCoordinator(
+        app.state.session_factory,
+        app.state.credential_store,
+        app.state.automation_controller,
+    )
+    app.state.automation_factory = FactoryCoordinator(
+        app.state.session_factory, app.state.automation_runs
+    )
     app.state.proxy_quality_manager = ProxyQualityManager(
         app.state.session_factory, app.state.credential_store, resolved
     )

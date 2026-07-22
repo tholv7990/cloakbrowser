@@ -1,0 +1,334 @@
+from __future__ import annotations
+
+import time
+
+from manager_backend.features.proxies.credentials import MemoryCredentialStore
+
+
+# --- fake browser controller ------------------------------------------------
+class FakeController:
+    """Stands in for the live recorder/replay so orchestration is deterministic."""
+
+    def __init__(self):
+        self._recordings: dict[str, int] = {}
+        self.recorded_steps = [{"type": "goto", "url": "https://example.com"}]
+        self.behaviors: dict[str, callable] = {}  # profile_id -> fn(ctx)
+
+    def start_recording(self, recording_id, profile_id):
+        self._recordings[recording_id] = 0
+
+    def recording_step_count(self, recording_id):
+        self._recordings[recording_id] = self._recordings.get(recording_id, 0) + 1
+        return self._recordings[recording_id]
+
+    def finish_recording(self, recording_id):
+        return list(self.recorded_steps)
+
+    def cancel_recording(self, recording_id):
+        return None
+
+    def run_item(self, ctx):
+        behavior = self.behaviors.get(ctx.profile_id)
+        if behavior is not None:
+            behavior(ctx)
+
+
+def _setup(client):
+    store = MemoryCredentialStore()
+    client.app.state.credential_store = store
+    fake = FakeController()
+    client.app.state.automation_controller = fake
+    client.app.state.automation_runs._controller = fake
+    client.app.state.automation_runs._store = store
+    return fake, store
+
+
+SIMPLE_STEPS = [
+    {"type": "goto", "url": "https://example.com"},
+    {"type": "click", "selectors": [{"text": "Go"}]},
+]
+CRED_STEPS = [
+    {"type": "goto", "url": "https://example.com/login"},
+    {"type": "fill", "selectors": [{"css": "#email"}], "variable": "email"},
+    {"type": "fill", "selectors": [{"css": "#password"}], "variable": "password"},
+    {"type": "click", "selectors": [{"role": "button"}]},
+]
+CUSTOM_STEPS = [{"type": "fill", "selectors": [{"css": "#code"}], "variable": "promo"}]
+
+
+def _profile(client, auth_headers, name):
+    return client.post("/api/v1/profiles", headers=auth_headers, json={"name": name}).json()
+
+
+def _save_template(client, auth_headers, template_id, steps, name="Flow"):
+    return client.put(
+        f"/api/v1/automations/templates/{template_id}",
+        headers=auth_headers,
+        json={"name": name, "description": "", "steps": steps},
+    )
+
+
+def _poll_run(client, run_id, until, timeout=8.0):
+    deadline = time.time() + timeout
+    run = client.get(f"/api/v1/automations/runs/{run_id}").json()
+    while time.time() < deadline:
+        if until(run):
+            return run
+        time.sleep(0.05)
+        run = client.get(f"/api/v1/automations/runs/{run_id}").json()
+    return run
+
+
+# --- templates --------------------------------------------------------------
+def test_template_upsert_list_get_delete(client, auth_headers):
+    saved = _save_template(client, auth_headers, "tmpl-1", CRED_STEPS, name="Login")
+    assert saved.status_code == 200, saved.text
+    body = saved.json()
+    assert body["id"] == "tmpl-1"
+    assert body["variables"] == ["email", "password"]  # derived from steps
+    assert len(body["steps"]) == len(CRED_STEPS)
+
+    assert [t["id"] for t in client.get("/api/v1/automations/templates").json()] == ["tmpl-1"]
+    assert client.get("/api/v1/automations/templates/tmpl-1").json()["name"] == "Login"
+
+    assert client.delete("/api/v1/automations/templates/tmpl-1", headers=auth_headers).status_code == 204
+    assert client.get("/api/v1/automations/templates").json() == []
+
+
+# --- credentials ------------------------------------------------------------
+def test_credential_import_dedupes_and_never_leaks(client, auth_headers):
+    _setup(client)
+    imported = client.post(
+        "/api/v1/automations/credentials/import",
+        headers=auth_headers,
+        json={"text": "a@x.com:secret1\nb@x.com:secret2\na@x.com:secret1\n"},
+    )
+    assert imported.status_code == 200
+    summary = imported.json()
+    assert summary == {"available": 2, "reserved": 0, "used": 0, "failed": 0, "total": 2}
+    assert "secret1" not in imported.text
+    assert client.get("/api/v1/automations/credentials").json()["available"] == 2
+
+
+# --- recordings -------------------------------------------------------------
+def test_recording_lifecycle_stop_creates_template(client, auth_headers):
+    _setup(client)
+    profile = _profile(client, auth_headers, "Recorder")
+    started = client.post(
+        "/api/v1/automations/recordings",
+        headers=auth_headers,
+        json={"name": "Signup", "profile_id": profile["id"], "description": ""},
+    )
+    assert started.status_code == 202, started.text
+    recording_id = started.json()["id"]
+    assert started.json()["status"] == "recording"
+
+    polled = client.get(f"/api/v1/automations/recordings/{recording_id}").json()
+    assert polled["step_count"] >= 1  # controller reports progress
+
+    stopped = client.post(
+        f"/api/v1/automations/recordings/{recording_id}/stop", headers=auth_headers
+    )
+    assert stopped.status_code == 200
+    template = stopped.json()
+    assert template["name"] == "Signup"
+    assert len(template["steps"]) == 1
+
+    after = client.get(f"/api/v1/automations/recordings/{recording_id}").json()
+    assert after["status"] == "stopped"
+    assert after["template_id"] == template["id"]
+
+
+# --- run validation ---------------------------------------------------------
+def test_run_rejects_duplicate_profiles(client, auth_headers):
+    _setup(client)
+    profile = _profile(client, auth_headers, "Dup")
+    _save_template(client, auth_headers, "t-dup", SIMPLE_STEPS)
+    response = client.post(
+        "/api/v1/automations/templates/t-dup/runs",
+        headers=auth_headers,
+        json={
+            "assignments": [
+                {"profile_id": profile["id"], "variables": {}},
+                {"profile_id": profile["id"], "variables": {}},
+            ],
+            "max_parallel": 1,
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "duplicate_profile"
+
+
+def test_run_rejects_missing_custom_variable(client, auth_headers):
+    _setup(client)
+    profile = _profile(client, auth_headers, "NoVar")
+    _save_template(client, auth_headers, "t-var", CUSTOM_STEPS)
+    response = client.post(
+        "/api/v1/automations/templates/t-var/runs",
+        headers=auth_headers,
+        json={"assignments": [{"profile_id": profile["id"], "variables": {}}], "max_parallel": 1},
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "missing_variables"
+
+
+def test_run_requires_a_credential_per_profile(client, auth_headers):
+    _setup(client)
+    one = _profile(client, auth_headers, "One")
+    two = _profile(client, auth_headers, "Two")
+    _save_template(client, auth_headers, "t-cred", CRED_STEPS)
+    client.post(
+        "/api/v1/automations/credentials/import",
+        headers=auth_headers,
+        json={"text": "only@x.com:pw"},  # a single credential for two profiles
+    )
+    response = client.post(
+        "/api/v1/automations/templates/t-cred/runs",
+        headers=auth_headers,
+        json={
+            "assignments": [
+                {"profile_id": one["id"], "variables": {}},
+                {"profile_id": two["id"], "variables": {}},
+            ],
+            "max_parallel": 2,
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "credential_unavailable"
+    # Reservation rolled back — the credential is still available.
+    assert client.get("/api/v1/automations/credentials").json()["available"] == 1
+
+
+# --- run execution ----------------------------------------------------------
+def test_run_completes_every_item(client, auth_headers):
+    _setup(client)  # default behavior: complete
+    profiles = [_profile(client, auth_headers, f"P{i}")["id"] for i in range(3)]
+    _save_template(client, auth_headers, "t-run", SIMPLE_STEPS)
+    started = client.post(
+        "/api/v1/automations/templates/t-run/runs",
+        headers=auth_headers,
+        json={"assignments": [{"profile_id": pid, "variables": {}} for pid in profiles], "max_parallel": 3},
+    )
+    assert started.status_code == 202, started.text
+    run_id = started.json()["id"]
+    run = _poll_run(client, run_id, lambda r: r["status"] == "completed")
+    assert run["status"] == "completed"
+    assert run["completed_count"] == 3
+    assert all(item["status"] == "completed" for item in run["items"])
+
+
+def test_human_gate_blocks_then_continue_resumes(client, auth_headers):
+    fake, _ = _setup(client)
+    profile = _profile(client, auth_headers, "Gated")
+    fake.behaviors[profile["id"]] = lambda ctx: ctx.request_attention("captcha detected")
+    _save_template(client, auth_headers, "t-gate", SIMPLE_STEPS)
+    run_id = client.post(
+        "/api/v1/automations/templates/t-gate/runs",
+        headers=auth_headers,
+        json={"assignments": [{"profile_id": profile["id"], "variables": {}}], "max_parallel": 1},
+    ).json()["id"]
+
+    run = _poll_run(client, run_id, lambda r: r["attention_count"] == 1)
+    assert run["items"][0]["status"] == "attention"
+    assert run["items"][0]["attention_reason"] == "captcha detected"
+
+    resumed = client.post(
+        f"/api/v1/automations/runs/{run_id}/profiles/{profile['id']}/continue",
+        headers=auth_headers,
+    )
+    assert resumed.status_code == 200
+    run = _poll_run(client, run_id, lambda r: r["status"] == "completed")
+    assert run["status"] == "completed"
+
+
+def test_retry_resumes_from_last_completed_step(client, auth_headers):
+    fake, _ = _setup(client)
+    profile = _profile(client, auth_headers, "Flaky")
+    attempts = {"n": 0}
+
+    def flaky(ctx):
+        if attempts["n"] == 0:
+            attempts["n"] = 1
+            ctx.set_progress(1)
+            raise RuntimeError("network blip")
+        assert ctx.start_step == 1  # resumed from the checkpoint
+        ctx.set_progress(2)
+
+    fake.behaviors[profile["id"]] = flaky
+    _save_template(client, auth_headers, "t-retry", SIMPLE_STEPS)
+    run_id = client.post(
+        "/api/v1/automations/templates/t-retry/runs",
+        headers=auth_headers,
+        json={"assignments": [{"profile_id": profile["id"], "variables": {}}], "max_parallel": 1},
+    ).json()["id"]
+
+    run = _poll_run(client, run_id, lambda r: r["status"] == "failed")
+    assert run["items"][0]["status"] == "failed"
+    assert run["items"][0]["last_completed_step"] == 1
+
+    client.post(
+        f"/api/v1/automations/runs/{run_id}/profiles/{profile['id']}/retry", headers=auth_headers
+    )
+    run = _poll_run(client, run_id, lambda r: r["status"] == "completed")
+    assert run["status"] == "completed"
+
+
+# --- startup recovery -------------------------------------------------------
+def test_startup_recovery_fails_runs_and_releases_credentials(client, auth_headers):
+    from manager_backend.features.automation.coordinator import recover_interrupted_runs
+    from manager_backend.models import (
+        AutomationCredential,
+        AutomationRun,
+        AutomationRunItem,
+        AutomationTemplate,
+    )
+
+    with client.app.state.session_factory() as session:
+        template = AutomationTemplate(name="T", description="", steps_json=[])
+        session.add(template)
+        session.flush()
+        run = AutomationRun(template_id=template.id, status="running", total=1)
+        session.add(run)
+        session.flush()
+        session.add(AutomationRunItem(run_id=run.id, profile_id="p1", status="running"))
+        session.add(
+            AutomationCredential(
+                fingerprint_sha256="fp", status="reserved",
+                reserved_run_id=run.id, reserved_profile_id="p1", credential_ref="ref",
+            )
+        )
+        session.commit()
+        run_id = run.id
+
+    assert recover_interrupted_runs(client.app.state.session_factory) == 1
+
+    with client.app.state.session_factory() as session:
+        assert session.get(AutomationRun, run_id).status == "failed"
+        item = session.query(AutomationRunItem).filter_by(run_id=run_id).one()
+        assert item.status == "failed"
+        credential = session.query(AutomationCredential).filter_by(fingerprint_sha256="fp").one()
+        assert credential.status == "available"
+        assert credential.reserved_run_id is None
+
+
+# --- factory ----------------------------------------------------------------
+def test_factory_creates_profiles(client, auth_headers):
+    _setup(client)
+    started = client.post(
+        "/api/v1/automations/factory/jobs",
+        headers=auth_headers,
+        json={"quantity": 2, "name_prefix": "Bot", "start_automation": False},
+    )
+    assert started.status_code == 202, started.text
+    job_id = started.json()["id"]
+
+    deadline = time.time() + 8.0
+    job = client.get(f"/api/v1/automations/factory/jobs/{job_id}").json()
+    while time.time() < deadline and job["status"] == "running":
+        time.sleep(0.05)
+        job = client.get(f"/api/v1/automations/factory/jobs/{job_id}").json()
+    assert job["status"] == "completed"
+    assert job["created_count"] == 2
+    assert all(item["profile_id"] for item in job["items"])
+    # The profiles really exist.
+    assert client.get("/api/v1/profiles", headers=auth_headers).json()["total"] == 2

@@ -33,6 +33,7 @@ def bootstrap(request: Request, session: SessionDependency) -> AppBootstrap:
             "settings": True,
             "resources": True,
             "media": True,
+            "automation": True,
         },
         running_session_count=count_active_runtimes(session),
     )

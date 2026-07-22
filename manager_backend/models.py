@@ -483,3 +483,134 @@ class MediaSetting(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class AutomationTemplate(TimestampMixin, Base):
+    __tablename__ = "automation_templates"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    steps_json: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+
+
+class AutomationRecording(Base):
+    __tablename__ = "automation_recordings"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('recording','stopped','cancelled')",
+            name="ck_automation_recordings_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    profile_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="recording")
+    step_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    template_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class AutomationRun(Base):
+    __tablename__ = "automation_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('running','completed','failed','cancelled')",
+            name="ck_automation_runs_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    template_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("automation_templates.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    max_parallel: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    attention_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AutomationRunItem(Base):
+    __tablename__ = "automation_run_items"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("automation_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    profile_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    current_step: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_completed_step: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    attention_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    screenshot_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    credential_ref: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    variables_json: Mapped[Any] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class AutomationCredential(Base):
+    __tablename__ = "automation_credentials"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('available','reserved','used','failed')",
+            name="ck_automation_credentials_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    fingerprint_sha256: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="available")
+    reserved_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    reserved_profile_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    credential_ref: Mapped[str] = mapped_column(String(36), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class ProfileFactoryJob(Base):
+    __tablename__ = "profile_factory_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('running','completed','failed','cancelled')",
+            name="ck_profile_factory_jobs_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    name_prefix: Mapped[str] = mapped_column(String(120), nullable=False)
+    automation_template_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    start_automation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class ProfileFactoryItem(Base):
+    __tablename__ = "profile_factory_items"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    job_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("profile_factory_jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    profile_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    message: Mapped[str | None] = mapped_column(String(500), nullable=True)

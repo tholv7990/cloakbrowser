@@ -13,6 +13,7 @@ class AppCapabilities(StrictModel):
     settings: bool
     resources: bool
     media: bool
+    automation: bool
 
 
 class AppBootstrap(StrictModel):
