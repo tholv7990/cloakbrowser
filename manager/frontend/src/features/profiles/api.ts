@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import { api, queryKeys } from '@/api';
@@ -5,6 +6,7 @@ import type {
   BulkProfileRequest,
   Paginated,
   ProfileListParams,
+  ProfileLogEntry,
   ProfileRead,
   ProfileWrite,
   RuntimeState,
@@ -12,6 +14,7 @@ import type {
 import { useToast } from '@/components/ui/Toast';
 import { emptyProfileWrite } from './view';
 import { handleProfileConflict, PROFILE_CONFLICT_REVIEW_MESSAGE } from './conflicts';
+import { mergeProfileLogTail } from './logTail';
 
 export function useProfiles(params: ProfileListParams) {
   return useQuery({
@@ -268,8 +271,38 @@ export function useProfileLogs(id: string | null, page = 1, pageSize = 20) {
       : ['profile', 'logs', 'none'],
     queryFn: () => api.getProfileLogs(id!, { page, page_size: pageSize }),
     enabled: Boolean(id),
-    refetchInterval: page === 1 ? 2_000 : false,
   });
+}
+
+export function useProfileLogTail(id: string | null, limit = 20, enabled = true) {
+  const cursor = useRef<string | null>(null);
+  const [items, setItems] = useState<ProfileLogEntry[]>([]);
+
+  useEffect(() => {
+    cursor.current = null;
+    setItems([]);
+  }, [id, limit]);
+
+  const query = useQuery({
+    queryKey: id
+      ? [...queryKeys.profileLogs(id), 'tail', { limit }]
+      : ['profile', 'logs', 'tail', 'none'],
+    queryFn: () =>
+      api.getProfileLogTail(id!, {
+        cursor: cursor.current ?? undefined,
+        limit,
+      }),
+    enabled: Boolean(id) && enabled,
+    refetchInterval: enabled ? 2_000 : false,
+  });
+
+  useEffect(() => {
+    if (!query.data) return;
+    setItems((current) => mergeProfileLogTail(current, query.data, limit));
+    cursor.current = query.data.next_cursor;
+  }, [query.data, limit]);
+
+  return { ...query, items };
 }
 
 export function useQuickCreate() {

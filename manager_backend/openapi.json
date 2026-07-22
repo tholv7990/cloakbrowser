@@ -1975,6 +1975,103 @@
         }
       }
     },
+    "/api/v1/profiles/{profile_id}/logs/tail": {
+      "get": {
+        "summary": "Log Tail",
+        "operationId": "log_tail_api_v1_profiles__profile_id__logs_tail_get",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileLogTail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/profiles/{profile_id}/duplicate": {
       "post": {
         "summary": "Duplicate",
@@ -4116,6 +4213,74 @@
             }
           }
         }
+      },
+      "get": {
+        "summary": "Assigned",
+        "operationId": "assigned_api_v1_profiles__profile_id__extensions_get",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 36,
+              "maxLength": 36,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileExtensionAssignmentRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/diagnostics": {
@@ -4615,6 +4780,136 @@
                 "schema": {
                   "$ref": "#/components/schemas/DiagnosticRead"
                 }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/diagnostics/{diagnostic_id}/artifacts/report": {
+      "get": {
+        "summary": "Report Artifact",
+        "operationId": "report_artifact_api_v1_diagnostics__diagnostic_id__artifacts_report_get",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "diagnostic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Diagnostic Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/diagnostics/{diagnostic_id}/artifacts/screenshot": {
+      "get": {
+        "summary": "Screenshot Artifact",
+        "operationId": "screenshot_artifact_api_v1_diagnostics__diagnostic_id__artifacts_screenshot_get",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "diagnostic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Diagnostic Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           },
@@ -5418,7 +5713,7 @@
             "type": "object",
             "title": "Findings"
           },
-          "screenshot_path": {
+          "screenshot_url": {
             "anyOf": [
               {
                 "type": "string"
@@ -5427,9 +5722,9 @@
                 "type": "null"
               }
             ],
-            "title": "Screenshot Path"
+            "title": "Screenshot Url"
           },
-          "report_path": {
+          "report_url": {
             "anyOf": [
               {
                 "type": "string"
@@ -5438,7 +5733,7 @@
                 "type": "null"
               }
             ],
-            "title": "Report Path"
+            "title": "Report Url"
           },
           "error_code": {
             "anyOf": [
@@ -5503,8 +5798,8 @@
           "progress",
           "summary",
           "findings",
-          "screenshot_path",
-          "report_path",
+          "screenshot_url",
+          "report_url",
           "error_code",
           "error_message"
         ],
@@ -6329,7 +6624,7 @@
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/ProfileLogRead"
+              "$ref": "#/components/schemas/manager_backend__features__profiles__schemas__ProfileLogRead"
             },
             "type": "array",
             "title": "Items"
@@ -6367,61 +6662,39 @@
         ],
         "title": "ProfileLogPage"
       },
-      "ProfileLogRead": {
+      "ProfileLogTail": {
         "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/manager_backend__features__runtime__logs__ProfileLogRead"
+            },
+            "type": "array",
+            "title": "Items"
           },
-          "profile_id": {
-            "type": "string",
-            "title": "Profile Id"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "level": {
-            "type": "string",
-            "enum": [
-              "debug",
-              "info",
-              "warning",
-              "error"
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Level"
+            "title": "Next Cursor"
           },
-          "event": {
-            "type": "string",
-            "enum": [
-              "runtime.start_requested",
-              "runtime.preflight_failed",
-              "runtime.process_started",
-              "runtime.ready",
-              "runtime.stop_requested",
-              "runtime.exited",
-              "runtime.crashed",
-              "runtime.reconciled"
-            ],
-            "title": "Event"
-          },
-          "message": {
-            "type": "string",
-            "title": "Message"
+          "reset": {
+            "type": "boolean",
+            "title": "Reset"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "id",
-          "profile_id",
-          "created_at",
-          "level",
-          "event",
-          "message"
+          "items",
+          "reset"
         ],
-        "title": "ProfileLogRead"
+        "title": "ProfileLogTail"
       },
       "ProfilePage": {
         "properties": {
@@ -8082,6 +8355,108 @@
           "updated_at"
         ],
         "title": "WorkflowStatusRead"
+      },
+      "manager_backend__features__profiles__schemas__ProfileLogRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "debug",
+              "info",
+              "warning",
+              "error"
+            ],
+            "title": "Level"
+          },
+          "event": {
+            "type": "string",
+            "enum": [
+              "runtime.start_requested",
+              "runtime.preflight_failed",
+              "runtime.process_started",
+              "runtime.ready",
+              "runtime.stop_requested",
+              "runtime.exited",
+              "runtime.crashed",
+              "runtime.reconciled"
+            ],
+            "title": "Event"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "profile_id",
+          "created_at",
+          "level",
+          "event",
+          "message"
+        ],
+        "title": "ProfileLogRead"
+      },
+      "manager_backend__features__runtime__logs__ProfileLogRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "debug",
+              "info",
+              "warning",
+              "error"
+            ],
+            "title": "Level"
+          },
+          "event": {
+            "type": "string",
+            "title": "Event"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "profile_id",
+          "created_at",
+          "level",
+          "event",
+          "message"
+        ],
+        "title": "ProfileLogRead"
       }
     },
     "securitySchemes": {

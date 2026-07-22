@@ -34,8 +34,8 @@ describe('DiagnosticsPage', () => {
       progress: 100,
       summary: 'Diagnostic completed with warnings.',
       findings: { captcha_detected: true },
-      screenshot_path: null,
-      report_path: null,
+      screenshot_url: null,
+      report_url: null,
       error_code: 'captcha_user_action_required',
       error_message: 'The target requires user interaction.',
     });
@@ -44,6 +44,30 @@ describe('DiagnosticsPage', () => {
       await screen.findByText(/captcha detected.*user action is required/i),
     ).toBeInTheDocument();
     expect(screen.queryByText(/solve captcha/i)).not.toBeInTheDocument();
+  });
+
+  it('renders authenticated diagnostic artifact routes without raw local paths', async () => {
+    const runId = '00000000-0000-4000-8000-000000000123';
+    mockStore.diagnostics.unshift({
+      ...mockStore.diagnostics[0],
+      id: runId,
+      report_url: `/api/v1/diagnostics/${runId}/artifacts/report`,
+      screenshot_url: `/api/v1/diagnostics/${runId}/artifacts/screenshot`,
+    });
+
+    renderWithProviders(<DiagnosticsPage />);
+
+    const report = await screen.findByRole('link', { name: /download report/i });
+    const screenshot = screen.getByRole('link', { name: /open screenshot/i });
+    expect(report).toHaveAttribute(
+      'href',
+      `http://localhost:3000/api/v1/diagnostics/${runId}/artifacts/report`,
+    );
+    expect(screenshot).toHaveAttribute(
+      'href',
+      `http://localhost:3000/api/v1/diagnostics/${runId}/artifacts/screenshot`,
+    );
+    expect(screen.queryByText(/C:\\/)).not.toBeInTheDocument();
   });
 
   it('renders bounded labeled findings and an accessible progress bar', async () => {

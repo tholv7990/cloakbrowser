@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Activity, AlertTriangle, Ban, Clipboard, Play } from 'lucide-react';
+import { Activity, AlertTriangle, Ban, Download, ExternalLink, Play } from 'lucide-react';
 import { useProfiles } from '@/features/profiles/api';
 import { Badge, type Tone } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/states';
-import { useClipboard } from '@/hooks/useClipboard';
+import { absoluteApiResource } from '@/api/config';
 import { relativeTime } from '@/lib/format';
 import { useT, type TranslationKey } from '@/i18n';
 import type { DiagnosticKind, DiagnosticStatus } from '@/types/api';
@@ -41,7 +41,6 @@ function findingValue(value: boolean | string, yes: string, no: string): string 
 
 export function DiagnosticsPage() {
   const t = useT();
-  const copy = useClipboard();
   const [profileCatalogSearch, setProfileCatalogSearch] = useState('');
   const [profileCatalogPage, setProfileCatalogPage] = useState(1);
   const profiles = useProfiles({
@@ -278,21 +277,27 @@ export function DiagnosticsPage() {
                           <span className="text-2xs text-ink-faint">{item.progress}%</span>
                         </div>
                       )}
-                      {(item.report_path || item.screenshot_path) && (
-                        <div className="mt-2 space-y-1">
-                          {[item.report_path, item.screenshot_path].filter(Boolean).map((path) => (
-                            <div key={path} className="flex min-w-0 items-center gap-2">
-                              <span className="data truncate text-2xs text-ink-faint">{path}</span>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => copy(path!, 'artifact path')}
-                              >
-                                <Clipboard className="h-3 w-3" /> {t('common.copy')}
-                              </Button>
-                            </div>
-                          ))}
-                          <p className="text-2xs text-ink-faint">{t('diag.artifactUnavailable')}</p>
+                      {(item.report_url || item.screenshot_url) && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {item.report_url && (
+                            <a
+                              href={absoluteApiResource(item.report_url)}
+                              className="inline-flex items-center gap-1 text-2xs font-medium text-accent hover:underline"
+                              download
+                            >
+                              <Download className="h-3 w-3" /> {t('diag.downloadReport')}
+                            </a>
+                          )}
+                          {item.screenshot_url && (
+                            <a
+                              href={absoluteApiResource(item.screenshot_url)}
+                              className="inline-flex items-center gap-1 text-2xs font-medium text-accent hover:underline"
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              <ExternalLink className="h-3 w-3" /> {t('diag.openScreenshot')}
+                            </a>
+                          )}
                         </div>
                       )}
                     </div>

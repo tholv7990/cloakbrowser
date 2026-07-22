@@ -308,6 +308,53 @@ def test_complete_profile_assignment_is_strict_transactional_and_exported(
     assert cleared.json() == {"extension_ids": []}
 
 
+@pytest.mark.usefixtures("allow_test_paths")
+def test_profile_assignment_get_hydrates_in_stable_extension_order(
+    client, auth_headers, tmp_path
+):
+    profile = client.post(
+        "/api/v1/profiles", headers=auth_headers, json={"name": "Hydrated"}
+    ).json()
+    zulu_dir = tmp_path / "zulu"
+    _manifest(zulu_dir, name="Zulu")
+    alpha_dir = tmp_path / "alpha"
+    _manifest(alpha_dir, name="alpha")
+    zulu = _register(client, auth_headers, zulu_dir).json()
+    alpha = _register(client, auth_headers, alpha_dir).json()
+
+    assigned = client.put(
+        f"/api/v1/profiles/{profile['id']}/extensions",
+        headers=auth_headers,
+        json={"extension_ids": [zulu["id"], alpha["id"]]},
+    )
+    assert assigned.status_code == 200
+
+    hydrated = client.get(
+        f"/api/v1/profiles/{profile['id']}/extensions", headers=auth_headers
+    )
+    assert hydrated.status_code == 200
+    assert hydrated.json() == {"extension_ids": [alpha["id"], zulu["id"]]}
+
+    empty_profile = client.post(
+        "/api/v1/profiles", headers=auth_headers, json={"name": "Empty"}
+    ).json()
+    assert client.get(
+        f"/api/v1/profiles/{empty_profile['id']}/extensions", headers=auth_headers
+    ).json() == {"extension_ids": []}
+
+    missing = client.get(
+        "/api/v1/profiles/00000000-0000-4000-8000-000000000000/extensions",
+        headers=auth_headers,
+    )
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "profile_not_found"
+
+    client.cookies.clear()
+    assert client.get(
+        f"/api/v1/profiles/{profile['id']}/extensions"
+    ).status_code == 401
+
+
 def test_assignment_rejects_duplicate_noncanonical_and_oversized_ids(
     client, auth_headers
 ):

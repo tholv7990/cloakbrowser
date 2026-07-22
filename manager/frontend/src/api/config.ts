@@ -27,6 +27,14 @@ export function absoluteApiBase(): string {
   return API_BASE_URL;
 }
 
+/** Resolve only backend-issued API routes; local filesystem paths are never accepted. */
+export function absoluteApiResource(path: string): string {
+  if (!path.startsWith('/api/v1/')) return '';
+  const base = absoluteApiBase();
+  if (base.startsWith('http')) return new URL(path, base).toString();
+  return path;
+}
+
 function deriveWsUrl(): string {
   if (injected?.wsUrl) return injected.wsUrl;
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;

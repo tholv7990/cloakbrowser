@@ -18,7 +18,13 @@ import { useProxyReports, useQuickTest } from '@/features/proxies/api';
 import { ProxyQualityReportView, ProxyQuickResult } from '@/features/proxies/ProxyResultViews';
 import { ProxyEditorDrawer } from '@/features/proxies/ProxyEditorDrawer';
 import type { RowDialog } from './ProfileRowActions';
-import { useImportCookies, useMoveToTrash, useProfileLogs, useRegenerateFingerprint } from './api';
+import {
+  useImportCookies,
+  useMoveToTrash,
+  useProfileLogs,
+  useProfileLogTail,
+  useRegenerateFingerprint,
+} from './api';
 import { handleProfileConflict, PROFILE_CONFLICT_REVIEW_MESSAGE } from './conflicts';
 
 interface DialogState {
@@ -46,6 +52,11 @@ export function ProfileDialogs({
   const [logsPageSize, setLogsPageSize] = useState(20);
 
   const logs = useProfileLogs(dialog?.type === 'logs' ? id : null, logsPage, logsPageSize);
+  const logTail = useProfileLogTail(
+    dialog?.type === 'logs' ? id : null,
+    logsPageSize,
+    logsPage === 1,
+  );
   const reports = useProxyReports(
     dialog?.type === 'proxy-report' ? (profile?.proxy?.id ?? null) : null,
   );
@@ -417,6 +428,7 @@ export function ProfileDialogs({
   }
 
   if (type === 'logs') {
+    const visibleLogs = logsPage === 1 ? logTail.items : (logs.data?.items ?? []);
     return (
       <Modal
         open
@@ -425,14 +437,20 @@ export function ProfileDialogs({
         description={profile.name}
         size="lg"
       >
-        {logs.isLoading ? (
+        {logs.isLoading || (logsPage === 1 && logTail.isLoading) ? (
           <LoadingBlock label={t('dlg.logs.loading')} />
-        ) : logs.isError ? (
-          <ErrorState message={(logs.error as Error).message} onRetry={() => logs.refetch()} />
-        ) : logs.data && logs.data.items.length > 0 ? (
+        ) : logs.isError || (logsPage === 1 && logTail.isError) ? (
+          <ErrorState
+            message={((logs.error ?? logTail.error) as Error).message}
+            onRetry={() => {
+              logs.refetch();
+              logTail.refetch();
+            }}
+          />
+        ) : logs.data && visibleLogs.length > 0 ? (
           <div className="space-y-3">
             <div className="space-y-1 rounded-md border border-line bg-surface-sunken p-3 font-mono text-[12px]">
-              {logs.data.items.map((entry) => (
+              {visibleLogs.map((entry) => (
                 <div key={entry.id} className="flex gap-3">
                   <span className="shrink-0 text-ink-faint">
                     {new Date(entry.created_at).toLocaleTimeString()}

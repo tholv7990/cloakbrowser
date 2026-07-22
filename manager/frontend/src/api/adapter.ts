@@ -46,6 +46,8 @@ import type {
   ProfileCreatePayload,
   ProfileListParams,
   ProfileLogs,
+  ProfileLogTail,
+  ProfileExtensionAssignment,
   ProfileRead,
   ProfileImportResult,
   ProfileUpdatePayload,
@@ -93,6 +95,10 @@ export interface ApiAdapter {
   moveProfileToTrash(id: string): Promise<{ ok: boolean }>;
   restoreProfile(id: string): Promise<ProfileRead>;
   getProfileLogs(id: string, params?: { page?: number; page_size?: number }): Promise<ProfileLogs>;
+  getProfileLogTail(
+    id: string,
+    params?: { cursor?: string; limit?: number },
+  ): Promise<ProfileLogTail>;
   exportProfile(id: string): Promise<DownloadFile>;
   importProfile(payload: Record<string, unknown>): Promise<ProfileImportResult>;
   importCookies(id: string, payload: CookieImportPayload): Promise<CookieImportResult>;
@@ -115,7 +121,8 @@ export interface ApiAdapter {
   registerExtension(directory: string): Promise<Extension>;
   updateExtension(id: string, patch: { enabled?: boolean; refresh?: boolean }): Promise<Extension>;
   unregisterExtension(id: string): Promise<void>;
-  setProfileExtensions(id: string, extensionIds: string[]): Promise<{ extension_ids: string[] }>;
+  getProfileExtensions(id: string): Promise<ProfileExtensionAssignment>;
+  setProfileExtensions(id: string, extensionIds: string[]): Promise<ProfileExtensionAssignment>;
 
   // Proxies
   listProxies(): Promise<Proxy[]>;

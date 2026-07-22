@@ -49,6 +49,7 @@ class MockStore {
   tags: Tag[] = [];
   statuses: WorkflowStatus[] = [];
   extensions: Extension[] = [];
+  profileExtensionIds: Record<string, string[]> = {};
   diagnostics: DiagnosticRun[] = [];
   reports: ProxyQualityReport[] = [];
   settings: Settings = clone(fixtures.settings);
@@ -68,6 +69,7 @@ class MockStore {
     this.tags = clone(fixtures.tags);
     this.statuses = clone(fixtures.workflowStatuses);
     this.extensions = clone(fixtures.extensions);
+    this.profileExtensionIds = { 'prof-01': [fixtures.extensions[0].id] };
     this.diagnostics = clone(fixtures.diagnostics);
     this.reports = clone(fixtures.qualityReports);
     this.settings = clone(fixtures.settings);

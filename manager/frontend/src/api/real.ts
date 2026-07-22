@@ -33,6 +33,8 @@ import type {
   ProfileCreatePayload,
   ProfileListParams,
   ProfileLogs,
+  ProfileLogTail,
+  ProfileExtensionAssignment,
   ProfileRead,
   ProfileImportResult,
   ProfileUpdatePayload,
@@ -98,6 +100,8 @@ export const realApi: ApiAdapter = {
   restoreProfile: (id) => apiRequest<ProfileRead>(`/profiles/${id}/restore`, { method: 'POST' }),
   getProfileLogs: (id, params = {}) =>
     apiRequest<ProfileLogs>(`/profiles/${id}/logs`, { query: params }),
+  getProfileLogTail: (id, params = {}) =>
+    apiRequest<ProfileLogTail>(`/profiles/${id}/logs/tail`, { query: params }),
   exportProfile: (id) => apiDownload(`/profiles/${id}/export`),
   importProfile: (payload) =>
     apiRequest<ProfileImportResult>('/profiles/import', { method: 'POST', body: payload }),
@@ -132,8 +136,10 @@ export const realApi: ApiAdapter = {
   updateExtension: (id, patch) =>
     apiRequest<Extension>(`/extensions/${id}`, { method: 'PATCH', body: patch }),
   unregisterExtension: (id) => apiRequest<void>(`/extensions/${id}`, { method: 'DELETE' }),
+  getProfileExtensions: (id) =>
+    apiRequest<ProfileExtensionAssignment>(`/profiles/${id}/extensions`),
   setProfileExtensions: (id, extensionIds) =>
-    apiRequest<{ extension_ids: string[] }>(`/profiles/${id}/extensions`, {
+    apiRequest<ProfileExtensionAssignment>(`/profiles/${id}/extensions`, {
       method: 'PUT',
       body: { extension_ids: extensionIds },
     }),

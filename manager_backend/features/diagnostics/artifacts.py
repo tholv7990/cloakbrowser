@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,10 +14,33 @@ class ArtifactBoundaryError(Exception):
     """An artifact path or payload crossed the manager-owned boundary."""
 
 
+class ArtifactNotFound(Exception):
+    """The persisted artifact is absent."""
+
+
+class ArtifactUnavailable(Exception):
+    """The persisted artifact cannot be served safely."""
+
+
 @dataclass(frozen=True, slots=True)
 class DiagnosticArtifactPaths:
     report_path: str
     screenshot_path: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class DiagnosticArtifact:
+    content: bytes
+    media_type: str
+    filename: str
+    disposition: str
+
+
+_ARTIFACT_KINDS = {
+    "report": ("report.json", "application/json", "attachment"),
+    "screenshot": ("screenshot.png", "image/png", "inline"),
+}
+_REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -81,6 +105,108 @@ def _owned_file(run_root: Path, name: str) -> Path:
     if resolved.parent != run_root or not _is_within(resolved, run_root):
         raise ArtifactBoundaryError
     return candidate
+
+
+def artifact_url_if_owned(
+    value: str | None, data_root: Path, run_id: str, kind: str
+) -> str | None:
+    """Return only a route identifier; never expose a persisted local path."""
+
+    if value is None or kind not in _ARTIFACT_KINDS:
+        return None
+    try:
+        normalized = _validated_run_id(run_id)
+        filename = _ARTIFACT_KINDS[kind][0]
+        expected = Path(data_root).resolve() / "diagnostics" / normalized / filename
+        supplied = Path(value)
+        if not supplied.is_absolute() or supplied.absolute() != expected:
+            return None
+    except (ArtifactBoundaryError, OSError, RuntimeError, ValueError):
+        return None
+    return f"/api/v1/diagnostics/{normalized}/artifacts/{kind}"
+
+
+def _is_link_or_reparse(path: Path) -> bool:
+    info = os.lstat(path)
+    return path.is_symlink() or bool(
+        getattr(info, "st_file_attributes", 0) & _REPARSE_POINT
+    )
+
+
+def read_diagnostic_artifact(
+    data_root: Path,
+    run_id: str,
+    kind: str,
+    persisted_path: str | None,
+    *,
+    max_bytes: int,
+) -> DiagnosticArtifact:
+    """Read an exact bounded run artifact through a verified regular-file handle."""
+
+    if kind not in _ARTIFACT_KINDS or not isinstance(max_bytes, int) or max_bytes < 1:
+        raise ArtifactUnavailable
+    if persisted_path is None:
+        raise ArtifactNotFound
+    try:
+        normalized = _validated_run_id(run_id)
+        filename, media_type, disposition = _ARTIFACT_KINDS[kind]
+        canonical_data_root = Path(data_root).resolve(strict=True)
+        diagnostics_root = canonical_data_root / "diagnostics"
+        run_root = diagnostics_root / normalized
+        candidate = run_root / filename
+        supplied = Path(persisted_path)
+        if not supplied.is_absolute() or supplied.absolute() != candidate:
+            raise ArtifactUnavailable
+        for boundary in (diagnostics_root, run_root):
+            if _is_link_or_reparse(boundary) or boundary.resolve(strict=True) != boundary:
+                raise ArtifactUnavailable
+        before = os.lstat(candidate)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or _is_link_or_reparse(candidate)
+            or before.st_size > max_bytes
+        ):
+            raise ArtifactUnavailable
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(candidate, flags)
+        try:
+            opened = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
+                or opened.st_size > max_bytes
+            ):
+                raise ArtifactUnavailable
+            chunks: list[bytes] = []
+            remaining = max_bytes + 1
+            while remaining > 0:
+                chunk = os.read(descriptor, min(64 * 1024, remaining))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            content = b"".join(chunks)
+            if len(content) > max_bytes or len(content) != opened.st_size:
+                raise ArtifactUnavailable
+            after = os.lstat(candidate)
+            if (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino):
+                raise ArtifactUnavailable
+        finally:
+            os.close(descriptor)
+    except ArtifactNotFound:
+        raise
+    except ArtifactUnavailable:
+        raise
+    except FileNotFoundError:
+        raise ArtifactNotFound from None
+    except (ArtifactBoundaryError, OSError, RuntimeError, ValueError):
+        raise ArtifactUnavailable from None
+    return DiagnosticArtifact(
+        content=content,
+        media_type=media_type,
+        filename=f"diagnostic-{normalized}-{filename}",
+        disposition=disposition,
+    )
 
 
 def _atomic_write(path: Path, payload: bytes) -> None:

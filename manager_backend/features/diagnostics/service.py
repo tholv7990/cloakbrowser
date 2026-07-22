@@ -16,6 +16,7 @@ from ...errors import ManagerError
 from ...events import EventBroker, diagnostic_event
 from ...models import DiagnosticRun, Profile, utc_now
 from .runner import DiagnosticRequest, DiagnosticResult, DiagnosticRunner
+from .artifacts import artifact_url_if_owned
 from .schemas import DiagnosticResultUpdate, TARGET_URLS, bounded_findings
 
 
@@ -168,10 +169,12 @@ def diagnostic_to_dict(run: DiagnosticRun, data_root: Path) -> dict:
         "progress": max(0, min(100, int(run.progress))),
         "summary": SUMMARY_TEMPLATES.get(run.status),
         "findings": bounded_findings(run.kind, run.findings),
-        "screenshot_path": _safe_artifact_path(
-            run.screenshot_path, data_root, run.id
+        "screenshot_url": artifact_url_if_owned(
+            run.screenshot_path, data_root, run.id, "screenshot"
         ),
-        "report_path": _safe_artifact_path(run.report_path, data_root, run.id),
+        "report_url": artifact_url_if_owned(
+            run.report_path, data_root, run.id, "report"
+        ),
         "error_code": error_code,
         "error_message": error_message,
     }

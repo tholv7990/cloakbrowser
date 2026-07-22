@@ -43,6 +43,7 @@ import type {
   ProfileCreatePayload,
   ProfileListParams,
   ProfileLogs,
+  ProfileLogTail,
   ProfileRead,
   ProfileUpdatePayload,
   Proxy,
@@ -803,6 +804,20 @@ export const mockApi: ApiAdapter = {
     };
   },
 
+  async getProfileLogTail(id: string, params = {}): Promise<ProfileLogTail> {
+    const history = await mockApi.getProfileLogs(id, { page: 1, page_size: 200 });
+    const limit = params.limit ?? 50;
+    const match = params.cursor?.match(/^mock-tail-(\d+)$/);
+    const malformed = Boolean(params.cursor) && !match;
+    const start = malformed ? Math.max(0, history.items.length - limit) : Number(match?.[1] ?? 0);
+    const items = history.items.slice(start, start + limit);
+    return {
+      items,
+      next_cursor: `mock-tail-${start + items.length}`,
+      reset: malformed,
+    };
+  },
+
   async exportProfile(id: string) {
     await delay(120);
     const p = mockStore.requireProfile(id);
@@ -1013,6 +1028,11 @@ export const mockApi: ApiAdapter = {
     await delay(60);
     mockStore.extensions = mockStore.extensions.filter((item) => item.id !== id);
   },
+  async getProfileExtensions(id: string) {
+    await delay(40);
+    mockStore.requireProfile(id);
+    return { extension_ids: structuredClone(mockStore.profileExtensionIds[id] ?? []) };
+  },
   async setProfileExtensions(id: string, extensionIds: string[]) {
     mockStore.requireProfile(id);
     const uuidPattern =
@@ -1030,6 +1050,7 @@ export const mockApi: ApiAdapter = {
         'Extension assignments must contain unique registered extension UUIDs.',
       );
     }
+    mockStore.profileExtensionIds[id] = structuredClone(extensionIds);
     return { extension_ids: structuredClone(extensionIds) };
   },
 
@@ -1221,8 +1242,8 @@ export const mockApi: ApiAdapter = {
       progress: 100,
       summary: 'Direct-network Google control reachable; no challenge.',
       findings: { page_loaded: true, captcha_detected: false, results_visible: true },
-      screenshot_path: null,
-      report_path: null,
+      screenshot_url: null,
+      report_url: null,
       error_code: null,
       error_message: null,
     };
@@ -1249,8 +1270,9 @@ export const mockApi: ApiAdapter = {
       cloudflare: 'https://challenge.cloudflare.com/turnstile/v0/generic/',
       google_search: 'https://www.google.com/search?q=CloakBrowser+browser+diagnostic',
     };
+    const diagnosticId = newId('diag');
     const diag: DiagnosticRun = {
-      id: newId('diag'),
+      id: diagnosticId,
       kind,
       profile_id: profileId,
       status: 'passed',
@@ -1261,8 +1283,8 @@ export const mockApi: ApiAdapter = {
       progress: 100,
       summary: 'Diagnostic completed.',
       findings: {},
-      screenshot_path: null,
-      report_path: `C:\\Manager\\diagnostics\\${profileId}\\report.json`,
+      screenshot_url: null,
+      report_url: `/api/v1/diagnostics/${diagnosticId}/artifacts/report`,
       error_code: null,
       error_message: null,
     };

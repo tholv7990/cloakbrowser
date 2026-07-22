@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import os
 import subprocess
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from threading import Barrier, Event, get_ident
@@ -61,8 +62,8 @@ def test_every_diagnostic_kind_is_created_queued_with_http_202(client, auth_head
         assert body["findings"] == {}
         assert body["error_code"] is None
         assert body["error_message"] is None
-        assert body["screenshot_path"] is None
-        assert body["report_path"] is None
+        assert body["screenshot_url"] is None
+        assert body["report_url"] is None
 
     assert scheduled == [
         item["id"]
@@ -324,9 +325,191 @@ def test_artifact_paths_outside_owned_run_root_and_secrets_are_not_exposed(
 
     response = client.get(f"/api/v1/diagnostics/{run_id}", headers=auth_headers)
     assert response.status_code == 200
-    assert response.json()["screenshot_path"] is None
-    assert response.json()["report_path"] is None
+    assert response.json()["screenshot_url"] is None
+    assert response.json()["report_url"] is None
+    assert "screenshot_path" not in response.json()
+    assert "report_path" not in response.json()
     assert secret not in response.text
+
+
+def test_authenticated_diagnostic_artifacts_are_served_by_owned_kind_with_safe_headers(
+    client, auth_headers, settings
+):
+    from manager_backend.models import DiagnosticRun
+
+    with client.app.state.session_factory() as session:
+        run = DiagnosticRun(
+            kind="direct_google_control",
+            status="passed",
+            target_url="https://www.google.com/search?q=CloakBrowser+diagnostic",
+            progress=100,
+            summary="Diagnostic completed.",
+            findings={"page_loaded": True},
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(run)
+        session.flush()
+        run_root = settings.data_root.resolve() / "diagnostics" / run.id
+        run_root.mkdir(parents=True)
+        report = run_root / "report.json"
+        screenshot = run_root / "screenshot.png"
+        report.write_bytes(b'{"safe":true}')
+        screenshot.write_bytes(b"\x89PNG\r\n\x1a\nfixture")
+        run.report_path = str(report)
+        run.screenshot_path = str(screenshot)
+        session.commit()
+        run_id = run.id
+
+    detail = client.get(f"/api/v1/diagnostics/{run_id}", headers=auth_headers)
+    assert detail.status_code == 200
+    assert detail.json()["report_url"] == (
+        f"/api/v1/diagnostics/{run_id}/artifacts/report"
+    )
+    assert detail.json()["screenshot_url"] == (
+        f"/api/v1/diagnostics/{run_id}/artifacts/screenshot"
+    )
+    assert str(settings.data_root) not in detail.text
+
+    report_response = client.get(detail.json()["report_url"], headers=auth_headers)
+    assert report_response.status_code == 200
+    assert report_response.content == b'{"safe":true}'
+    assert report_response.headers["content-type"] == "application/json"
+    assert report_response.headers["cache-control"] == "no-store"
+    assert report_response.headers["x-content-type-options"] == "nosniff"
+    assert "attachment" in report_response.headers["content-disposition"]
+    assert str(report) not in str(report_response.headers)
+
+    screenshot_response = client.get(
+        detail.json()["screenshot_url"], headers=auth_headers
+    )
+    assert screenshot_response.status_code == 200
+    assert screenshot_response.content.startswith(b"\x89PNG")
+    assert screenshot_response.headers["content-type"] == "image/png"
+    assert screenshot_response.headers["cache-control"] == "no-store"
+    assert screenshot_response.headers["x-content-type-options"] == "nosniff"
+    assert "inline" in screenshot_response.headers["content-disposition"]
+
+    client.cookies.clear()
+    assert client.get(detail.json()["report_url"]).status_code == 401
+
+
+def test_diagnostic_artifact_access_rejects_other_run_missing_wrong_kind_and_oversize(
+    client, auth_headers, settings
+):
+    from manager_backend.models import DiagnosticRun
+
+    with client.app.state.session_factory() as session:
+        first = DiagnosticRun(
+            kind="direct_google_control",
+            status="passed",
+            target_url="https://www.google.com/search?q=CloakBrowser+diagnostic",
+            progress=100,
+            findings={},
+            completed_at=datetime.now(timezone.utc),
+        )
+        second = DiagnosticRun(
+            kind="direct_google_control",
+            status="passed",
+            target_url="https://www.google.com/search?q=CloakBrowser+diagnostic",
+            progress=100,
+            findings={},
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add_all([first, second])
+        session.flush()
+        first_root = settings.data_root.resolve() / "diagnostics" / first.id
+        second_root = settings.data_root.resolve() / "diagnostics" / second.id
+        first_root.mkdir(parents=True)
+        second_root.mkdir(parents=True)
+        other_report = second_root / "report.json"
+        other_report.write_text("{}", encoding="utf-8")
+        first.report_path = str(other_report)
+        first.screenshot_path = str(first_root / "report.json")
+        second.report_path = str(other_report)
+        session.commit()
+        first_id = first.id
+        second_id = second.id
+
+    escaped = client.get(
+        f"/api/v1/diagnostics/{first_id}/artifacts/report", headers=auth_headers
+    )
+    assert escaped.status_code == 409
+    assert escaped.json()["error"]["code"] == "diagnostic_artifact_unavailable"
+    assert str(other_report) not in escaped.text
+
+    wrong_kind = client.get(
+        f"/api/v1/diagnostics/{first_id}/artifacts/screenshot", headers=auth_headers
+    )
+    assert wrong_kind.status_code == 409
+    assert wrong_kind.json()["error"]["code"] == "diagnostic_artifact_unavailable"
+
+    other_report.unlink()
+    missing = client.get(
+        f"/api/v1/diagnostics/{second_id}/artifacts/report", headers=auth_headers
+    )
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "diagnostic_artifact_not_found"
+
+    own_root = settings.data_root.resolve() / "diagnostics" / second_id
+    own_report = own_root / "report.json"
+    own_report.write_bytes(b"x" * (settings.diagnostic_max_report_bytes + 1))
+    with client.app.state.session_factory() as session:
+        session.get(DiagnosticRun, second_id).report_path = str(own_report)
+        session.commit()
+    oversized = client.get(
+        f"/api/v1/diagnostics/{second_id}/artifacts/report", headers=auth_headers
+    )
+    assert oversized.status_code == 409
+    assert oversized.json()["error"]["code"] == "diagnostic_artifact_unavailable"
+
+
+def test_diagnostic_artifact_access_rejects_file_swap_and_reparse_boundary(
+    client, auth_headers, settings, monkeypatch
+):
+    from manager_backend.features.diagnostics import artifacts
+    from manager_backend.models import DiagnosticRun
+
+    with client.app.state.session_factory() as session:
+        run = DiagnosticRun(
+            kind="direct_google_control",
+            status="passed",
+            target_url="https://www.google.com/search?q=CloakBrowser+diagnostic",
+            progress=100,
+            findings={},
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(run)
+        session.flush()
+        run_root = settings.data_root.resolve() / "diagnostics" / run.id
+        run_root.mkdir(parents=True)
+        report = run_root / "report.json"
+        replacement = run_root / "replacement.json"
+        report.write_text('{"first":true}', encoding="utf-8")
+        replacement.write_text('{"other":true}', encoding="utf-8")
+        run.report_path = str(report)
+        session.commit()
+        run_id = run.id
+
+    original_open = artifacts.os.open
+
+    def swap_before_open(path, flags):
+        if Path(path) == report and replacement.exists():
+            artifacts.os.replace(replacement, report)
+        return original_open(path, flags)
+
+    monkeypatch.setattr(artifacts.os, "open", swap_before_open)
+    swapped = client.get(
+        f"/api/v1/diagnostics/{run_id}/artifacts/report", headers=auth_headers
+    )
+    assert swapped.status_code == 409
+    assert swapped.json()["error"]["code"] == "diagnostic_artifact_unavailable"
+
+    monkeypatch.setattr(artifacts, "_is_link_or_reparse", lambda path: path == run_root)
+    reparse = client.get(
+        f"/api/v1/diagnostics/{run_id}/artifacts/report", headers=auth_headers
+    )
+    assert reparse.status_code == 409
+    assert reparse.json()["error"]["code"] == "diagnostic_artifact_unavailable"
 
 
 def test_diagnostic_routes_require_authentication_origin_and_csrf(client, auth_headers):
@@ -842,7 +1025,7 @@ def test_typed_result_persistence_and_legacy_serialization_are_bounded(
     owned_root = (
         client.app.state.settings.data_root / "diagnostics" / created["id"]
     )
-    screenshot = owned_root / "pixelscan.png"
+    screenshot = owned_root / "screenshot.png"
     completed = client.app.state.diagnostic_manager.store_result(
         created["id"],
         DiagnosticResultUpdate(
@@ -885,7 +1068,7 @@ def test_typed_result_persistence_and_legacy_serialization_are_bounded(
             client.app.state.settings.data_root
             / "diagnostics"
             / legacy.id
-            / "report.json"
+            / "screenshot.png"
         )
         legacy.screenshot_path = str(contained)
         session.commit()
@@ -901,8 +1084,10 @@ def test_typed_result_persistence_and_legacy_serialization_are_bounded(
     assert safe["findings"] == {"page_loaded": True}
     assert safe["error_code"] == "diagnostic_failed"
     assert safe["error_message"] == "The diagnostic could not be completed."
-    assert safe["screenshot_path"] == str(contained.resolve())
-    assert safe["report_path"] is None
+    assert safe["screenshot_url"] == (
+        f"/api/v1/diagnostics/{legacy_id}/artifacts/screenshot"
+    )
+    assert safe["report_url"] is None
     assert secret not in str(safe)
 
     bounded = client.get(
@@ -914,7 +1099,9 @@ def test_typed_result_persistence_and_legacy_serialization_are_bounded(
     }
     assert bounded["summary"] == "Diagnostic completed with warnings."
     assert bounded["error_code"] == "target_layout_changed"
-    assert bounded["screenshot_path"] == str(screenshot.resolve())
+    assert bounded["screenshot_url"] == (
+        f"/api/v1/diagnostics/{created['id']}/artifacts/screenshot"
+    )
 
 
 def test_artifact_run_root_escape_is_rejected_for_persistence_and_serialization(
@@ -964,7 +1151,7 @@ def test_artifact_run_root_escape_is_rejected_for_persistence_and_serialization(
         run.screenshot_path = str(apparent_report)
         session.commit()
         serialized = service.diagnostic_to_dict(run, data_root)
-    assert serialized["screenshot_path"] is None
+    assert serialized["screenshot_url"] is None
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows junction regression")

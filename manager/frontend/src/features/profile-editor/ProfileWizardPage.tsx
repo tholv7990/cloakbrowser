@@ -20,7 +20,7 @@ import {
   type ProfileWizardValues,
 } from '@/schemas/profile';
 import { WIZARD_STEPS, type WizardRefs } from './steps';
-import { useCreateProfile, useProfile, useUpdateProfile } from './api';
+import { useCreateProfile, useProfile, useProfileExtensions, useUpdateProfile } from './api';
 import { persistProfileWithExtensions } from './persistence';
 import { useT } from '@/i18n';
 import type { ProfileRead } from '@/types/api';
@@ -34,6 +34,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
   const app = useAppData();
   const proxiesQuery = useProxies();
   const profileQuery = useProfile(editingId);
+  const profileExtensionsQuery = useProfileExtensions(editingId);
   const createProfile = useCreateProfile();
   const updateProfile = useUpdateProfile();
 
@@ -50,10 +51,12 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
 
   // Load an existing profile into the form once (edit mode).
   useEffect(() => {
-    if (mode === 'edit' && profileQuery.data) {
-      form.reset(profileToWizardValues(profileQuery.data));
+    if (mode === 'edit' && profileQuery.data && profileExtensionsQuery.data) {
+      form.reset(
+        profileToWizardValues(profileQuery.data, profileExtensionsQuery.data.extension_ids),
+      );
     }
-  }, [mode, profileQuery.data, form]);
+  }, [mode, profileQuery.data, profileExtensionsQuery.data, form]);
 
   const refs: WizardRefs = useMemo(
     () => ({
@@ -76,15 +79,24 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
     ],
   );
 
-  if (app.isLoading || (mode === 'edit' && profileQuery.isLoading)) {
+  if (
+    app.isLoading ||
+    (mode === 'edit' && (profileQuery.isLoading || profileExtensionsQuery.isLoading))
+  ) {
     return <LoadingBlock label={t('editor.loading')} />;
   }
   if (app.isError) {
     return <ErrorState message={t('editor.loadError')} onRetry={() => window.location.reload()} />;
   }
-  if (mode === 'edit' && profileQuery.isError) {
+  if (mode === 'edit' && (profileQuery.isError || profileExtensionsQuery.isError)) {
     return (
-      <ErrorState message={t('editor.loadProfileError')} onRetry={() => profileQuery.refetch()} />
+      <ErrorState
+        message={t('editor.loadProfileError')}
+        onRetry={() => {
+          profileQuery.refetch();
+          profileExtensionsQuery.refetch();
+        }}
+      />
     );
   }
 

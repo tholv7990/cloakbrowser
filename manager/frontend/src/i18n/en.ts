@@ -829,6 +829,8 @@ export const en = {
   'diag.captchaAction': 'CAPTCHA detected. User action is required; automation stopped.',
   'diag.artifactUnavailable':
     'Opening artifacts requires a future authenticated backend route; copy the contained path for now.',
+  'diag.downloadReport': 'Download report',
+  'diag.openScreenshot': 'Open screenshot',
   'diag.kind.direct_google_control': 'Direct Google control',
   'diag.kind.iphey': 'IPhey',
   'diag.kind.cloudflare': 'Cloudflare',

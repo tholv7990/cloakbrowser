@@ -8,7 +8,12 @@ from sqlalchemy.orm import Session
 from ...dependencies import get_session
 from ...errors import ManagerError
 from ...schemas.common import ErrorEnvelope
-from ..runtime.logs import MAX_PROFILE_LOG_PAGE_SIZE, list_profile_logs
+from ..runtime.logs import (
+    MAX_PROFILE_LOG_PAGE_SIZE,
+    ProfileLogTail,
+    list_profile_logs,
+    tail_profile_logs,
+)
 from ..runtime.routes import runtime_to_dict
 from .schemas import (
     BulkProfileRequest,
@@ -117,6 +122,24 @@ def logs(
 ):
     get_profile(session, profile_id)
     return list_profile_logs(session, profile_id, page=page, page_size=page_size)
+
+
+@router.get("/profiles/{profile_id}/logs/tail", response_model=ProfileLogTail)
+def log_tail(
+    profile_id: str,
+    request: Request,
+    session: SessionDependency,
+    cursor: str | None = Query(default=None, min_length=1, max_length=64),
+    limit: int = Query(default=50, ge=1, le=MAX_PROFILE_LOG_PAGE_SIZE),
+):
+    get_profile(session, profile_id)
+    return tail_profile_logs(
+        session,
+        profile_id,
+        cursor=cursor,
+        limit=limit,
+        secret=request.app.state.install_token,
+    )
 
 
 @router.patch(

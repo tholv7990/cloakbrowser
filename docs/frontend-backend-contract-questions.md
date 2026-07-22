@@ -8,7 +8,7 @@ that contract for deterministic UI tests.
 ## Implemented and wired
 
 - Authenticated owner sessions, CSRF-protected mutations, and logout/lock flows.
-- Paginated profiles and sanitized profile logs.
+- Paginated profiles plus sanitized history and opaque cursor/reset log tails.
 - Conflict-safe partial profile PATCH using `expected_updated_at`; omitted fields
   remain unchanged and a stale write asks the owner to refresh and review.
 - Real running-session count from bootstrap and authenticated WebSocket runtime
@@ -18,28 +18,24 @@ that contract for deterministic UI tests.
 - Profile JSON import/export and independent cookie JSON/Netscape import/export.
   Download filenames come from the server's `Content-Disposition` header.
 - Extension catalog register/list/enable/disable/refresh/unregister and profile
-  assignment through `PUT /profiles/{id}/extensions`.
+  assignment hydration/replacement through authenticated
+  `GET`/`PUT /profiles/{id}/extensions`.
 - Persisted diagnostic history and asynchronous direct Google control, Pixelscan,
   IPhey, Cloudflare, and Google Search runs, including filters, progress,
   cancellation, safe errors, and explicit CAPTCHA user-action wording.
+- Authenticated, bounded diagnostic report/screenshot artifact routes. Public
+  diagnostic JSON contains only API URLs, never local filesystem paths.
 
-## Remaining contract gaps and safe frontend fallbacks
+## Closed foundation contract gaps
 
-1. **Read profile extension assignments.** The backend exposes
-   `PUT /profiles/{id}/extensions`, but no corresponding GET endpoint or
-   `extension_ids` on `ProfileRead`. Therefore edit mode cannot hydrate the
-   current assignments. The frontend preserves them when the extension step is
-   untouched, shows an explanatory warning, and only sends PUT when the owner
-   deliberately selects assignments. Clearing all assignments from edit mode is
-   deferred until the backend exposes the current list.
-2. **Open or download diagnostic artifacts.** Diagnostic responses expose
-   root-contained `screenshot_path` and `report_path`, but there is no
-   authenticated route to open/download those artifacts. The frontend displays
-   and copies the safe path and clearly notes the limitation; it does not create
-   an unauthenticated static-file URL.
-3. **Cursor/tail profile logs.** The backend provides page/page-size pagination,
-   not cursor/reset/tail semantics. The log dialog polls the newest page while
-   open and labels that behavior. It does not invent cursor behavior.
+1. Edit mode hydrates assigned extension IDs before resetting the form; an
+   unchanged editor preserves the assignment and an explicit edit replaces it.
+2. Diagnostic report and screenshot links target fixed authenticated routes.
+   The server revalidates exact run ownership, type, size, and link/reparse
+   boundaries at read time.
+3. The newest-log view polls an opaque, profile-bound cursor tail and honors a
+   backend `reset` after retention or truncation. Page controls still provide
+   stable historical browsing.
 
 ## Safety constraints
 

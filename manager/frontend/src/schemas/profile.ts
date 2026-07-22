@@ -179,7 +179,10 @@ export function defaultWizardValues(overrides?: Partial<ProfileWizardValues>): P
   };
 }
 
-export function profileToWizardValues(p: ProfileRead): ProfileWizardValues {
+export function profileToWizardValues(
+  p: ProfileRead,
+  extensionIds: string[] = [],
+): ProfileWizardValues {
   const str = (value: number | null): string => (value == null ? '' : String(value));
   return {
     name: p.name,
@@ -208,7 +211,7 @@ export function profileToWizardValues(p: ProfileRead): ProfileWizardValues {
     window_width: str(p.window.width),
     window_height: str(p.window.height),
     color_scheme: p.window.color_scheme,
-    extension_ids: [],
+    extension_ids: [...extensionIds],
     humanize_enabled: p.behavior.humanize_enabled,
     humanize_preset: p.behavior.humanize_preset,
     clear_cache_before_launch: p.behavior.clear_cache_before_launch,

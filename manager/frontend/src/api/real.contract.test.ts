@@ -49,6 +49,16 @@ describe('real Manager adapter contract', () => {
     await realApi.setProfileExtensions('p-1', ['00000000-0000-4000-8000-000000000001']);
     expect(fetchMock.mock.calls.at(-1)?.[1]?.method).toBe('PUT');
 
+    await realApi.getProfileExtensions('p-1');
+    expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain('/profiles/p-1/extensions');
+    expect(fetchMock.mock.calls.at(-1)?.[1]?.method).toBe('GET');
+
+    await realApi.getProfileLogTail('p-1', { cursor: 'opaque-cursor', limit: 25 });
+    const tailUrl = String(fetchMock.mock.calls.at(-1)?.[0]);
+    expect(tailUrl).toContain('/profiles/p-1/logs/tail?');
+    expect(tailUrl).toContain('cursor=opaque-cursor');
+    expect(tailUrl).toContain('limit=25');
+
     await realApi.listDiagnostics({ kind: 'pixelscan', status: 'warning', page: 3 });
     const diagnosticUrl = String(fetchMock.mock.calls.at(-1)?.[0]);
     expect(diagnosticUrl).toContain('/diagnostics?');

@@ -36,6 +36,20 @@ describe('ProfileDialogs', () => {
       page_size: params?.page_size ?? 20,
       pages: 2,
     }));
+    const tail = vi.spyOn(mockApi, 'getProfileLogTail').mockResolvedValue({
+      items: [
+        {
+          id: 'tail-1',
+          profile_id: mockStore.profiles[0].id,
+          created_at: '2026-07-22T00:00:00Z',
+          level: 'info',
+          event: 'runtime.ready',
+          message: 'page 1',
+        },
+      ],
+      next_cursor: 'opaque-cursor',
+      reset: false,
+    });
     renderWithProviders(
       <ProfileDialogs
         dialog={{ type: 'logs', profile: profileView() }}
@@ -46,6 +60,10 @@ describe('ProfileDialogs', () => {
     );
 
     expect(await screen.findByText('page 1')).toBeInTheDocument();
+    expect(tail).toHaveBeenCalledWith(
+      mockStore.profiles[0].id,
+      expect.objectContaining({ limit: 20 }),
+    );
     await user.click(screen.getByRole('button', { name: /next log page/i }));
     expect(await screen.findByText('page 2')).toBeInTheDocument();
     await waitFor(() =>

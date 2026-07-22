@@ -17,6 +17,7 @@ from .schemas import (
 from .service import (
     extension_to_dict,
     get_extension,
+    list_profile_extensions,
     list_extensions,
     register_extension,
     set_profile_extensions,
@@ -89,3 +90,12 @@ def assign(
 ):
     assigned = set_profile_extensions(session, profile_id, payload.extension_ids)
     return {"extension_ids": [extension.id for extension in assigned]}
+
+
+@router.get(
+    "/profiles/{profile_id}/extensions",
+    response_model=ProfileExtensionAssignmentRead,
+)
+def assigned(profile_id: CanonicalUuid, session: SessionDependency):
+    extensions = list_profile_extensions(session, profile_id)
+    return {"extension_ids": [extension.id for extension in extensions]}

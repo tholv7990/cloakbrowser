@@ -23,6 +23,7 @@ export const queryKeys = {
   profilesRoot: ['profiles'] as const,
   profile: (id: string) => ['profile', id] as const,
   profileLogs: (id: string) => ['profile', id, 'logs'] as const,
+  profileExtensions: (id: string) => ['profile', id, 'extensions'] as const,
   folders: ['folders'] as const,
   tags: ['tags'] as const,
   statuses: ['workflow-statuses'] as const,

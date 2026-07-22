@@ -15,6 +15,14 @@ export function useProfile(id: string | null) {
   });
 }
 
+export function useProfileExtensions(id: string | null) {
+  return useQuery({
+    queryKey: id ? queryKeys.profileExtensions(id) : ['profile', 'extensions', 'none'],
+    queryFn: () => api.getProfileExtensions(id!),
+    enabled: Boolean(id),
+  });
+}
+
 export function useCreateProfile() {
   const queryClient = useQueryClient();
   const { toast } = useToast();

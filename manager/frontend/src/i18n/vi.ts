@@ -834,6 +834,8 @@ export const vi: Record<keyof typeof en, string> = {
   'diag.captchaAction': 'Đã phát hiện CAPTCHA. Cần người dùng thao tác; tự động hóa đã dừng.',
   'diag.artifactUnavailable':
     'Cần tuyến backend có xác thực để mở tệp; hiện tại hãy sao chép đường dẫn được kiểm soát.',
+  'diag.downloadReport': 'Tải báo cáo',
+  'diag.openScreenshot': 'Mở ảnh chụp',
   'diag.kind.direct_google_control': 'Kiểm soát Google trực tiếp',
   'diag.kind.iphey': 'IPhey',
   'diag.kind.cloudflare': 'Cloudflare',

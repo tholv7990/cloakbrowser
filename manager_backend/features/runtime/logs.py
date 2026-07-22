@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import math
+import base64
+import hashlib
+import hmac
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import Field
@@ -12,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from ...config import ManagerSettings
 from ...models import ProfileLogEntry
-from ...schemas.common import Page
+from ...schemas.common import Page, StrictModel
 
 
 MAX_PROFILE_LOG_ENTRIES = 2_000
@@ -36,6 +40,21 @@ _EVENT_FIELDS = {
 
 class ProfileLogPage(Page[dict[str, Any]]):
     page_size: int = Field(ge=1, le=MAX_PROFILE_LOG_PAGE_SIZE)
+
+
+class ProfileLogRead(StrictModel):
+    id: str
+    profile_id: str
+    created_at: datetime
+    level: Literal["debug", "info", "warning", "error"]
+    event: str
+    message: str
+
+
+class ProfileLogTail(StrictModel):
+    items: list[ProfileLogRead]
+    next_cursor: str | None = Field(default=None, max_length=64)
+    reset: bool
 
 
 def _canonical_profile_id(profile_id: object) -> str:
@@ -167,4 +186,72 @@ def list_profile_logs(
         page=page,
         page_size=page_size,
         pages=math.ceil(total / page_size) if total else 0,
+    )
+
+
+def tail_profile_logs(
+    session: Session,
+    profile_id: str,
+    *,
+    cursor: str | None,
+    limit: int,
+    secret: str,
+) -> ProfileLogTail:
+    if not 1 <= limit <= MAX_PROFILE_LOG_PAGE_SIZE:
+        raise ValueError("profile log tail limit must be between 1 and 200")
+    if not isinstance(secret, str) or not secret:
+        raise ValueError("profile log cursor secret is required")
+
+    entries = list(
+        session.scalars(
+            select(ProfileLogEntry)
+            .where(ProfileLogEntry.profile_id == profile_id)
+            .order_by(ProfileLogEntry.created_at, ProfileLogEntry.id)
+            .limit(MAX_PROFILE_LOG_ENTRIES)
+        )
+    )
+
+    def cursor_for(entry_id: str) -> str:
+        payload = f"profile-log-tail-v1\0{profile_id}\0{entry_id}".encode("utf-8")
+        digest = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).digest()
+        return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+    reset = False
+    if cursor is None:
+        selected = entries[-limit:]
+    else:
+        matched_index = None
+        if len(cursor) == 43 and all(
+            character.isalnum() or character in "-_" for character in cursor
+        ):
+            for index, entry in enumerate(entries):
+                if hmac.compare_digest(cursor_for(entry.id), cursor):
+                    matched_index = index
+                    break
+        if matched_index is None:
+            reset = True
+            selected = entries[-limit:]
+        else:
+            selected = entries[matched_index + 1 : matched_index + 1 + limit]
+
+    if selected:
+        next_cursor = cursor_for(selected[-1].id)
+    elif cursor is not None and not reset:
+        next_cursor = cursor
+    else:
+        next_cursor = None
+    return ProfileLogTail(
+        items=[
+            {
+                "id": entry.id,
+                "profile_id": entry.profile_id,
+                "created_at": entry.created_at,
+                "level": entry.level,
+                "event": entry.event,
+                "message": entry.message,
+            }
+            for entry in selected
+        ],
+        next_cursor=next_cursor,
+        reset=reset,
     )

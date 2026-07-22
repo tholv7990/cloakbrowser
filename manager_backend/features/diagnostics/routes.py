@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from ...dependencies import get_session
@@ -14,6 +14,8 @@ from .schemas import (
     ProfileDiagnosticRequest,
 )
 from .service import diagnostic_to_dict, get_diagnostic, list_diagnostics
+from .artifacts import ArtifactNotFound, ArtifactUnavailable, read_diagnostic_artifact
+from ...errors import ManagerError
 
 
 router = APIRouter()
@@ -104,6 +106,67 @@ def create_google_search(payload: ProfileDiagnosticRequest, request: Request):
 @router.get("/diagnostics/{diagnostic_id}", response_model=DiagnosticRead)
 def diagnostic(diagnostic_id: str, request: Request, session: SessionDependency):
     return _serialize(request, get_diagnostic(session, diagnostic_id))
+
+
+def _artifact(
+    diagnostic_id: str,
+    kind: str,
+    request: Request,
+    session: Session,
+) -> Response:
+    run = get_diagnostic(session, diagnostic_id)
+    settings = request.app.state.settings
+    persisted_path = run.report_path if kind == "report" else run.screenshot_path
+    maximum = (
+        settings.diagnostic_max_report_bytes
+        if kind == "report"
+        else settings.diagnostic_max_screenshot_bytes
+    )
+    try:
+        artifact = read_diagnostic_artifact(
+            settings.data_root,
+            run.id,
+            kind,
+            persisted_path,
+            max_bytes=maximum,
+        )
+    except ArtifactNotFound:
+        raise ManagerError(
+            "diagnostic_artifact_not_found",
+            "The diagnostic artifact was not found.",
+            404,
+        ) from None
+    except ArtifactUnavailable:
+        raise ManagerError(
+            "diagnostic_artifact_unavailable",
+            "The diagnostic artifact cannot be served safely.",
+            409,
+        ) from None
+    return Response(
+        content=artifact.content,
+        media_type=artifact.media_type,
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Disposition": (
+                f'{artifact.disposition}; filename="{artifact.filename}"'
+            ),
+        },
+    )
+
+
+@router.get("/diagnostics/{diagnostic_id}/artifacts/report")
+def report_artifact(
+    diagnostic_id: str, request: Request, session: SessionDependency
+):
+    return _artifact(diagnostic_id, "report", request, session)
+
+
+@router.get("/diagnostics/{diagnostic_id}/artifacts/screenshot")
+def screenshot_artifact(
+    diagnostic_id: str, request: Request, session: SessionDependency
+):
+    return _artifact(diagnostic_id, "screenshot", request, session)
 
 
 @router.post("/diagnostics/{diagnostic_id}/cancel", response_model=DiagnosticRead)

@@ -845,8 +845,8 @@ export interface DiagnosticRun {
   progress: number;
   summary: string | null;
   findings: Record<string, boolean | string>;
-  screenshot_path: string | null;
-  report_path: string | null;
+  screenshot_url: string | null;
+  report_url: string | null;
   error_code: DiagnosticErrorCode | null;
   error_message: string | null;
 }
@@ -861,6 +861,16 @@ export interface ProfileLogEntry {
 }
 
 export type ProfileLogs = Paginated<ProfileLogEntry>;
+
+export interface ProfileLogTail {
+  items: ProfileLogEntry[];
+  next_cursor: string | null;
+  reset: boolean;
+}
+
+export interface ProfileExtensionAssignment {
+  extension_ids: string[];
+}
 
 // ---------------------------------------------------------------------------
 // Envelopes

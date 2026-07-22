@@ -12,13 +12,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from ...config import ManagerSettings
 from ...errors import ManagerError
-from ...models import Extension, Profile
+from ...models import Extension, Profile, profile_extensions
 from .filesystem import (
     DEFAULT_MANIFEST_FILESYSTEM,
     ApprovedDirectory,
@@ -365,6 +365,25 @@ def get_extension(session: Session, extension_id: str) -> Extension:
 
 def list_extensions(session: Session) -> list[Extension]:
     return list(session.scalars(select(Extension).order_by(Extension.name, Extension.id)))
+
+
+def list_profile_extensions(session: Session, profile_id: str) -> list[Extension]:
+    profile = session.get(Profile, profile_id)
+    if profile is None or profile.deleted_at is not None:
+        raise ManagerError(
+            "profile_not_found", "The requested profile was not found.", 404
+        )
+    return list(
+        session.scalars(
+            select(Extension)
+            .join(
+                profile_extensions,
+                profile_extensions.c.extension_id == Extension.id,
+            )
+            .where(profile_extensions.c.profile_id == profile_id)
+            .order_by(func.lower(Extension.name), Extension.id)
+        )
+    )
 
 
 def validate_registered_extension_path(

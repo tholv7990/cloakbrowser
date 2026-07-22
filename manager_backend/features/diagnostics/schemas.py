@@ -166,8 +166,8 @@ class DiagnosticRead(StrictModel):
     progress: int = Field(ge=0, le=100)
     summary: DiagnosticSummary | None
     findings: dict[str, FindingValue]
-    screenshot_path: str | None
-    report_path: str | None
+    screenshot_url: str | None
+    report_url: str | None
     error_code: DiagnosticErrorCode | None
     error_message: DiagnosticErrorMessage | None
 

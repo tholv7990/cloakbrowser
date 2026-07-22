@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import func, select
 
-from manager_backend.features.runtime.logs import append_profile_log, list_profile_logs
+from manager_backend.features.runtime.logs import (
+    append_profile_log,
+    list_profile_logs,
+    tail_profile_logs,
+)
 from manager_backend.models import Profile, ProfileLogEntry
 
 
@@ -13,7 +20,7 @@ def _profile(session_factory) -> str:
     with session_factory() as session:
         profile = Profile(
             name="Runtime logs",
-            fingerprint_seed="123456789",
+            fingerprint_seed=str(uuid4().int % 1_000_000_000_000_000_000),
             fingerprint_config_hash="a" * 64,
         )
         session.add(profile)
@@ -218,3 +225,150 @@ def test_list_profile_logs_rejects_page_size_above_200(db_session_factory, setti
     profile_id = _profile(db_session_factory)
     with db_session_factory() as session, pytest.raises(ValueError, match="200"):
         list_profile_logs(session, profile_id, page_size=201)
+
+
+def test_tail_profile_logs_uses_opaque_cursor_without_duplicates_or_skips(
+    db_session_factory, settings
+):
+    profile_id = _profile(db_session_factory)
+    with db_session_factory() as session:
+        first = _append(session, profile_id, settings, "runtime.start_requested")
+        second = _append(session, profile_id, settings, "runtime.ready")
+        third = _append(session, profile_id, settings, "runtime.crashed", level="error")
+        initial = tail_profile_logs(
+            session, profile_id, cursor=None, limit=2, secret="cursor-secret"
+        )
+
+    assert [item.id for item in initial.items] == [second.id, third.id]
+    assert initial.reset is False
+    assert initial.next_cursor
+    assert profile_id not in initial.next_cursor
+    assert first.id not in initial.next_cursor
+    assert third.id not in initial.next_cursor
+
+    with db_session_factory() as session:
+        fourth = _append(session, profile_id, settings, "runtime.stop_requested")
+        fifth = _append(session, profile_id, settings, "runtime.reconciled")
+        next_page = tail_profile_logs(
+            session,
+            profile_id,
+            cursor=initial.next_cursor,
+            limit=1,
+            secret="cursor-secret",
+        )
+        final_page = tail_profile_logs(
+            session,
+            profile_id,
+            cursor=next_page.next_cursor,
+            limit=2,
+            secret="cursor-secret",
+        )
+
+    assert [item.id for item in next_page.items] == [fourth.id]
+    assert [item.id for item in final_page.items] == [fifth.id]
+    assert len({item.id for item in next_page.items + final_page.items}) == 2
+
+
+def test_tail_profile_logs_resets_malformed_cross_profile_and_truncated_cursor(
+    db_session_factory, settings
+):
+    first_profile = _profile(db_session_factory)
+    second_profile = _profile(db_session_factory)
+    with db_session_factory() as session:
+        old = _append(session, first_profile, settings, "runtime.start_requested")
+        _append(session, first_profile, settings, "runtime.ready")
+        _append(session, second_profile, settings, "runtime.crashed", level="error")
+        cursor = tail_profile_logs(
+            session, first_profile, cursor=None, limit=2, secret="cursor-secret"
+        ).next_cursor
+        cross_profile = tail_profile_logs(
+            session,
+            second_profile,
+            cursor=cursor,
+            limit=10,
+            secret="cursor-secret",
+        )
+        malformed = tail_profile_logs(
+            session,
+            first_profile,
+            cursor="not-a-valid-cursor",
+            limit=10,
+            secret="cursor-secret",
+        )
+        session.delete(session.get(ProfileLogEntry, old.id))
+        session.commit()
+
+    with db_session_factory() as session:
+        old_cursor = tail_profile_logs(
+            session, first_profile, cursor=None, limit=1, secret="cursor-secret"
+        ).next_cursor
+        cursor_entry = session.scalar(
+            select(ProfileLogEntry)
+            .where(ProfileLogEntry.profile_id == first_profile)
+            .order_by(ProfileLogEntry.created_at.desc(), ProfileLogEntry.id.desc())
+        )
+        session.delete(cursor_entry)
+        session.commit()
+    with db_session_factory() as session:
+        truncated = tail_profile_logs(
+            session,
+            first_profile,
+            cursor=old_cursor,
+            limit=10,
+            secret="cursor-secret",
+        )
+
+    assert cross_profile.reset is True
+    assert malformed.reset is True
+    assert truncated.reset is True
+
+
+def test_profile_log_tail_api_is_bounded_authenticated_and_observes_concurrent_appends(
+    client, auth_headers, settings
+):
+    profile = client.post(
+        "/api/v1/profiles", headers=auth_headers, json={"name": "Tail API"}
+    ).json()
+    profile_id = profile["id"]
+    with client.app.state.session_factory() as session:
+        _append(session, profile_id, settings, "runtime.start_requested")
+    baseline = client.get(
+        f"/api/v1/profiles/{profile_id}/logs/tail?limit=2", headers=auth_headers
+    ).json()
+    barrier = Barrier(4)
+
+    def append_one():
+        barrier.wait()
+        with client.app.state.session_factory() as session:
+            return _append(session, profile_id, settings, "runtime.ready").id
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(append_one) for _ in range(4)]
+        appended = {future.result() for future in futures}
+
+    initial = client.get(
+        f"/api/v1/profiles/{profile_id}/logs/tail",
+        headers=auth_headers,
+        params={"cursor": baseline["next_cursor"], "limit": 2},
+    )
+    assert initial.status_code == 200
+    body = initial.json()
+    assert len(body["items"]) == 2
+    assert body["reset"] is False
+    assert body["next_cursor"]
+
+    follow = client.get(
+        f"/api/v1/profiles/{profile_id}/logs/tail",
+        headers=auth_headers,
+        params={"cursor": body["next_cursor"], "limit": 2},
+    )
+    assert follow.status_code == 200
+    observed = {item["id"] for item in body["items"] + follow.json()["items"]}
+    assert observed == appended
+
+    too_large = client.get(
+        f"/api/v1/profiles/{profile_id}/logs/tail?limit=201", headers=auth_headers
+    )
+    assert too_large.status_code == 422
+    client.cookies.clear()
+    assert client.get(f"/api/v1/profiles/{profile_id}/logs/tail").status_code == 401
