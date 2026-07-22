@@ -8,7 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -526,7 +526,7 @@ def test_hung_interrupt_verification_never_blocks_supervisor_or_releases_lease(
         db_session_factory,
         _settings(
             settings,
-            diagnostic_timeout_seconds=0.05 if trigger == "deadline" else 1,
+            diagnostic_timeout_seconds=0.5 if trigger == "deadline" else 2,
             max_concurrent_diagnostics=1,
         ),
         browser=FakeBrowserAdapter(session_factory=lambda: session),
@@ -535,7 +535,6 @@ def test_hung_interrupt_verification_never_blocks_supervisor_or_releases_lease(
     )
     cancel = threading.Event()
     pool = ThreadPoolExecutor(max_workers=1)
-    started = time.monotonic()
     future = pool.submit(
         runner.run,
         _request(kind="pixelscan", profile_id=profile_id),
@@ -546,9 +545,9 @@ def test_hung_interrupt_verification_never_blocks_supervisor_or_releases_lease(
         assert target_entered.wait(1)
         if trigger == "cancellation":
             cancel.set()
-        assert session.cleanup_entered.wait(0.15)
-        result = future.result(timeout=0.15)
-        assert time.monotonic() - started < 0.25
+        assert session.cleanup_entered.wait(1)
+        result = future.result(timeout=1)
+        assert not session.cleanup_release.is_set()
         assert result.status == "failed"
         assert result.error_code == "cleanup_failed"
         assert not lock.released
@@ -926,7 +925,10 @@ def test_late_cleanup_failure_is_observable_and_keeps_ownership_lease(
     observed = []
     observed_event = threading.Event()
 
-    def observe(result):
+    observed_run_ids = []
+
+    def observe(run_id, result):
+        observed_run_ids.append(run_id)
         observed.append(result)
         observed_event.set()
 
@@ -946,6 +948,7 @@ def test_late_cleanup_failure_is_observable_and_keeps_ownership_lease(
         )
 
     lock = FakeLock()
+    request = _request(kind="pixelscan", profile_id=profile_id)
     runner = _runner(
         db_session_factory,
         _settings(
@@ -960,7 +963,7 @@ def test_late_cleanup_failure_is_observable_and_keeps_ownership_lease(
     )
 
     result = runner.run(
-        _request(kind="pixelscan", profile_id=profile_id),
+        request,
         threading.Event(),
         lambda _value: None,
     )
@@ -969,11 +972,152 @@ def test_late_cleanup_failure_is_observable_and_keeps_ownership_lease(
     assert result.error_code == "cleanup_failed"
     assert observed_event.wait(1)
     assert len(observed) == 1
+    assert observed_run_ids == [UUID(request.run_id)]
     assert observed[0].status == "failed"
     assert observed[0].error_code == "cleanup_failed"
     assert Path(observed[0].report_path).exists()
     assert not lock.released
     assert not runner._semaphore.acquire(timeout=0.01)
+
+
+def test_concurrent_same_kind_deferred_results_include_explicit_run_ids(
+    db_session_factory, settings
+):
+    profiles = [
+        _profile(db_session_factory, name=f"deferred-{index}")
+        for index in range(2)
+    ]
+    requests = [
+        _request(kind="pixelscan", profile_id=profile_id)
+        for profile_id in profiles
+    ]
+    target_release = threading.Event()
+    targets_entered = threading.Event()
+    target_count = 0
+    state_lock = threading.Lock()
+
+    def block_target(_session, target_url, **_kwargs):
+        nonlocal target_count
+        with state_lock:
+            target_count += 1
+            if target_count == 2:
+                targets_entered.set()
+        target_release.wait()
+        return TargetResult(
+            status="passed",
+            findings={"page_loaded": True},
+            final_url=target_url,
+            title="late concurrent fixture",
+            screenshot=PNG,
+        )
+
+    observed: list[tuple[UUID, object]] = []
+    observed_all = threading.Event()
+
+    def observe(run_id, result):
+        with state_lock:
+            observed.append((run_id, result))
+            if len(observed) == 2:
+                observed_all.set()
+
+    runner = _runner(
+        db_session_factory,
+        _settings(
+            settings,
+            diagnostic_timeout_seconds=2,
+            max_concurrent_diagnostics=2,
+        ),
+        browser=FakeBrowserAdapter(
+            session_factory=lambda: FakeSession(
+                close_error=RuntimeError("raw close"),
+                terminate_error=RuntimeError("raw terminate"),
+            )
+        ),
+        target=FakeTargetAdapter(block_target),
+        deferred_result=observe,
+    )
+    cancels = [threading.Event(), threading.Event()]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(runner.run, request, cancel, lambda _value: None)
+            for request, cancel in zip(requests, cancels)
+        ]
+        assert targets_entered.wait(1)
+        for cancel in cancels:
+            cancel.set()
+        results = [future.result(timeout=0.5) for future in futures]
+        target_release.set()
+        assert observed_all.wait(1)
+
+    assert all(result.error_code == "cleanup_failed" for result in results)
+    assert {run_id for run_id, _result in observed} == {
+        UUID(request.run_id) for request in requests
+    }
+    assert all(result.kind == "pixelscan" for _run_id, result in observed)
+
+
+def test_deferred_result_keeps_run_id_when_artifact_write_fails(
+    db_session_factory, settings, monkeypatch
+):
+    request = _request(
+        kind="pixelscan",
+        profile_id=_profile(db_session_factory, name="artifactless-deferred"),
+    )
+    target_entered = threading.Event()
+    target_release = threading.Event()
+
+    def block_target(_session, target_url, **_kwargs):
+        target_entered.set()
+        target_release.wait()
+        return TargetResult(
+            status="passed",
+            findings={},
+            final_url=target_url,
+            title="artifact failure fixture",
+            screenshot=PNG,
+        )
+
+    observed = []
+    observed_event = threading.Event()
+
+    def observe(run_id, result):
+        observed.append((run_id, result))
+        observed_event.set()
+
+    runner = _runner(
+        db_session_factory,
+        _settings(settings, diagnostic_timeout_seconds=2),
+        browser=FakeBrowserAdapter(
+            session_factory=lambda: FakeSession(
+                close_error=RuntimeError("raw close"),
+                terminate_error=RuntimeError("raw terminate"),
+            )
+        ),
+        target=FakeTargetAdapter(block_target),
+        deferred_result=observe,
+    )
+
+    def reject_artifacts(*_args, **_kwargs):
+        raise ArtifactBoundaryError("simulated artifact failure")
+
+    monkeypatch.setattr(runner, "_artifacts", reject_artifacts)
+    cancel = threading.Event()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            runner.run, request, cancel, lambda _value: None
+        )
+        assert target_entered.wait(1)
+        cancel.set()
+        result = future.result(timeout=0.5)
+        target_release.set()
+        assert observed_event.wait(1)
+
+    assert result.error_code == "cleanup_failed"
+    assert result.report_path is None
+    assert len(observed) == 1
+    assert observed[0][0] == UUID(request.run_id)
+    assert observed[0][1].error_code == "cleanup_failed"
+    assert observed[0][1].report_path is None
 
 
 def test_temporary_profile_removal_failure_cannot_return_passed(

@@ -164,3 +164,30 @@ python -m pytest tests/manager/test_runtime_manager.py tests/manager/test_diagno
 python -m pytest tests/manager -q
 462 passed, 3 skipped, 1 warning in 64.89s
 ```
+
+## Final Review Correlation and Timing Pass
+
+- Deferred cleanup notifications now use the typed callback boundary `Callable[[UUID, DiagnosticResult], None]`. The run UUID is supplied directly from the diagnostic request and never derived from an optional artifact path.
+- Concurrent deferred failures for the same diagnostic kind are independently correlatable by UUID.
+- Artifact-write failure still delivers the UUID and a safe `cleanup_failed` result with `report_path=None`, leaving Task 4 able to persist the terminal state without parsing filesystem metadata.
+- The hung-cleanup regression no longer assumes a 50 ms end-to-end deadline. It waits for explicit target-entry and cleanup-blocked phases, then proves the supervisor returns while the test-controlled cleanup release remains unset.
+
+Final-review RED evidence:
+
+```text
+python -m pytest tests/manager/test_diagnostic_runner.py -q -k "concurrent_same_kind_deferred or deferred_result_keeps_run_id"
+2 failed, 56 deselected, 1 warning in 2.57s
+```
+
+Final-review verification:
+
+```text
+python -m pytest tests/manager/test_diagnostic_runner.py -q
+58 passed, 1 warning in 6.37s
+
+# Ten repetitions of hung-cleanup/deferred-correlation cases
+10 x 7 passed (70 focused cases)
+
+python -m pytest tests/manager -q
+464 passed, 3 skipped, 1 warning in 59.10s
+```

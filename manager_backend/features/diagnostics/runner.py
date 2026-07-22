@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit, urlunsplit
+from uuid import UUID
 
 from ...config import ManagerSettings
 from ...models import Profile
@@ -172,6 +173,9 @@ class DiagnosticResult:
     report_path: str | None = None
 
 
+DeferredDiagnosticResultCallback = Callable[[UUID, DiagnosticResult], None]
+
+
 class _RunnerFailure(Exception):
     def __init__(self, code: str):
         self.code = code
@@ -287,7 +291,7 @@ class DiagnosticRunner:
         target_adapter: TargetAdapter,
         proxy_preflight: Callable[[dict[str, Any]], ProxyPreflightResult],
         lock_factory: Callable[[str], Any] | None = None,
-        deferred_result: Callable[[DiagnosticResult], None] | None = None,
+        deferred_result: DeferredDiagnosticResultCallback | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings
@@ -632,7 +636,7 @@ class DiagnosticRunner:
             )
             if self._deferred_result is not None:
                 try:
-                    self._deferred_result(result)
+                    self._deferred_result(UUID(request.run_id), result)
                 except Exception:
                     pass
 
