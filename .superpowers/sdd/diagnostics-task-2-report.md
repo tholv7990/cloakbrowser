@@ -128,3 +128,39 @@ exit 0
 ```
 
 Python cannot safely kill a truly never-returning thread. The fail-safe contract therefore terminates and verifies any published browser session, retains the lock/semaphore lease, and keeps the owner/reaper as daemon threads until the adapter returns. This prevents an unverified browser from overlapping another launch. Finite non-cooperative adapters are hard-bounded and fully reaped; an adapter that both never returns and hides an external process before publishing its session violates the injected adapter contract and is intentionally never treated as cleaned up.
+
+## Second Independent Re-review Correction Pass
+
+The remaining Important findings were reproduced with 13 new RED cases and corrected.
+
+- Abandonment no longer calls `is_closed()` or `terminate()` synchronously. Forced termination and verification run on a daemon interrupt worker, while the supervisor waits only a fixed 25 ms cleanup grace before returning a safe result.
+- A never-returning termination or verification call maps the immediate deadline/cancellation result to `cleanup_failed` and retains the profile lock and concurrency slot. The owner and interrupt workers must both complete before the deferred reaper can release the lease.
+- Timed-out or cancelled proxy preflights now use the same pending-operation ownership path as browser lifecycles. Their profile lock and slot remain leased until the preflight actually exits, so repeated stuck preflights cannot exceed `max_concurrent_diagnostics`.
+- Redirect persistence now uses an exact per-kind `(host, path)` policy: Google `/search`, `/sorry/index`, and consent `/m`; Pixelscan and IPhey `/`; and the exact Cloudflare Turnstile fixture path. Other same-host paths fall back to the sanitized requested target, and all query/fragment data remains stripped.
+- Deferred cleanup failures atomically replace the safe report with `cleanup_failed`, retain unresolved ownership leases, and can be observed through an injected result callback. Observer exceptions are contained inside the cleanup worker.
+
+Second re-review RED evidence:
+
+```text
+python -m pytest tests/manager/test_diagnostic_runner.py -q -k "hung_interrupt_verification or abandoned_preflights or narrow_target_policy or late_cleanup_failure_is_observable"
+13 failed, 43 deselected
+```
+
+Second re-review verification:
+
+```text
+python -m pytest tests/manager/test_diagnostic_runner.py -q -k "hung_interrupt_verification or abandoned_preflights or narrow_target_policy or late_cleanup_failure_is_observable"
+13 passed, 43 deselected, 1 warning in 1.57s
+
+python -m pytest tests/manager/test_diagnostic_runner.py -q
+56 passed, 1 warning in 5.16s
+
+# Five repetitions of deadline/cancellation/hung-cleanup/preflight/deferred races
+5 x 10 passed (50 stress cases)
+
+python -m pytest tests/manager/test_runtime_manager.py tests/manager/test_diagnostics_api.py tests/manager/test_config.py -q
+59 passed, 1 warning in 11.21s
+
+python -m pytest tests/manager -q
+462 passed, 3 skipped, 1 warning in 64.89s
+```

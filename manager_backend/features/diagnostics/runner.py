@@ -55,14 +55,27 @@ _FAILURE_CODES = frozenset(
         "target_layout_changed",
     }
 )
-_TARGET_HOSTS = {
-    "direct_google_control": frozenset({"www.google.com", "consent.google.com"}),
-    "google_search": frozenset({"www.google.com", "consent.google.com"}),
-    "pixelscan": frozenset({"pixelscan.net"}),
-    "iphey": frozenset({"iphey.com"}),
-    "cloudflare": frozenset({"challenge.cloudflare.com"}),
+_TARGET_ROUTES = {
+    "direct_google_control": frozenset(
+        {
+            ("www.google.com", "/search"),
+            ("www.google.com", "/sorry/index"),
+            ("consent.google.com", "/m"),
+        }
+    ),
+    "google_search": frozenset(
+        {
+            ("www.google.com", "/search"),
+            ("www.google.com", "/sorry/index"),
+            ("consent.google.com", "/m"),
+        }
+    ),
+    "pixelscan": frozenset({("pixelscan.net", "/")}),
+    "iphey": frozenset({("iphey.com", "/")}),
+    "cloudflare": frozenset(
+        {("challenge.cloudflare.com", "/turnstile/v0/generic/")}
+    ),
 }
-_SAFE_PATH = re.compile(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/\-]*$")
 _LIMITATIONS = (
     "This is a timestamped observation, not a permanent fingerprint guarantee.",
     "No raw DOM, storage, cookies, response bodies, or network bodies are retained.",
@@ -181,7 +194,8 @@ class _Operation:
     late_cleanup_had_error: bool = False
     late_cleanup: Callable[[Any], tuple[bool, bool]] | None = None
     abandon_callback: Callable[[], tuple[bool, bool]] | None = None
-    interrupt_safe: bool = True
+    interrupt_done: threading.Event = field(default_factory=threading.Event)
+    interrupt_safe: bool = False
     interrupt_had_error: bool = False
 
 
@@ -242,9 +256,7 @@ def _sanitized_target_url(kind: str, value: object, request_url: str) -> str:
         or parsed.username is not None
         or parsed.password is not None
         or port not in {None, 443}
-        or host not in _TARGET_HOSTS.get(kind, frozenset())
-        or len(path) > 1024
-        or _SAFE_PATH.fullmatch(path) is None
+        or (host, path) not in _TARGET_ROUTES.get(kind, frozenset())
     ):
         return safe_fallback
     return urlunsplit(("https", host, path, "", ""))
@@ -275,6 +287,7 @@ class DiagnosticRunner:
         target_adapter: TargetAdapter,
         proxy_preflight: Callable[[dict[str, Any]], ProxyPreflightResult],
         lock_factory: Callable[[str], Any] | None = None,
+        deferred_result: Callable[[DiagnosticResult], None] | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings
@@ -286,6 +299,7 @@ class DiagnosticRunner:
                 settings.profile_root / profile_id / ".runtime.lock", profile_id
             )
         )
+        self._deferred_result = deferred_result
         self._semaphore = threading.BoundedSemaphore(
             settings.max_concurrent_diagnostics
         )
@@ -433,10 +447,12 @@ class DiagnosticRunner:
             if operation.abandoned:
                 return
             operation.abandoned = True
-            should_interrupt = operation.abandon_callback is not None
+            should_interrupt = (
+                operation.abandon_callback is not None
+                and operation.completed_at is None
+            )
             if operation.completed_at is not None and operation.error is None:
                 late_result = operation.result
-                operation.result = None
                 has_late_result = True
         if has_late_result and operation.late_cleanup is not None:
             try:
@@ -447,15 +463,26 @@ class DiagnosticRunner:
             except Exception:
                 operation.late_cleanup_safe = False
                 operation.late_cleanup_had_error = True
-        if should_interrupt and operation.abandon_callback is not None:
+        if not should_interrupt or operation.abandon_callback is None:
+            operation.interrupt_safe = True
+            operation.interrupt_done.set()
+            return
+
+        def interrupt() -> None:
             try:
-                (
-                    operation.interrupt_safe,
-                    operation.interrupt_had_error,
-                ) = operation.abandon_callback()
+                safe, had_error = operation.abandon_callback()
             except Exception:
-                operation.interrupt_safe = False
-                operation.interrupt_had_error = True
+                safe, had_error = False, True
+            with operation.lock:
+                operation.interrupt_safe = safe
+                operation.interrupt_had_error = had_error
+            operation.interrupt_done.set()
+
+        threading.Thread(
+            target=interrupt,
+            name=f"diagnostic-interrupt-{operation.name}",
+            daemon=True,
+        ).start()
 
     def _bounded_call(
         self,
@@ -472,6 +499,9 @@ class DiagnosticRunner:
             late_cleanup=late_cleanup,
             abandon_callback=abandon_callback,
         )
+        if abandon_callback is None:
+            operation.interrupt_safe = True
+            operation.interrupt_done.set()
 
         def invoke() -> None:
             value = None
@@ -486,11 +516,10 @@ class DiagnosticRunner:
             with operation.lock:
                 operation.completed_at = completed_at
                 operation.error = error
+                operation.result = value
                 if operation.abandoned:
                     cleanup_value = value
                     should_cleanup = error is None
-                else:
-                    operation.result = value
             if should_cleanup and operation.late_cleanup is not None:
                 try:
                     (
@@ -532,31 +561,80 @@ class DiagnosticRunner:
                 raise error
             return value
 
-    def _defer_launch_resources(
+    def _defer_operation_resources(
         self,
         operation: _Operation,
         *,
+        request: DiagnosticRequest,
+        snapshot: dict[str, Any] | None,
+        preflight: ProxyPreflightResult | None,
+        started: float,
         temporary_profile: Path | None,
         profile_lock: Any,
         release_slot: bool,
     ) -> None:
-        """Keep ownership until a late browser launch is closed or terminated."""
+        """Keep ownership until an abandoned operation is verified safe."""
 
         def reap() -> None:
             operation.done.wait()
+            operation.interrupt_done.wait()
             safe = operation.late_cleanup_safe
+            cleanup_failed = (
+                operation.late_cleanup_had_error
+                or operation.interrupt_had_error
+                or not safe
+            )
             if safe and temporary_profile is not None:
                 try:
                     shutil.rmtree(temporary_profile)
                 except OSError:
-                    pass
+                    safe = False
+                    cleanup_failed = True
             if safe and profile_lock is not None:
                 try:
                     profile_lock.release()
                 except Exception:
-                    pass
+                    safe = False
+                    cleanup_failed = True
             if safe and release_slot:
                 self._semaphore.release()
+
+            if not cleanup_failed:
+                return
+            launch = None
+            target = None
+            with operation.lock:
+                value = operation.result
+            if isinstance(value, _LifecycleResult):
+                launch = value.launch
+                target = value.target
+            report_path = None
+            try:
+                report = self._report(
+                    request=request,
+                    launch=launch,
+                    snapshot=snapshot,
+                    preflight=preflight,
+                    started=started,
+                    target=target,
+                    status="failed",
+                    error_code="cleanup_failed",
+                )
+                report_path = self._artifacts(request, report, None).report_path
+            except (ArtifactBoundaryError, OSError, ValueError, TypeError):
+                pass
+            result = DiagnosticResult(
+                kind=str(request.kind),
+                status="failed",
+                findings={},
+                error_code="cleanup_failed",
+                report_path=report_path,
+            )
+            if self._deferred_result is not None:
+                try:
+                    self._deferred_result(result)
+                except Exception:
+                    pass
 
         threading.Thread(
             target=reap,
@@ -776,7 +854,7 @@ class DiagnosticRunner:
         snapshot = None
         preflight = None
         target = None
-        pending_launch: _Operation | None = None
+        pending_operation: _Operation | None = None
         lifecycle_result: _LifecycleResult | None = None
         outcome: DiagnosticResult | None = None
         try:
@@ -805,7 +883,8 @@ class DiagnosticRunner:
                         deadline=deadline,
                         cancel_event=cancel_event,
                     )
-                except (_OperationTimedOut, _OperationCancelled):
+                except (_OperationTimedOut, _OperationCancelled) as abandoned:
+                    pending_operation = abandoned.operation
                     raise
                 except Exception:
                     raise _RunnerFailure("proxy_preflight_failed") from None
@@ -840,7 +919,7 @@ class DiagnosticRunner:
                     ),
                 )
             except (_OperationTimedOut, _OperationCancelled) as abandoned:
-                pending_launch = abandoned.operation
+                pending_operation = abandoned.operation
                 raise
             if not isinstance(lifecycle_result, _LifecycleResult):
                 raise DiagnosticBrowserCrashed
@@ -921,34 +1000,79 @@ class DiagnosticRunner:
                 error_code="diagnostic_failed",
             )
 
-        if pending_launch is not None and not pending_launch.done.is_set():
-            pending_launch.done.wait(_CLEANUP_GRACE_SECONDS)
+        if pending_operation is not None:
+            cleanup_deadline = time.monotonic() + _CLEANUP_GRACE_SECONDS
+            pending_operation.interrupt_done.wait(_CLEANUP_GRACE_SECONDS)
+            remaining = cleanup_deadline - time.monotonic()
+            if remaining > 0:
+                pending_operation.done.wait(remaining)
 
-        if pending_launch is not None and not pending_launch.done.is_set():
-            self._defer_launch_resources(
-                pending_launch,
+        if pending_operation is not None and (
+            not pending_operation.done.is_set()
+            or not pending_operation.interrupt_done.is_set()
+        ):
+            self._defer_operation_resources(
+                pending_operation,
+                request=request,
+                snapshot=snapshot,
+                preflight=preflight,
+                started=started,
                 temporary_profile=temporary_profile,
                 profile_lock=profile_lock,
                 release_slot=slot_acquired,
             )
-            if outcome.status == "cancelled" and (
-                not pending_launch.interrupt_safe
-                or pending_launch.interrupt_had_error
+            if (
+                not pending_operation.interrupt_done.is_set()
+                or not pending_operation.interrupt_safe
+                or pending_operation.interrupt_had_error
             ):
+                report_path = None
+                try:
+                    report = self._report(
+                        request=request,
+                        launch=launch,
+                        snapshot=snapshot,
+                        preflight=preflight,
+                        started=started,
+                        target=target,
+                        status="failed",
+                        error_code="cleanup_failed",
+                    )
+                    report_path = self._artifacts(
+                        request, report, None
+                    ).report_path
+                except (
+                    ArtifactBoundaryError,
+                    OSError,
+                    ValueError,
+                    TypeError,
+                ):
+                    pass
                 outcome = DiagnosticResult(
                     kind=str(request.kind),
                     status="failed",
                     findings={},
                     error_code="cleanup_failed",
-                    report_path=outcome.report_path,
+                    report_path=report_path,
                 )
             return outcome
 
         cleanup_failed = False
         browser_safe = True
-        if pending_launch is not None:
-            browser_safe = pending_launch.late_cleanup_safe
-            cleanup_failed = pending_launch.late_cleanup_had_error or not browser_safe
+        if pending_operation is not None:
+            browser_safe = pending_operation.late_cleanup_safe
+            cleanup_failed = (
+                pending_operation.late_cleanup_had_error
+                or pending_operation.interrupt_had_error
+                or not pending_operation.interrupt_safe
+                or not browser_safe
+            )
+            with pending_operation.lock:
+                late_result = pending_operation.result
+            if isinstance(late_result, _LifecycleResult):
+                lifecycle_result = late_result
+                launch = late_result.launch
+                target = late_result.target
         elif lifecycle_result is not None:
             browser_safe = lifecycle_result.cleanup_safe
             cleanup_failed = (

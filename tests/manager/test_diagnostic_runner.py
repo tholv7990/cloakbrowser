@@ -68,6 +68,27 @@ class FakeSession:
         return self.closed
 
 
+class HangingCleanupSession(FakeSession):
+    def __init__(self, hang: str):
+        super().__init__(close_error=RuntimeError("raw close"))
+        self.hang = hang
+        self.cleanup_entered = threading.Event()
+        self.cleanup_release = threading.Event()
+
+    def is_closed(self) -> bool:
+        if self.hang == "is_closed" and not self.cleanup_release.is_set():
+            self.cleanup_entered.set()
+            self.cleanup_release.wait()
+        return self.closed
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+        if self.hang == "terminate" and not self.cleanup_release.is_set():
+            self.cleanup_entered.set()
+            self.cleanup_release.wait()
+        self.closed = True
+
+
 class FakeBrowserAdapter:
     def __init__(
         self,
@@ -149,6 +170,9 @@ def _request(*, kind="direct_google_control", profile_id=None, target_url=None):
     targets = {
         "direct_google_control": "https://www.google.com/search?q=CloakBrowser+diagnostic",
         "pixelscan": "https://pixelscan.net/",
+        "iphey": "https://iphey.com/",
+        "cloudflare": "https://challenge.cloudflare.com/turnstile/v0/generic/",
+        "google_search": "https://www.google.com/search?q=CloakBrowser+browser+diagnostic",
     }
     return DiagnosticRequest(
         run_id=str(uuid4()),
@@ -164,7 +188,7 @@ def _profile(
     with session_factory() as session:
         profile = Profile(
             name=name,
-            fingerprint_seed="4242424242",
+            fingerprint_seed=str(int(uuid4().hex[:12], 16)),
             fingerprint_preset="consistent",
             fingerprint_revision=7,
             fingerprint_config_hash="a" * 64,
@@ -207,6 +231,7 @@ def _runner(
     target=None,
     proxy_preflight=None,
     lock_factory=None,
+    deferred_result=None,
 ):
     return DiagnosticRunner(
         session_factory,
@@ -216,6 +241,11 @@ def _runner(
         proxy_preflight=proxy_preflight
         or (lambda _snapshot: ProxyPreflightResult()),
         lock_factory=lock_factory or (lambda _profile_id: FakeLock()),
+        **(
+            {"deferred_result": deferred_result}
+            if deferred_result is not None
+            else {}
+        ),
     )
 
 
@@ -468,6 +498,140 @@ def test_non_cooperative_target_cannot_ignore_cancellation(
         thread.name.startswith("diagnostic-adapter-")
         for thread in threading.enumerate()
     )
+
+
+@pytest.mark.parametrize("hang", ["terminate", "is_closed"])
+@pytest.mark.parametrize("trigger", ["deadline", "cancellation"])
+def test_hung_interrupt_verification_never_blocks_supervisor_or_releases_lease(
+    db_session_factory, settings, hang, trigger
+):
+    profile_id = _profile(db_session_factory)
+    session = HangingCleanupSession(hang)
+    target_entered = threading.Event()
+    target_release = threading.Event()
+
+    def block_target(_session, target_url, **_kwargs):
+        target_entered.set()
+        target_release.wait()
+        return TargetResult(
+            status="passed",
+            findings={"page_loaded": True},
+            final_url=target_url,
+            title="late fixture",
+            screenshot=PNG,
+        )
+
+    lock = FakeLock()
+    runner = _runner(
+        db_session_factory,
+        _settings(
+            settings,
+            diagnostic_timeout_seconds=0.05 if trigger == "deadline" else 1,
+            max_concurrent_diagnostics=1,
+        ),
+        browser=FakeBrowserAdapter(session_factory=lambda: session),
+        target=FakeTargetAdapter(block_target),
+        lock_factory=lambda _profile_id: lock,
+    )
+    cancel = threading.Event()
+    pool = ThreadPoolExecutor(max_workers=1)
+    started = time.monotonic()
+    future = pool.submit(
+        runner.run,
+        _request(kind="pixelscan", profile_id=profile_id),
+        cancel,
+        lambda _value: None,
+    )
+    try:
+        assert target_entered.wait(1)
+        if trigger == "cancellation":
+            cancel.set()
+        assert session.cleanup_entered.wait(0.15)
+        result = future.result(timeout=0.15)
+        assert time.monotonic() - started < 0.25
+        assert result.status == "failed"
+        assert result.error_code == "cleanup_failed"
+        assert not lock.released
+        assert not runner._semaphore.acquire(timeout=0.01)
+    finally:
+        target_release.set()
+        session.cleanup_release.set()
+        future.result(timeout=2)
+        pool.shutdown(wait=True)
+
+
+def test_abandoned_preflights_retain_slots_and_profile_locks_until_exit(
+    db_session_factory, settings
+):
+    release = threading.Event()
+    entered = threading.Event()
+    state_lock = threading.Lock()
+    active = 0
+    maximum = 0
+    calls = 0
+
+    def stuck_preflight(_snapshot):
+        nonlocal active, maximum, calls
+        with state_lock:
+            active += 1
+            calls += 1
+            maximum = max(maximum, active)
+            if active == 2:
+                entered.set()
+        release.wait()
+        with state_lock:
+            active -= 1
+        return ProxyPreflightResult()
+
+    locks: dict[str, FakeLock] = {}
+
+    def lock_factory(profile_id):
+        lock = locks.setdefault(profile_id, FakeLock())
+        return lock
+
+    runner = _runner(
+        db_session_factory,
+        _settings(
+            settings,
+            diagnostic_timeout_seconds=0.05,
+            max_concurrent_diagnostics=2,
+        ),
+        proxy_preflight=stuck_preflight,
+        lock_factory=lock_factory,
+    )
+    requests = [
+        _request(
+            kind="pixelscan",
+            profile_id=_profile(db_session_factory, name=f"stuck-{index}"),
+        )
+        for index in range(3)
+    ]
+    pool = ThreadPoolExecutor(max_workers=3)
+    futures = [
+        pool.submit(runner.run, request, threading.Event(), lambda _value: None)
+        for request in requests
+    ]
+    try:
+        assert entered.wait(1)
+        results = [future.result(timeout=0.2) for future in futures]
+        assert all(result.error_code == "timeout" for result in results)
+        assert calls == 2
+        assert maximum == 2
+        assert all(not lock.released for lock in locks.values())
+        assert not runner._semaphore.acquire(timeout=0.01)
+    finally:
+        release.set()
+        for future in futures:
+            future.result(timeout=2)
+        pool.shutdown(wait=True)
+    cleanup_deadline = time.monotonic() + 1
+    while time.monotonic() < cleanup_deadline and any(
+        not lock.released for lock in locks.values()
+    ):
+        time.sleep(0.005)
+    assert all(lock.released for lock in locks.values())
+    assert runner._semaphore.acquire(timeout=0.05)
+    runner._semaphore.release()
 
 
 def test_direct_control_uses_and_removes_a_manager_owned_no_proxy_profile(
@@ -755,6 +919,63 @@ def test_unverified_browser_cleanup_retains_profile_lock_and_concurrency_slot(
     assert not runner._semaphore.acquire(timeout=0.01)
 
 
+def test_late_cleanup_failure_is_observable_and_keeps_ownership_lease(
+    db_session_factory, settings
+):
+    profile_id = _profile(db_session_factory)
+    observed = []
+    observed_event = threading.Event()
+
+    def observe(result):
+        observed.append(result)
+        observed_event.set()
+
+    session = FakeSession(
+        close_error=RuntimeError("raw close"),
+        terminate_error=RuntimeError("raw terminate"),
+    )
+
+    def late_target(_session, target_url, **_kwargs):
+        time.sleep(0.2)
+        return TargetResult(
+            status="passed",
+            findings={"page_loaded": True},
+            final_url=target_url,
+            title="late cleanup fixture",
+            screenshot=PNG,
+        )
+
+    lock = FakeLock()
+    runner = _runner(
+        db_session_factory,
+        _settings(
+            settings,
+            diagnostic_timeout_seconds=0.05,
+            max_concurrent_diagnostics=1,
+        ),
+        browser=FakeBrowserAdapter(session_factory=lambda: session),
+        target=FakeTargetAdapter(late_target),
+        lock_factory=lambda _profile_id: lock,
+        deferred_result=observe,
+    )
+
+    result = runner.run(
+        _request(kind="pixelscan", profile_id=profile_id),
+        threading.Event(),
+        lambda _value: None,
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == "cleanup_failed"
+    assert observed_event.wait(1)
+    assert len(observed) == 1
+    assert observed[0].status == "failed"
+    assert observed[0].error_code == "cleanup_failed"
+    assert Path(observed[0].report_path).exists()
+    assert not lock.released
+    assert not runner._semaphore.acquire(timeout=0.01)
+
+
 def test_temporary_profile_removal_failure_cannot_return_passed(
     db_session_factory, settings, monkeypatch
 ):
@@ -819,6 +1040,75 @@ def test_report_retains_only_sanitized_allowed_https_redirects(
     assert report["target"]["final_url"] == expected
     assert "secret" not in report["target"]["final_url"]
     assert "password" not in report["target"]["final_url"]
+
+
+@pytest.mark.parametrize(
+    ("kind", "final_url", "expected"),
+    [
+        (
+            "direct_google_control",
+            "https://www.google.com/search/sensitive-token-789",
+            "https://www.google.com/search",
+        ),
+        (
+            "direct_google_control",
+            "https://www.google.com/sorry/sensitive-token-789",
+            "https://www.google.com/search",
+        ),
+        (
+            "direct_google_control",
+            "https://consent.google.com/sensitive-token-789",
+            "https://www.google.com/search",
+        ),
+        (
+            "pixelscan",
+            "https://pixelscan.net/account/sensitive-token-789",
+            "https://pixelscan.net/",
+        ),
+        (
+            "iphey",
+            "https://iphey.com/result/sensitive-token-789",
+            "https://iphey.com/",
+        ),
+        (
+            "cloudflare",
+            "https://challenge.cloudflare.com/turnstile/v0/generic/sensitive-token-789",
+            "https://challenge.cloudflare.com/turnstile/v0/generic/",
+        ),
+        (
+            "google_search",
+            "https://www.google.com/search/sensitive-token-789",
+            "https://www.google.com/search",
+        ),
+    ],
+)
+def test_report_rejects_same_host_paths_outside_narrow_target_policy(
+    db_session_factory, settings, kind, final_url, expected
+):
+    target = FakeTargetAdapter(
+        action=lambda _session, _target_url, **_kwargs: TargetResult(
+            status="passed",
+            findings={},
+            final_url=final_url,
+            title="path policy fixture",
+            screenshot=PNG,
+        )
+    )
+    profile_id = None
+    if kind != "direct_google_control":
+        profile_id = _profile(db_session_factory, name=f"path-{kind}")
+    runner = _runner(db_session_factory, _settings(settings), target=target)
+
+    result = runner.run(
+        _request(kind=kind, profile_id=profile_id),
+        threading.Event(),
+        lambda _value: None,
+    )
+
+    report_text = Path(result.report_path).read_text(encoding="utf-8")
+    report = json.loads(report_text)
+    assert report["target"]["final_url"] == expected
+    assert "sensitive-token-789" not in report_text
 
 
 def test_concurrency_never_exceeds_the_configured_bound(
