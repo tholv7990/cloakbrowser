@@ -11,8 +11,8 @@ Base: `c962eb1`
 
 ## Verification
 
-- Backend: `python -m pytest tests/manager -q` — 541 passed, 3 skipped.
-- Frontend: `npm test -- --run` — 64 passed.
+- Backend: `python -m pytest tests/manager -q` — 546 passed, 3 skipped.
+- Frontend: `npm test -- --run` — 65 passed.
 - TypeScript: `npm run typecheck` — passed.
 - Production frontend: `npm run build` — passed (existing bundle-size advisory only).
 - OpenAPI: export plus `tests/manager/test_openapi_static.py` — passed.
@@ -20,3 +20,20 @@ Base: `c962eb1`
 - Diff whitespace check: `git diff --check` — passed for scoped product files.
 
 No secrets, raw diagnostic paths, cookie values, proxy credentials, or CAPTCHA automation were added.
+
+## Independent-review hardening follow-up
+
+- Diagnostic artifact reads now hold Windows directory handles for both the
+  diagnostics root and the individual run root, compare stable volume/file
+  identities and final paths, and revalidate both boundaries before and after
+  the bounded file read. Deterministic replacement tests cover each boundary.
+- Profile logs now allocate an atomic, persistent, per-profile monotonic
+  sequence. Migration `0011_profile_log_sequence` deterministically backfills
+  existing rows, initializes counters, enforces uniqueness, and has an
+  exercised downgrade. Tail cursors remain opaque HMAC values and do not expose
+  the sequence.
+- Report and screenshot success responses explicitly advertise
+  `application/json` and `image/png`; every error response remains the canonical
+  JSON envelope.
+- The frontend clears a tail cursor synchronously when the profile or requested
+  limit changes, preventing one request from using the prior profile's cursor.

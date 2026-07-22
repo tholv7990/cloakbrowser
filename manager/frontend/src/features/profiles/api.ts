@@ -14,7 +14,7 @@ import type {
 import { useToast } from '@/components/ui/Toast';
 import { emptyProfileWrite } from './view';
 import { handleProfileConflict, PROFILE_CONFLICT_REVIEW_MESSAGE } from './conflicts';
-import { mergeProfileLogTail } from './logTail';
+import { mergeProfileLogTail, synchronizeTailCursor } from './logTail';
 
 export function useProfiles(params: ProfileListParams) {
   return useQuery({
@@ -275,11 +275,12 @@ export function useProfileLogs(id: string | null, page = 1, pageSize = 20) {
 }
 
 export function useProfileLogTail(id: string | null, limit = 20, enabled = true) {
-  const cursor = useRef<string | null>(null);
+  const cursor = useRef({ key: '', cursor: null as string | null });
   const [items, setItems] = useState<ProfileLogEntry[]>([]);
+  const cursorKey = `${id ?? 'none'}:${limit}`;
+  cursor.current = synchronizeTailCursor(cursor.current, cursorKey);
 
   useEffect(() => {
-    cursor.current = null;
     setItems([]);
   }, [id, limit]);
 
@@ -289,7 +290,7 @@ export function useProfileLogTail(id: string | null, limit = 20, enabled = true)
       : ['profile', 'logs', 'tail', 'none'],
     queryFn: () =>
       api.getProfileLogTail(id!, {
-        cursor: cursor.current ?? undefined,
+        cursor: cursor.current.cursor ?? undefined,
         limit,
       }),
     enabled: Boolean(id) && enabled,
@@ -299,8 +300,10 @@ export function useProfileLogTail(id: string | null, limit = 20, enabled = true)
   useEffect(() => {
     if (!query.data) return;
     setItems((current) => mergeProfileLogTail(current, query.data, limit));
-    cursor.current = query.data.next_cursor;
-  }, [query.data, limit]);
+    if (cursor.current.key === cursorKey) {
+      cursor.current = { key: cursorKey, cursor: query.data.next_cursor };
+    }
+  }, [query.data, limit, cursorKey]);
 
   return { ...query, items };
 }

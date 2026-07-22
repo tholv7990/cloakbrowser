@@ -512,6 +512,74 @@ def test_diagnostic_artifact_access_rejects_file_swap_and_reparse_boundary(
     assert reparse.json()["error"]["code"] == "diagnostic_artifact_unavailable"
 
 
+@pytest.mark.parametrize("boundary", ["run", "diagnostics"])
+def test_diagnostic_artifact_access_rejects_directory_boundary_swap(
+    client, auth_headers, settings, monkeypatch, boundary
+):
+    from manager_backend.features.diagnostics import artifacts
+    from manager_backend.models import DiagnosticRun
+
+    with client.app.state.session_factory() as session:
+        run = DiagnosticRun(
+            kind="direct_google_control",
+            status="passed",
+            target_url="https://www.google.com/search?q=CloakBrowser+diagnostic",
+            progress=100,
+            findings={},
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(run)
+        session.flush()
+        diagnostics_root = settings.data_root.resolve() / "diagnostics"
+        run_root = diagnostics_root / run.id
+        run_root.mkdir(parents=True)
+        report = run_root / "report.json"
+        report.write_text('{"owned":true}', encoding="utf-8")
+        run.report_path = str(report)
+        session.commit()
+        run_id = run.id
+
+    original_is_link_or_reparse = artifacts._is_link_or_reparse
+    swapped = False
+
+    def swap_boundary_after_validation(path):
+        nonlocal swapped
+        path = Path(path)
+        should_swap = (
+            boundary == "run" and path == run_root
+        ) or (
+            boundary == "diagnostics" and path == diagnostics_root
+        )
+        result = original_is_link_or_reparse(path)
+        if should_swap and not swapped:
+            swapped = True
+            if boundary == "run":
+                held = diagnostics_root / f"{run_id}-held"
+                run_root.rename(held)
+                run_root.mkdir()
+            else:
+                held = settings.data_root.resolve() / "diagnostics-held"
+                diagnostics_root.rename(held)
+                run_root.mkdir(parents=True)
+            report.write_text('{"outside":true}', encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(artifacts, "_is_link_or_reparse", swap_boundary_after_validation)
+    response = client.get(
+        f"/api/v1/diagnostics/{run_id}/artifacts/report", headers=auth_headers
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "diagnostic_artifact_unavailable"
+
+
+def test_openapi_declares_explicit_diagnostic_artifact_media_types(client):
+    paths = client.get("/openapi.json").json()["paths"]
+    report = paths["/api/v1/diagnostics/{diagnostic_id}/artifacts/report"]["get"]
+    screenshot = paths["/api/v1/diagnostics/{diagnostic_id}/artifacts/screenshot"]["get"]
+    assert set(report["responses"]["200"]["content"]) == {"application/json"}
+    assert set(screenshot["responses"]["200"]["content"]) == {"image/png"}
+
+
 def test_diagnostic_routes_require_authentication_origin_and_csrf(client, auth_headers):
     missing_origin = client.post("/api/v1/diagnostics/direct-google-control")
     assert missing_origin.status_code == 403

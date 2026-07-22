@@ -12,10 +12,11 @@ from uuid import UUID
 
 from pydantic import Field
 from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from ...config import ManagerSettings
-from ...models import ProfileLogEntry
+from ...models import ProfileLogEntry, ProfileLogSequence
 from ...schemas.common import Page, StrictModel
 
 
@@ -124,8 +125,20 @@ def append_profile_log(
         raise ValueError("profile log level is unsupported")
     message = _message_for_event(event, fields, profile_id=profile_id, settings=settings)
 
+    next_sequence = session.scalar(
+        sqlite_insert(ProfileLogSequence)
+        .values(profile_id=profile_id, next_sequence=2)
+        .on_conflict_do_update(
+            index_elements=[ProfileLogSequence.profile_id],
+            set_={"next_sequence": ProfileLogSequence.next_sequence + 1},
+        )
+        .returning(ProfileLogSequence.next_sequence)
+    )
+    if next_sequence is None:
+        raise RuntimeError("profile log sequence allocation failed")
     entry = ProfileLogEntry(
         profile_id=profile_id,
+        sequence=next_sequence - 1,
         level=level,
         event=event,
         message=message,
@@ -135,7 +148,7 @@ def append_profile_log(
     stale_ids = (
         select(ProfileLogEntry.id)
         .where(ProfileLogEntry.profile_id == profile_id)
-        .order_by(ProfileLogEntry.created_at.desc(), ProfileLogEntry.id.desc())
+        .order_by(ProfileLogEntry.sequence.desc())
         .offset(MAX_PROFILE_LOG_ENTRIES)
     )
     session.execute(
@@ -165,7 +178,7 @@ def list_profile_logs(
     total = int(session.scalar(select(func.count(ProfileLogEntry.id)).where(ProfileLogEntry.profile_id == profile_id)) or 0)
     entries = list(
         session.scalars(
-            statement.order_by(ProfileLogEntry.created_at.desc(), ProfileLogEntry.id.desc())
+            statement.order_by(ProfileLogEntry.sequence.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
@@ -206,13 +219,13 @@ def tail_profile_logs(
         session.scalars(
             select(ProfileLogEntry)
             .where(ProfileLogEntry.profile_id == profile_id)
-            .order_by(ProfileLogEntry.created_at, ProfileLogEntry.id)
+            .order_by(ProfileLogEntry.sequence)
             .limit(MAX_PROFILE_LOG_ENTRIES)
         )
     )
 
-    def cursor_for(entry_id: str) -> str:
-        payload = f"profile-log-tail-v1\0{profile_id}\0{entry_id}".encode("utf-8")
+    def cursor_for(sequence: int) -> str:
+        payload = f"profile-log-tail-v2\0{profile_id}\0{sequence}".encode("utf-8")
         digest = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).digest()
         return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
@@ -225,7 +238,7 @@ def tail_profile_logs(
             character.isalnum() or character in "-_" for character in cursor
         ):
             for index, entry in enumerate(entries):
-                if hmac.compare_digest(cursor_for(entry.id), cursor):
+                if hmac.compare_digest(cursor_for(entry.sequence), cursor):
                     matched_index = index
                     break
         if matched_index is None:
@@ -235,7 +248,7 @@ def tail_profile_logs(
             selected = entries[matched_index + 1 : matched_index + 1 + limit]
 
     if selected:
-        next_cursor = cursor_for(selected[-1].id)
+        next_cursor = cursor_for(selected[-1].sequence)
     elif cursor is not None and not reset:
         next_cursor = cursor
     else:

@@ -4,9 +4,10 @@ import json
 import os
 import stat
 import tempfile
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from uuid import UUID
 
 
@@ -41,6 +42,30 @@ _ARTIFACT_KINDS = {
     "screenshot": ("screenshot.png", "image/png", "inline"),
 }
 _REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+
+@dataclass(slots=True)
+class _BoundaryHandle:
+    path: Path
+    identity: tuple[int, ...]
+    final_path: str
+    descriptor: int | None = None
+    native_handle: int | None = None
+
+    def close(self) -> None:
+        if self.descriptor is not None:
+            os.close(self.descriptor)
+            self.descriptor = None
+        if self.native_handle is not None:
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            close_handle = kernel32.CloseHandle
+            close_handle.argtypes = [wintypes.HANDLE]
+            close_handle.restype = wintypes.BOOL
+            close_handle(wintypes.HANDLE(self.native_handle))
+            self.native_handle = None
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -133,6 +158,144 @@ def _is_link_or_reparse(path: Path) -> bool:
     )
 
 
+def _normalized_final_path(value: str | Path) -> str:
+    raw = str(value)
+    if raw.startswith("\\\\?\\UNC\\"):
+        raw = "\\\\" + raw[8:]
+    elif raw.startswith("\\\\?\\"):
+        raw = raw[4:]
+    return os.path.normcase(os.path.abspath(raw))
+
+
+def _open_windows_boundary(path: Path) -> _BoundaryHandle:
+    import ctypes
+    from ctypes import wintypes
+
+    class ByHandleFileInformation(ctypes.Structure):
+        _fields_ = [
+            ("file_attributes", wintypes.DWORD),
+            ("creation_time", wintypes.FILETIME),
+            ("last_access_time", wintypes.FILETIME),
+            ("last_write_time", wintypes.FILETIME),
+            ("volume_serial_number", wintypes.DWORD),
+            ("file_size_high", wintypes.DWORD),
+            ("file_size_low", wintypes.DWORD),
+            ("number_of_links", wintypes.DWORD),
+            ("file_index_high", wintypes.DWORD),
+            ("file_index_low", wintypes.DWORD),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+    get_information = kernel32.GetFileInformationByHandle
+    get_information.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(ByHandleFileInformation),
+    ]
+    get_information.restype = wintypes.BOOL
+    get_final_path = kernel32.GetFinalPathNameByHandleW
+    get_final_path.argtypes = [
+        wintypes.HANDLE,
+        wintypes.LPWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+    ]
+    get_final_path.restype = wintypes.DWORD
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+    handle = create_file(
+        str(path),
+        0x80,  # FILE_READ_ATTRIBUTES
+        0x1 | 0x2 | 0x4,  # FILE_SHARE_READ | WRITE | DELETE
+        None,
+        3,  # OPEN_EXISTING
+        0x02000000 | 0x00200000,  # BACKUP_SEMANTICS | OPEN_REPARSE_POINT
+        None,
+    )
+    invalid_handle = ctypes.c_void_p(-1).value
+    if handle == invalid_handle:
+        raise OSError(ctypes.get_last_error(), "CreateFileW failed", str(path))
+    try:
+        information = ByHandleFileInformation()
+        if not get_information(handle, ctypes.byref(information)):
+            raise OSError(ctypes.get_last_error(), "GetFileInformationByHandle failed")
+        if information.file_attributes & _REPARSE_POINT:
+            raise ArtifactUnavailable
+        buffer = ctypes.create_unicode_buffer(32_768)
+        length = get_final_path(handle, buffer, len(buffer), 0)
+        if length == 0 or length >= len(buffer):
+            raise OSError(ctypes.get_last_error(), "GetFinalPathNameByHandleW failed")
+        return _BoundaryHandle(
+            path=path,
+            identity=(
+                int(information.volume_serial_number),
+                int(information.file_index_high),
+                int(information.file_index_low),
+            ),
+            final_path=_normalized_final_path(buffer.value),
+            native_handle=int(handle),
+        )
+    except Exception:
+        close_handle(handle)
+        raise
+
+
+def _open_posix_boundary(path: Path) -> _BoundaryHandle:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        information = os.fstat(descriptor)
+        if not stat.S_ISDIR(information.st_mode):
+            raise ArtifactUnavailable
+        return _BoundaryHandle(
+            path=path,
+            identity=(int(information.st_dev), int(information.st_ino)),
+            final_path=_normalized_final_path(path.resolve(strict=True)),
+            descriptor=descriptor,
+        )
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+@contextmanager
+def _held_boundary(path: Path) -> Iterator[_BoundaryHandle]:
+    boundary = (
+        _open_windows_boundary(path) if os.name == "nt" else _open_posix_boundary(path)
+    )
+    try:
+        yield boundary
+    finally:
+        boundary.close()
+
+
+def _boundary_is_current(boundary: _BoundaryHandle) -> bool:
+    try:
+        with _held_boundary(boundary.path) as current:
+            return (
+                current.identity == boundary.identity
+                and current.final_path == boundary.final_path
+            )
+    except (ArtifactUnavailable, OSError, RuntimeError, ValueError):
+        return False
+
+
+def _require_current_boundaries(boundaries: tuple[_BoundaryHandle, ...]) -> None:
+    if not all(_boundary_is_current(boundary) for boundary in boundaries):
+        raise ArtifactUnavailable
+
+
 def read_diagnostic_artifact(
     data_root: Path,
     run_id: str,
@@ -157,42 +320,58 @@ def read_diagnostic_artifact(
         supplied = Path(persisted_path)
         if not supplied.is_absolute() or supplied.absolute() != candidate:
             raise ArtifactUnavailable
-        for boundary in (diagnostics_root, run_root):
-            if _is_link_or_reparse(boundary) or boundary.resolve(strict=True) != boundary:
-                raise ArtifactUnavailable
-        before = os.lstat(candidate)
-        if (
-            not stat.S_ISREG(before.st_mode)
-            or _is_link_or_reparse(candidate)
-            or before.st_size > max_bytes
-        ):
-            raise ArtifactUnavailable
-        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(candidate, flags)
-        try:
-            opened = os.fstat(descriptor)
+        with ExitStack() as stack:
+            boundaries = tuple(
+                stack.enter_context(_held_boundary(boundary))
+                for boundary in (diagnostics_root, run_root)
+            )
+            for boundary in (diagnostics_root, run_root):
+                if (
+                    _is_link_or_reparse(boundary)
+                    or boundary.resolve(strict=True) != boundary
+                ):
+                    raise ArtifactUnavailable
+            _require_current_boundaries(boundaries)
+            before = os.lstat(candidate)
             if (
-                not stat.S_ISREG(opened.st_mode)
-                or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
-                or opened.st_size > max_bytes
+                not stat.S_ISREG(before.st_mode)
+                or _is_link_or_reparse(candidate)
+                or before.st_size > max_bytes
             ):
                 raise ArtifactUnavailable
-            chunks: list[bytes] = []
-            remaining = max_bytes + 1
-            while remaining > 0:
-                chunk = os.read(descriptor, min(64 * 1024, remaining))
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                remaining -= len(chunk)
-            content = b"".join(chunks)
-            if len(content) > max_bytes or len(content) != opened.st_size:
-                raise ArtifactUnavailable
-            after = os.lstat(candidate)
-            if (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino):
-                raise ArtifactUnavailable
-        finally:
-            os.close(descriptor)
+            flags = (
+                os.O_RDONLY
+                | getattr(os, "O_BINARY", 0)
+                | getattr(os, "O_NOFOLLOW", 0)
+            )
+            descriptor = os.open(candidate, flags)
+            try:
+                opened = os.fstat(descriptor)
+                if (
+                    not stat.S_ISREG(opened.st_mode)
+                    or (opened.st_dev, opened.st_ino)
+                    != (before.st_dev, before.st_ino)
+                    or opened.st_size > max_bytes
+                ):
+                    raise ArtifactUnavailable
+                _require_current_boundaries(boundaries)
+                chunks: list[bytes] = []
+                remaining = max_bytes + 1
+                while remaining > 0:
+                    chunk = os.read(descriptor, min(64 * 1024, remaining))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+                content = b"".join(chunks)
+                if len(content) > max_bytes or len(content) != opened.st_size:
+                    raise ArtifactUnavailable
+                after = os.lstat(candidate)
+                if (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino):
+                    raise ArtifactUnavailable
+                _require_current_boundaries(boundaries)
+            finally:
+                os.close(descriptor)
     except ArtifactNotFound:
         raise
     except ArtifactUnavailable:

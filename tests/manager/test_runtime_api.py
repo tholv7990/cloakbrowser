@@ -267,11 +267,12 @@ def test_profile_logs_accept_a_200_row_page_size(client, auth_headers):
             [
                 ProfileLogEntry(
                     profile_id=profile_id,
+                    sequence=sequence,
                     level="info",
                     event="runtime.ready",
                     message="Runtime ready.",
                 )
-                for _ in range(200)
+                for sequence in range(1, 201)
             ]
         )
         session.commit()

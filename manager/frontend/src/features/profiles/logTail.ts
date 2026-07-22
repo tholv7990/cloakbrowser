@@ -1,5 +1,14 @@
 import type { ProfileLogEntry, ProfileLogTail } from '@/types/api';
 
+export interface TailCursorState {
+  key: string;
+  cursor: string | null;
+}
+
+export function synchronizeTailCursor(current: TailCursorState, key: string): TailCursorState {
+  return current.key === key ? current : { key, cursor: null };
+}
+
 export function mergeProfileLogTail(
   previous: ProfileLogEntry[],
   response: ProfileLogTail,

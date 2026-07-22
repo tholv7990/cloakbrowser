@@ -4,6 +4,11 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from uuid import uuid4
+from datetime import datetime, timezone
+import sqlite3
+
+from alembic import command
+from alembic.config import Config
 
 import pytest
 from sqlalchemy import func, select
@@ -372,3 +377,117 @@ def test_profile_log_tail_api_is_bounded_authenticated_and_observes_concurrent_a
     assert too_large.status_code == 422
     client.cookies.clear()
     assert client.get(f"/api/v1/profiles/{profile_id}/logs/tail").status_code == 401
+
+
+def test_tail_uses_persistent_monotonic_sequence_when_timestamps_and_uuids_reverse(
+    db_session_factory, settings
+):
+    profile_id = _profile(db_session_factory)
+    same_time = datetime(2026, 7, 22, tzinfo=timezone.utc)
+    with db_session_factory() as session:
+        first = _append(session, profile_id, settings, "runtime.ready")
+        second = _append(session, profile_id, settings, "runtime.ready")
+        first.id = "ffffffff-ffff-4fff-8fff-ffffffffffff"
+        second.id = "00000000-0000-4000-8000-000000000001"
+        first.created_at = second.created_at = same_time
+        session.commit()
+        initial = tail_profile_logs(
+            session, profile_id, cursor=None, limit=1, secret="cursor-secret"
+        )
+
+    assert first.sequence == 1
+    assert second.sequence == 2
+    assert [item.id for item in initial.items] == [second.id]
+
+    with db_session_factory() as session:
+        third = _append(session, profile_id, settings, "runtime.ready")
+        third.created_at = same_time
+        session.commit()
+        follow = tail_profile_logs(
+            session,
+            profile_id,
+            cursor=initial.next_cursor,
+            limit=10,
+            secret="cursor-secret",
+        )
+    assert third.sequence == 3
+    assert [item.id for item in follow.items] == [third.id]
+
+
+def test_runtime_log_sequence_migration_backfills_and_downgrades(tmp_path, monkeypatch):
+    data_root = tmp_path / "runtime-log-sequence-migration"
+    monkeypatch.setenv("CLOAK_MANAGER_DATA_ROOT", str(data_root))
+    config = Config("manager_backend/alembic.ini")
+    command.upgrade(config, "0010_diagnostics")
+    database = data_root / "manager.db"
+    profile_id = "00000000-0000-4000-8000-000000000010"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO profiles (id,name,notes,pinned,fingerprint_seed,fingerprint_preset,"
+            "fingerprint_revision,fingerprint_config_hash,browser_version_mode,"
+            "user_agent_mode,location_json,window_json,behavior_json,"
+            "test_proxy_before_launch,total_runtime_seconds,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                profile_id,
+                "Migrated logs",
+                "",
+                0,
+                "99887766",
+                "consistent",
+                1,
+                "a" * 64,
+                "installed",
+                "automatic",
+                '{"geo_mode":"system"}',
+                '{"mode":"maximized"}',
+                '{"humanize_enabled":false}',
+                1,
+                0,
+                "2026-07-22 00:00:00",
+                "2026-07-22 00:00:00",
+            ),
+        )
+        for entry_id in (
+            "ffffffff-ffff-4fff-8fff-ffffffffffff",
+            "00000000-0000-4000-8000-000000000001",
+        ):
+            connection.execute(
+                "INSERT INTO profile_log_entries "
+                "(id,profile_id,created_at,level,event,message) VALUES (?,?,?,?,?,?)",
+                (
+                    entry_id,
+                    profile_id,
+                    "2026-07-22 00:00:00",
+                    "info",
+                    "runtime.ready",
+                    "Runtime ready.",
+                ),
+            )
+        connection.commit()
+
+    command.upgrade(config, "head")
+    with sqlite3.connect(database) as connection:
+        rows = connection.execute(
+            "SELECT id,sequence FROM profile_log_entries ORDER BY sequence"
+        ).fetchall()
+        next_sequence = connection.execute(
+            "SELECT next_sequence FROM profile_log_sequences WHERE profile_id=?",
+            (profile_id,),
+        ).fetchone()[0]
+        indexes = {row[1]: row for row in connection.execute("PRAGMA index_list(profile_log_entries)")}
+    assert rows == [
+        ("00000000-0000-4000-8000-000000000001", 1),
+        ("ffffffff-ffff-4fff-8fff-ffffffffffff", 2),
+    ]
+    assert next_sequence == 3
+    assert indexes["uq_profile_log_entries_profile_sequence"][2] == 1
+
+    command.downgrade(config, "0010_diagnostics")
+    with sqlite3.connect(database) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(profile_log_entries)")}
+        counter_table = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='profile_log_sequences'"
+        ).fetchone()
+    assert "sequence" not in columns
+    assert counter_table is None

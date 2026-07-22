@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ProfileLogEntry, ProfileLogTail } from '@/types/api';
-import { mergeProfileLogTail } from './logTail';
+import { mergeProfileLogTail, synchronizeTailCursor } from './logTail';
 
 const entry = (id: string): ProfileLogEntry => ({
   id,
@@ -18,6 +18,15 @@ const tail = (items: ProfileLogEntry[], reset = false): ProfileLogTail => ({
 });
 
 describe('mergeProfileLogTail', () => {
+  it('resets the opaque cursor synchronously when profile or limit key changes', () => {
+    const current = { key: 'profile-1:20', cursor: 'opaque-cursor' };
+    expect(synchronizeTailCursor(current, 'profile-1:20')).toBe(current);
+    expect(synchronizeTailCursor(current, 'profile-2:20')).toEqual({
+      key: 'profile-2:20',
+      cursor: null,
+    });
+  });
+
   it('appends chronologically without duplicates and applies the visible bound', () => {
     const first = mergeProfileLogTail([], tail([entry('1'), entry('2')]), 3);
     const second = mergeProfileLogTail(first, tail([entry('2'), entry('3'), entry('4')]), 3);

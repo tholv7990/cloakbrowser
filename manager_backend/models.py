@@ -381,16 +381,39 @@ class ProfileLogEntry(Base):
             name="ck_profile_log_entries_level",
         ),
         Index("ix_profile_log_entries_profile_created_at", "profile_id", "created_at"),
+        Index(
+            "uq_profile_log_entries_profile_sequence",
+            "profile_id",
+            "sequence",
+            unique=True,
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     profile_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False
     )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     level: Mapped[str] = mapped_column(String(16), nullable=False)
     event: Mapped[str] = mapped_column(String(80), nullable=False)
     message: Mapped[str] = mapped_column(String(4000), nullable=False)
+
+
+class ProfileLogSequence(Base):
+    __tablename__ = "profile_log_sequences"
+    __table_args__ = (
+        CheckConstraint(
+            "next_sequence >= 1", name="ck_profile_log_sequences_next_sequence"
+        ),
+    )
+
+    profile_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("profiles.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    next_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class Owner(TimestampMixin, Base):

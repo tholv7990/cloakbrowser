@@ -22,6 +22,38 @@ router = APIRouter()
 SessionDependency = Annotated[Session, Depends(get_session)]
 
 
+class JsonArtifactResponse(Response):
+    media_type = "application/json"
+
+
+class PngArtifactResponse(Response):
+    media_type = "image/png"
+
+
+_ARTIFACT_ERRORS = {
+    401: {
+        "description": "Authentication required",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}},
+    },
+    403: {
+        "description": "Origin or CSRF rejected",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}},
+    },
+    404: {
+        "description": "Diagnostic artifact not found",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}},
+    },
+    409: {
+        "description": "Diagnostic artifact unavailable",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}},
+    },
+    422: {
+        "description": "Request validation failed",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}},
+    },
+}
+
+
 def _serialize(request: Request, run):
     return diagnostic_to_dict(run, request.app.state.settings.data_root)
 
@@ -142,9 +174,9 @@ def _artifact(
             "The diagnostic artifact cannot be served safely.",
             409,
         ) from None
-    return Response(
+    response_class = JsonArtifactResponse if kind == "report" else PngArtifactResponse
+    return response_class(
         content=artifact.content,
-        media_type=artifact.media_type,
         headers={
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
@@ -155,14 +187,22 @@ def _artifact(
     )
 
 
-@router.get("/diagnostics/{diagnostic_id}/artifacts/report")
+@router.get(
+    "/diagnostics/{diagnostic_id}/artifacts/report",
+    response_class=JsonArtifactResponse,
+    responses=_ARTIFACT_ERRORS,
+)
 def report_artifact(
     diagnostic_id: str, request: Request, session: SessionDependency
 ):
     return _artifact(diagnostic_id, "report", request, session)
 
 
-@router.get("/diagnostics/{diagnostic_id}/artifacts/screenshot")
+@router.get(
+    "/diagnostics/{diagnostic_id}/artifacts/screenshot",
+    response_class=PngArtifactResponse,
+    responses=_ARTIFACT_ERRORS,
+)
 def screenshot_artifact(
     diagnostic_id: str, request: Request, session: SessionDependency
 ):
