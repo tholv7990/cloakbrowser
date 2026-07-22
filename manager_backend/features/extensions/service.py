@@ -7,9 +7,10 @@ import os
 import stat
 import tempfile
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -38,6 +39,82 @@ _PERMISSION_FIELDS = (
     "optional_host_permissions",
 )
 _REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+DRIVE_UNKNOWN = 0
+DRIVE_NO_ROOT_DIR = 1
+DRIVE_REMOVABLE = 2
+DRIVE_FIXED = 3
+DRIVE_REMOTE = 4
+DRIVE_CDROM = 5
+DRIVE_RAMDISK = 6
+_LOCAL_DRIVE_TYPES = frozenset(
+    {DRIVE_REMOVABLE, DRIVE_FIXED, DRIVE_CDROM, DRIVE_RAMDISK}
+)
+
+
+class NetworkPathIndeterminate(Exception):
+    """The operating system could not establish that a drive is local."""
+
+
+class PathSecurityAdapter(Protocol):
+    def is_network(self, supplied: str, path: Path) -> bool: ...
+
+    def resolve(self, path: Path) -> Path: ...
+
+
+class NativeNetworkPathDetector:
+    def __init__(
+        self,
+        *,
+        windows: bool | None = None,
+        get_drive_type: Callable[[str], int] | None = None,
+    ) -> None:
+        self._windows = os.name == "nt" if windows is None else windows
+        self._get_drive_type = get_drive_type or self._native_drive_type
+
+    @staticmethod
+    def _native_drive_type(root: str) -> int:
+        try:
+            return int(ctypes.windll.kernel32.GetDriveTypeW(root))
+        except (AttributeError, OSError, ValueError, TypeError):
+            raise NetworkPathIndeterminate from None
+
+    def is_network(self, supplied: str, path: Path) -> bool:
+        normalized = supplied.replace("/", "\\")
+        path_text = str(path).replace("/", "\\")
+        if normalized.startswith("\\\\") or path_text.startswith("\\\\"):
+            return True
+        if not self._windows:
+            return False
+        drive = path.drive
+        if not drive:
+            return False
+        if str(drive).replace("/", "\\").startswith("\\\\"):
+            return True
+        try:
+            drive_type = self._get_drive_type(f"{drive}\\")
+        except NetworkPathIndeterminate:
+            raise
+        except Exception:
+            raise NetworkPathIndeterminate from None
+        if drive_type == DRIVE_REMOTE:
+            return True
+        if drive_type in _LOCAL_DRIVE_TYPES:
+            return False
+        raise NetworkPathIndeterminate
+
+
+class NativePathSecurityAdapter:
+    def __init__(self, detector: NativeNetworkPathDetector | None = None) -> None:
+        self._detector = detector or NativeNetworkPathDetector()
+
+    def is_network(self, supplied: str, path: Path) -> bool:
+        return self._detector.is_network(supplied, path)
+
+    def resolve(self, path: Path) -> Path:
+        return path.resolve(strict=True)
+
+
+DEFAULT_PATH_SECURITY = NativePathSecurityAdapter()
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,18 +170,6 @@ def _system_roots() -> tuple[Path, ...]:
     )
 
 
-def _is_network_path(value: str, path: Path) -> bool:
-    normalized = value.replace("/", "\\")
-    if normalized.startswith("\\\\"):
-        return True
-    if os.name != "nt" or not path.drive:
-        return False
-    try:
-        return ctypes.windll.kernel32.GetDriveTypeW(f"{path.drive}\\") == 4
-    except (AttributeError, OSError):
-        return False
-
-
 def _path_has_reparse_component(path: Path) -> bool:
     absolute = path.absolute()
     candidates = [absolute, *absolute.parents]
@@ -120,18 +185,24 @@ def _path_has_reparse_component(path: Path) -> bool:
 
 
 def _canonical_directory(
-    settings: ManagerSettings, supplied: str
+    settings: ManagerSettings,
+    supplied: str,
+    path_security: PathSecurityAdapter = DEFAULT_PATH_SECURITY,
 ) -> ApprovedDirectory:
     if "\0" in supplied:
         raise _path_error()
     candidate = Path(supplied).expanduser()
-    if _is_network_path(supplied, candidate):
-        raise _path_error()
     try:
+        if path_security.is_network(supplied, candidate):
+            raise _path_error()
         absolute = candidate.absolute()
         if _path_has_reparse_component(absolute):
             raise _path_error()
-        resolved = absolute.resolve(strict=True)
+        resolved = path_security.resolve(absolute)
+        if path_security.is_network(str(resolved), resolved):
+            raise _path_error()
+    except NetworkPathIndeterminate:
+        raise _path_error() from None
     except (OSError, RuntimeError):
         raise ManagerError(
             "extension_directory_not_found",
@@ -246,8 +317,9 @@ def _read_manifest_metadata(
     settings: ManagerSettings,
     supplied: str,
     filesystem: ManifestFilesystem,
+    path_security: PathSecurityAdapter,
 ) -> tuple[Path, ManifestMetadata]:
-    approved = _canonical_directory(settings, supplied)
+    approved = _canonical_directory(settings, supplied, path_security)
     try:
         raw = filesystem.read_manifest(approved, MAX_MANIFEST_BYTES)
     except UnsafeManifestPath:
@@ -299,8 +371,11 @@ def register_extension(
     supplied: str,
     *,
     filesystem: ManifestFilesystem = DEFAULT_MANIFEST_FILESYSTEM,
+    path_security: PathSecurityAdapter = DEFAULT_PATH_SECURITY,
 ) -> tuple[Extension, bool]:
-    directory, metadata = _read_manifest_metadata(settings, supplied, filesystem)
+    directory, metadata = _read_manifest_metadata(
+        settings, supplied, filesystem, path_security
+    )
     normalized = str(directory)
     existing = session.scalar(select(Extension).where(Extension.directory == normalized))
     if existing is not None:
@@ -338,11 +413,12 @@ def update_extension(
     enabled: bool | None,
     refresh: bool,
     filesystem: ManifestFilesystem = DEFAULT_MANIFEST_FILESYSTEM,
+    path_security: PathSecurityAdapter = DEFAULT_PATH_SECURITY,
 ) -> Extension:
     extension = get_extension(session, extension_id)
     if refresh:
         _directory, metadata = _read_manifest_metadata(
-            settings, extension.directory, filesystem
+            settings, extension.directory, filesystem, path_security
         )
         _apply_metadata(extension, metadata)
     if enabled is not None:

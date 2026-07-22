@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import errno
 import os
 import stat
 from dataclasses import dataclass
@@ -206,35 +207,58 @@ class SecureManifestFilesystem:
         current_fd: int | None = None
         try:
             parts = approved.path.parts
-            current_fd = os.open(parts[0], os.O_RDONLY | directory_flag | no_follow)
-            for component in parts[1:]:
-                next_fd = os.open(
-                    component,
-                    os.O_RDONLY | directory_flag | no_follow,
-                    dir_fd=current_fd,
+            try:
+                current_fd = os.open(
+                    parts[0], os.O_RDONLY | directory_flag | no_follow
                 )
+            except OSError:
+                raise UnsafeManifestPath from None
+            for component in parts[1:]:
+                try:
+                    next_fd = os.open(
+                        component,
+                        os.O_RDONLY | directory_flag | no_follow,
+                        dir_fd=current_fd,
+                    )
+                except OSError:
+                    raise UnsafeManifestPath from None
                 os.close(current_fd)
                 current_fd = next_fd
-            directory_info = os.fstat(current_fd)
+            try:
+                directory_info = os.fstat(current_fd)
+            except OSError:
+                raise UnsafeManifestPath from None
             if (
                 directory_info.st_dev != approved.device
                 or directory_info.st_ino != approved.inode
             ):
                 raise UnsafeManifestPath
-            manifest_fd = os.open(
-                "manifest.json", os.O_RDONLY | no_follow, dir_fd=current_fd
-            )
             try:
-                manifest_info = os.fstat(manifest_fd)
+                manifest_fd = os.open(
+                    "manifest.json", os.O_RDONLY | no_follow, dir_fd=current_fd
+                )
+            except OSError as error:
+                if error.errno in {errno.ELOOP, errno.ENOTDIR}:
+                    raise UnsafeManifestPath from None
+                raise ManifestReadFailure from None
+            try:
+                try:
+                    manifest_info = os.fstat(manifest_fd)
+                except OSError:
+                    raise ManifestReadFailure from None
                 if not stat.S_ISREG(manifest_info.st_mode):
                     raise UnsafeManifestPath
                 if manifest_info.st_size > maximum_bytes:
                     raise ManifestTooLarge
                 result = bytearray()
                 while len(result) <= maximum_bytes:
-                    chunk = os.read(
-                        manifest_fd, min(64 * 1024, maximum_bytes + 1 - len(result))
-                    )
+                    try:
+                        chunk = os.read(
+                            manifest_fd,
+                            min(64 * 1024, maximum_bytes + 1 - len(result)),
+                        )
+                    except OSError:
+                        raise ManifestReadFailure from None
                     if not chunk:
                         break
                     result.extend(chunk)
@@ -243,10 +267,8 @@ class SecureManifestFilesystem:
                 return bytes(result)
             finally:
                 os.close(manifest_fd)
-        except (ManifestTooLarge, UnsafeManifestPath):
+        except (ManifestReadFailure, ManifestTooLarge, UnsafeManifestPath):
             raise
-        except OSError:
-            raise ManifestReadFailure from None
         finally:
             if current_fd is not None:
                 os.close(current_fd)

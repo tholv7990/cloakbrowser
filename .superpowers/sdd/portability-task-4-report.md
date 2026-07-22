@@ -85,3 +85,31 @@ A follow-up TDD pass addressed the independent extension review:
 Review verification: focused portability/extension/migration coverage reports
 `54 passed, 1 skipped`; the full Manager suite reports `340 passed, 3 skipped`.
 The one warning remains the pre-existing Starlette/httpx deprecation warning.
+
+## Final Path-Locality Review
+
+The final path-security review added a second locality decision after
+`resolve(strict=True)` and before construction of `ApprovedDirectory`. Both the raw
+input and canonical resolved path now reject UNC paths and mapped network drives.
+Windows drive type detection explicitly accepts known local types, rejects remote
+drives, and fails closed when `GetDriveTypeW` returns unknown, no-root, an unrecognized
+value, or cannot be called. The later Windows handle check still requires each final
+directory/manifest handle path to equal its already-approved canonical local path, so
+a handle resolving elsewhere cannot bypass the second locality decision.
+
+An injected deterministic race test starts with a real local directory and resolves
+it to a simulated UNC target. It verifies both locality checks occur and that rejection
+happens before the handle reader is invoked. Separate injected native-detector tests
+cover fixed, remote, UNC, unknown, no-root, and unrecognized drive results without
+requiring a network share.
+
+POSIX component walking now treats every root/ancestor traversal failure as unsafe.
+`ELOOP` and `ENOTDIR` while opening `manifest.json` with `O_NOFOLLOW` are also unsafe
+and therefore become `extension_path_forbidden`. A missing or otherwise unreadable
+ordinary manifest remains `extension_manifest_invalid`, as do JSON errors. Injected
+errno tests cover these mappings without link privileges.
+
+Final review verification: focused extension/portability/migration/stress coverage
+reports `67 passed, 1 skipped`; the full Manager suite reports
+`353 passed, 3 skipped`. The warning remains the existing Starlette/httpx deprecation
+warning, and the optional real-symlink skip remains environmental.
