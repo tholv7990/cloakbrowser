@@ -1144,6 +1144,60 @@ def test_temporary_profile_removal_failure_cannot_return_passed(
     real_rmtree(attempted[0])
 
 
+def test_temporary_profile_removal_failure_retains_cleanup_ownership(
+    db_session_factory, settings, monkeypatch
+):
+    real_rmtree = runner_module.shutil.rmtree
+    attempted = []
+
+    def fail_profile_removal(path, *args, **kwargs):
+        attempted.append(Path(path))
+        if Path(path).name.startswith("profile-"):
+            raise OSError("raw removal path")
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(runner_module.shutil, "rmtree", fail_profile_removal)
+    runner = _runner(db_session_factory, _settings(settings))
+    request = _request()
+    run_id = UUID(request.run_id)
+    runner.begin_cleanup_ownership(run_id)
+
+    result = runner.run(request, threading.Event(), lambda _value: None)
+
+    assert result.error_code == "cleanup_failed"
+    assert not runner.wait_for_cleanup(run_id, 0)
+    assert not runner.acknowledge_cleanup(run_id)
+    assert runner.cleanup_ownership_count == 1
+    real_rmtree(attempted[0])
+
+
+def test_profile_lock_release_failure_retains_cleanup_ownership(
+    db_session_factory, settings
+):
+    profile_id = _profile(db_session_factory, name="lease-lock-failure")
+
+    class FailingReleaseLock(FakeLock):
+        def release(self):
+            raise RuntimeError("private lock release failure")
+
+    lock = FailingReleaseLock()
+    runner = _runner(
+        db_session_factory,
+        _settings(settings, max_concurrent_diagnostics=1),
+        lock_factory=lambda _profile_id: lock,
+    )
+    request = _request(kind="pixelscan", profile_id=profile_id)
+    run_id = UUID(request.run_id)
+    runner.begin_cleanup_ownership(run_id)
+
+    result = runner.run(request, threading.Event(), lambda _value: None)
+
+    assert result.error_code == "cleanup_failed"
+    assert not runner.wait_for_cleanup(run_id, 0)
+    assert not runner.acknowledge_cleanup(run_id)
+    assert runner.cleanup_ownership_count == 1
+
+
 @pytest.mark.parametrize(
     ("final_url", "expected"),
     [

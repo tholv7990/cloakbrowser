@@ -30,12 +30,18 @@ class Session:
         return self.closed.is_set()
 
 
+class CloseRaisesSession(Session):
+    def close(self) -> None:
+        raise RuntimeError("private close failure")
+
+
 class Browser:
-    def __init__(self) -> None:
+    def __init__(self, session_factory=Session) -> None:
+        self.session_factory = session_factory
         self.sessions: list[Session] = []
 
     def launch(self, _snapshot, **_kwargs) -> BrowserLaunch:
-        session = Session()
+        session = self.session_factory()
         self.sessions.append(session)
         return BrowserLaunch(session=session, tier="free", version="150.0.0.0")
 
@@ -240,6 +246,51 @@ def test_cancel_reports_cleanup_failed_and_retains_ownership_until_stubborn_adap
         assert app.state.diagnostic_executor.task_count == 0
         assert app.state.diagnostic_runner.cleanup_ownership_count == 0
         assert not any(path.name.startswith("profile-") for path in run_root.iterdir())
+
+
+def test_close_error_with_successful_terminate_releases_all_ownership(settings):
+    browser = Browser(session_factory=CloseRaisesSession)
+    app = _app(settings, browser, PassingTarget())
+    with TestClient(app) as client:
+        headers = _login(client)
+        created = client.post(
+            "/api/v1/diagnostics/direct-google-control", headers=headers
+        ).json()
+        terminal = _wait_terminal(client, headers, created["id"])
+        assert terminal["status"] == "failed"
+        assert terminal["error_code"] == "cleanup_failed"
+        assert browser.sessions[0].closed.is_set()
+        assert app.state.diagnostic_runner.cleanup_ownership_count == 0
+        assert app.state.diagnostic_executor.task_count == 0
+
+
+def test_deferred_close_error_releases_lease_after_stubborn_adapter_exits(settings):
+    bounded = settings.model_copy(
+        update={"diagnostic_cleanup_wait_seconds": 0.05}
+    )
+    target = StubbornTarget()
+    browser = Browser(session_factory=CloseRaisesSession)
+    app = _app(bounded, browser, target)
+    with TestClient(app) as client:
+        headers = _login(client)
+        created = client.post(
+            "/api/v1/diagnostics/direct-google-control", headers=headers
+        ).json()
+        assert target.started.wait(2)
+        cancelled = client.post(
+            f"/api/v1/diagnostics/{created['id']}/cancel", headers=headers
+        ).json()
+        assert cancelled["status"] == "failed"
+        assert cancelled["error_code"] == "cleanup_failed"
+        assert app.state.diagnostic_runner.cleanup_ownership_count > 0
+
+        target.release.set()
+        deadline = time.monotonic() + 2
+        while app.state.diagnostic_executor.task_count and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert browser.sessions[0].closed.is_set()
+        assert app.state.diagnostic_runner.cleanup_ownership_count == 0
+        assert app.state.diagnostic_executor.task_count == 0
 
 
 def test_profile_lock_remains_owned_until_stubborn_cleanup_exits(settings):

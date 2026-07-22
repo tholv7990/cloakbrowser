@@ -180,7 +180,7 @@ DeferredDiagnosticResultCallback = Callable[[UUID, DiagnosticResult], None]
 class DiagnosticCleanupLease:
     run_id: UUID
     settled: threading.Event = field(default_factory=threading.Event)
-    released: bool = False
+    resources_released: bool = False
     cleanup_failed: bool = False
 
 
@@ -332,7 +332,11 @@ class DiagnosticRunner:
             self._cleanup_leases[run_id] = DiagnosticCleanupLease(run_id)
 
     def _settle_cleanup_ownership(
-        self, run_id: str, *, released: bool, cleanup_failed: bool
+        self,
+        run_id: str,
+        *,
+        resources_released: bool,
+        cleanup_failed: bool,
     ) -> None:
         try:
             key = UUID(run_id)
@@ -342,7 +346,7 @@ class DiagnosticRunner:
             lease = self._cleanup_leases.get(key)
             if lease is None:
                 return
-            lease.released = bool(released)
+            lease.resources_released = bool(resources_released)
             lease.cleanup_failed = bool(cleanup_failed)
             lease.settled.set()
 
@@ -353,7 +357,7 @@ class DiagnosticRunner:
             return True
         if not lease.settled.wait(timeout):
             return False
-        return lease.released and not lease.cleanup_failed
+        return lease.resources_released
 
     def acknowledge_cleanup(self, run_id: UUID) -> bool:
         with self._cleanup_leases_lock:
@@ -361,8 +365,7 @@ class DiagnosticRunner:
             if (
                 lease is None
                 or not lease.settled.is_set()
-                or not lease.released
-                or lease.cleanup_failed
+                or not lease.resources_released
             ):
                 return False
             del self._cleanup_leases[run_id]
@@ -653,6 +656,7 @@ class DiagnosticRunner:
             operation.done.wait()
             operation.interrupt_done.wait()
             safe = operation.late_cleanup_safe
+            resources_released = safe
             cleanup_failed = (
                 operation.late_cleanup_had_error
                 or operation.interrupt_had_error
@@ -662,21 +666,24 @@ class DiagnosticRunner:
                 try:
                     shutil.rmtree(temporary_profile)
                 except OSError:
-                    safe = False
+                    resources_released = False
                     cleanup_failed = True
             if safe and profile_lock is not None:
                 try:
                     profile_lock.release()
                 except Exception:
-                    safe = False
+                    resources_released = False
                     cleanup_failed = True
             if safe and release_slot:
-                self._semaphore.release()
+                try:
+                    self._semaphore.release()
+                except Exception:
+                    resources_released = False
+                    cleanup_failed = True
 
-            released = safe and not cleanup_failed
             self._settle_cleanup_ownership(
                 request.run_id,
-                released=released,
+                resources_released=resources_released,
                 cleanup_failed=cleanup_failed,
             )
 
@@ -1163,20 +1170,28 @@ class DiagnosticRunner:
             browser_safe, close_failed = self._cleanup_launch(launch)
             cleanup_failed = close_failed or not browser_safe
 
+        resources_released = browser_safe
+
         if temporary_profile is not None and browser_safe:
             try:
                 shutil.rmtree(temporary_profile)
             except OSError:
+                resources_released = False
                 cleanup_failed = True
 
         if profile_lock is not None and browser_safe:
             try:
                 profile_lock.release()
             except Exception:
+                resources_released = False
                 cleanup_failed = True
 
         if slot_acquired and browser_safe:
-            self._semaphore.release()
+            try:
+                self._semaphore.release()
+            except Exception:
+                resources_released = False
+                cleanup_failed = True
 
         if cleanup_failed:
             report_path = None
@@ -1195,7 +1210,9 @@ class DiagnosticRunner:
             except (ArtifactBoundaryError, OSError, ValueError, TypeError):
                 pass
             self._settle_cleanup_ownership(
-                request.run_id, released=False, cleanup_failed=True
+                request.run_id,
+                resources_released=resources_released,
+                cleanup_failed=True,
             )
             return DiagnosticResult(
                 kind=str(request.kind),
@@ -1207,6 +1224,8 @@ class DiagnosticRunner:
             )
 
         self._settle_cleanup_ownership(
-            request.run_id, released=True, cleanup_failed=False
+            request.run_id,
+            resources_released=resources_released,
+            cleanup_failed=False,
         )
         return outcome

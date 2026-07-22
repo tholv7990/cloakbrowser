@@ -107,3 +107,38 @@ python -m pytest tests/manager -q
 python -m compileall -q manager_backend
 exit 0
 ```
+
+## Second Independent Re-review Correction
+
+The re-review identified one remaining ownership-model conflation: a cleanup operation can produce a diagnostic failure while still releasing every owned resource. In particular, `close()` may raise while fallback `terminate()` succeeds and `is_closed()` verifies the browser is gone. The diagnostic must remain `cleanup_failed`, but no temp/profile/slot lease remains.
+
+- Cleanup leases now record `resources_released` independently from `cleanup_failed`.
+- `wait_for_cleanup` and acknowledgement are based only on verified resource release. A diagnostic cleanup warning/failure no longer creates phantom ownership after the browser, temporary profile, profile lock, and semaphore slot are all released.
+- Immediate and deferred reaper paths both use the split outcome.
+- Temporary-profile removal, profile-lock release, and semaphore-release failures still mark `resources_released=false`, keep the lease unacknowledgeable, and surface on shutdown.
+- Added real app/executor/lifespan regressions for both immediate and stubborn deferred adapters where `close()` raises but `terminate()` succeeds. Both persist `cleanup_failed`, reach zero executor/runner ownership, and shut down cleanly.
+- Added explicit lease regressions proving temporary-profile removal and profile-lock release failures retain ownership.
+
+Second re-review RED:
+
+```text
+python -m pytest tests/manager/test_diagnostic_async.py -q -k "close_error"
+2 failed
+RuntimeError: diagnostic cleanup could not be safely released
+```
+
+Second re-review verification:
+
+```text
+python -m pytest tests/manager/test_diagnostic_async.py tests/manager/test_diagnostics_api.py tests/manager/test_diagnostic_runner.py tests/manager/test_runtime_api.py tests/manager/test_config.py -q
+132 passed, 1 warning in 22.30s
+
+# Ten repetitions of immediate/deferred close-error ownership release
+10 x 2 passed
+
+python -m pytest tests/manager -q
+533 passed, 3 skipped, 1 warning in 63.74s
+
+python -m compileall -q manager_backend
+exit 0
+```
