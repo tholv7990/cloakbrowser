@@ -17,6 +17,7 @@ def test_foundation_routes_are_authenticated_and_typed(client, auth_headers):
             "browser_runtime": True,
             "fingerprint_diagnostics": False,
             "settings": True,
+            "resources": True,
         },
     }
 

@@ -11,6 +11,7 @@ class AppCapabilities(StrictModel):
     browser_runtime: bool
     fingerprint_diagnostics: bool
     settings: bool
+    resources: bool
 
 
 class AppBootstrap(StrictModel):

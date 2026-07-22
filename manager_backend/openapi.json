@@ -5057,6 +5057,142 @@
         }
       }
     },
+    "/api/v1/resources": {
+      "get": {
+        "tags": [
+          "resources"
+        ],
+        "summary": "Get Resources",
+        "operationId": "resources_snapshot",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceSnapshot"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/sessions": {
+      "get": {
+        "tags": [
+          "resources"
+        ],
+        "summary": "List Sessions",
+        "operationId": "sessions_list",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RuntimeSessionRecord"
+                  },
+                  "title": "Response Sessions List"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "summary": "Health",
@@ -5177,6 +5313,10 @@
           "settings": {
             "type": "boolean",
             "title": "Settings"
+          },
+          "resources": {
+            "type": "boolean",
+            "title": "Resources"
           }
         },
         "additionalProperties": false,
@@ -5188,7 +5328,8 @@
           "proxy_management",
           "browser_runtime",
           "fingerprint_diagnostics",
-          "settings"
+          "settings",
+          "resources"
         ],
         "title": "AppCapabilities"
       },
@@ -5410,6 +5551,35 @@
           "latest_version"
         ],
         "title": "BrowserSettingsRead"
+      },
+      "BrowsersResources": {
+        "properties": {
+          "cpu_percent": {
+            "type": "number",
+            "title": "Cpu Percent"
+          },
+          "memory_bytes": {
+            "type": "integer",
+            "title": "Memory Bytes"
+          },
+          "process_count": {
+            "type": "integer",
+            "title": "Process Count"
+          },
+          "profiles_running": {
+            "type": "integer",
+            "title": "Profiles Running"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "cpu_percent",
+          "memory_bytes",
+          "process_count",
+          "profiles_running"
+        ],
+        "title": "BrowsersResources"
       },
       "BulkProfileRequest": {
         "properties": {
@@ -6387,6 +6557,30 @@
         ],
         "title": "ParsedProxyRead"
       },
+      "ProcessGroupResources": {
+        "properties": {
+          "cpu_percent": {
+            "type": "number",
+            "title": "Cpu Percent"
+          },
+          "memory_bytes": {
+            "type": "integer",
+            "title": "Memory Bytes"
+          },
+          "process_count": {
+            "type": "integer",
+            "title": "Process Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "cpu_percent",
+          "memory_bytes",
+          "process_count"
+        ],
+        "title": "ProcessGroupResources"
+      },
       "ProfileCreate": {
         "properties": {
           "name": {
@@ -7143,6 +7337,45 @@
         ],
         "title": "ProfileRead"
       },
+      "ProfileResourceRow": {
+        "properties": {
+          "cpu_percent": {
+            "type": "number",
+            "title": "Cpu Percent"
+          },
+          "memory_bytes": {
+            "type": "integer",
+            "title": "Memory Bytes"
+          },
+          "process_count": {
+            "type": "integer",
+            "title": "Process Count"
+          },
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "profile_name": {
+            "type": "string",
+            "title": "Profile Name"
+          },
+          "runtime_state": {
+            "type": "string",
+            "title": "Runtime State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "cpu_percent",
+          "memory_bytes",
+          "process_count",
+          "profile_id",
+          "profile_name",
+          "runtime_state"
+        ],
+        "title": "ProfileResourceRow"
+      },
       "ProxyParseRequest": {
         "properties": {
           "raw": {
@@ -7837,6 +8070,41 @@
         ],
         "title": "ReorderRequest"
       },
+      "ResourceSnapshot": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "system": {
+            "$ref": "#/components/schemas/SystemResources"
+          },
+          "backend": {
+            "$ref": "#/components/schemas/ProcessGroupResources"
+          },
+          "browsers": {
+            "$ref": "#/components/schemas/BrowsersResources"
+          },
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileResourceRow"
+            },
+            "type": "array",
+            "title": "Profiles"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "generated_at",
+          "system",
+          "backend",
+          "browsers",
+          "profiles"
+        ],
+        "title": "ResourceSnapshot"
+      },
       "RuntimePage": {
         "properties": {
           "items": {
@@ -7932,6 +8200,85 @@
           "updated_at"
         ],
         "title": "RuntimeRead"
+      },
+      "RuntimeSessionRecord": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "profile_name": {
+            "type": "string",
+            "title": "Profile Name"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "startup_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startup Ms"
+          },
+          "exit_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "profile_id",
+          "profile_name",
+          "started_at",
+          "ended_at",
+          "duration_seconds",
+          "startup_ms",
+          "exit_reason"
+        ],
+        "title": "RuntimeSessionRecord"
       },
       "SettingsPatch": {
         "properties": {
@@ -8116,6 +8463,40 @@
           "license"
         ],
         "title": "SettingsRead"
+      },
+      "SystemResources": {
+        "properties": {
+          "cpu_percent": {
+            "type": "number",
+            "title": "Cpu Percent"
+          },
+          "memory_percent": {
+            "type": "number",
+            "title": "Memory Percent"
+          },
+          "memory_used_bytes": {
+            "type": "integer",
+            "title": "Memory Used Bytes"
+          },
+          "memory_total_bytes": {
+            "type": "integer",
+            "title": "Memory Total Bytes"
+          },
+          "logical_cpus": {
+            "type": "integer",
+            "title": "Logical Cpus"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "cpu_percent",
+          "memory_percent",
+          "memory_used_bytes",
+          "memory_total_bytes",
+          "logical_cpus"
+        ],
+        "title": "SystemResources"
       },
       "TagCreate": {
         "properties": {

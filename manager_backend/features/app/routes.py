@@ -31,6 +31,7 @@ def bootstrap(request: Request, session: SessionDependency) -> AppBootstrap:
             "browser_runtime": True,
             "fingerprint_diagnostics": False,
             "settings": True,
+            "resources": True,
         },
         running_session_count=count_active_runtimes(session),
     )
