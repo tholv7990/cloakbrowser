@@ -45,6 +45,17 @@ def upgrade() -> None:
             "progress >= 0 AND progress <= 100",
             name="ck_diagnostic_runs_progress",
         ),
+        sa.CheckConstraint(
+            "(kind = 'direct_google_control' AND target_url = "
+            "'https://www.google.com/search?q=CloakBrowser+diagnostic') OR "
+            "(kind = 'pixelscan' AND target_url = 'https://pixelscan.net/') OR "
+            "(kind = 'iphey' AND target_url = 'https://iphey.com/') OR "
+            "(kind = 'cloudflare' AND target_url = "
+            "'https://challenge.cloudflare.com/turnstile/v0/generic/') OR "
+            "(kind = 'google_search' AND target_url = "
+            "'https://www.google.com/search?q=CloakBrowser+browser+diagnostic')",
+            name="ck_diagnostic_runs_target_url",
+        ),
     )
     op.create_index(
         "uq_diagnostic_runs_active_profile",

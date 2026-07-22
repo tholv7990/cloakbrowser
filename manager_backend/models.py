@@ -283,6 +283,17 @@ class DiagnosticRun(Base):
             "progress >= 0 AND progress <= 100",
             name="ck_diagnostic_runs_progress",
         ),
+        CheckConstraint(
+            "(kind = 'direct_google_control' AND target_url = "
+            "'https://www.google.com/search?q=CloakBrowser+diagnostic') OR "
+            "(kind = 'pixelscan' AND target_url = 'https://pixelscan.net/') OR "
+            "(kind = 'iphey' AND target_url = 'https://iphey.com/') OR "
+            "(kind = 'cloudflare' AND target_url = "
+            "'https://challenge.cloudflare.com/turnstile/v0/generic/') OR "
+            "(kind = 'google_search' AND target_url = "
+            "'https://www.google.com/search?q=CloakBrowser+browser+diagnostic')",
+            name="ck_diagnostic_runs_target_url",
+        ),
         Index(
             "uq_diagnostic_runs_active_profile",
             "profile_id",

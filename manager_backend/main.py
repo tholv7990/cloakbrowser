@@ -67,7 +67,9 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
     app.state.engine = create_engine_for(resolved)
     Base.metadata.create_all(app.state.engine)
     app.state.session_factory = create_session_factory(app.state.engine)
-    app.state.diagnostic_manager = DiagnosticManager(app.state.session_factory)
+    app.state.diagnostic_manager = DiagnosticManager(
+        app.state.session_factory, data_root=resolved.data_root
+    )
     app.state.credential_store = KeyringCredentialStore()
 
     app.state.cookie_context_adapter = CookieContextAdapter(resolved)
