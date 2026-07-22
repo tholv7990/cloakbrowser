@@ -4,10 +4,33 @@ import json
 
 from manager_backend.features.runtime import launcher
 from manager_backend.features.runtime.launcher import (
+    ensure_initial_preferences,
     persistent_context_kwargs,
     seed_default_search_engine,
     urls_to_open,
 )
+
+
+def test_ensure_initial_preferences_seeds_google_search(tmp_path):
+    # The default search provider is a protected pref; the only way to seed it is
+    # the binary's initial_preferences, applied on a profile's first run.
+    ensure_initial_preferences(tmp_path)
+    data = json.loads((tmp_path / "initial_preferences").read_text(encoding="utf-8"))
+    template = data["default_search_provider_data"]["template_url_data"]
+    assert template["short_name"] == "Google"
+    assert "{searchTerms}" in template["url"]
+    assert data["distribution"]["skip_first_run_ui"] is True
+
+    # Idempotent: an unchanged file is left as-is (no needless rewrite).
+    marker = tmp_path / "initial_preferences"
+    stamp = marker.stat().st_mtime_ns
+    ensure_initial_preferences(tmp_path)
+    assert marker.stat().st_mtime_ns == stamp
+
+
+def test_ensure_initial_preferences_never_raises_on_bad_dir(tmp_path):
+    missing = tmp_path / "does-not-exist"
+    ensure_initial_preferences(missing)  # parent absent -> swallowed, no crash
 
 
 class _FakeCDPSession:
