@@ -10,7 +10,6 @@ import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/states';
 import { relativeTime } from '@/lib/format';
 import { useT, type TranslationKey } from '@/i18n';
 import { useDiagnostics, useRunDirectGoogleControl, useRunPixelscan } from './api';
-import { ResourceMonitor } from './ResourceMonitor';
 
 const STATE_TONE: Record<DiagnosticRun['state'], Tone> = {
   queued: 'neutral',
@@ -113,8 +112,6 @@ export function DiagnosticsPage() {
           <p className="text-2xs text-ink-faint">{t('diag.noCaptcha')}</p>
         </div>
       </section>
-
-      <ResourceMonitor />
 
       {failures.length > 0 && (
         <section>

@@ -6,6 +6,7 @@ import { ProfileWizardPage } from '@/features/profile-editor/ProfileWizardPage';
 import { ProxiesPage } from '@/features/proxies/ProxiesPage';
 import { FoldersPage } from '@/features/folders/FoldersPage';
 import { DiagnosticsPage } from '@/features/diagnostics/DiagnosticsPage';
+import { ResourcesPage } from '@/features/diagnostics/ResourcesPage';
 import { SettingsPage } from '@/features/settings/SettingsPage';
 import { EmptyState } from '@/components/ui/states';
 import { useCapabilities } from '@/hooks/useAppData';
@@ -65,6 +66,14 @@ export const router = createBrowserRouter([
         element: (
           <RequireCapability cap="fingerprint_diagnostics">
             <DiagnosticsPage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: 'resources',
+        element: (
+          <RequireCapability cap="browser_runtime">
+            <ResourcesPage />
           </RequireCapability>
         ),
       },

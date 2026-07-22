@@ -1,5 +1,13 @@
 import { NavLink } from 'react-router-dom';
-import { Activity, FolderClosed, Globe, PanelLeftClose, PanelLeftOpen, Users } from 'lucide-react';
+import {
+  Activity,
+  FolderClosed,
+  Gauge,
+  Globe,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Users,
+} from 'lucide-react';
 import { Settings as SettingsIcon } from 'lucide-react';
 import { Wordmark } from '@/components/Logo';
 import { IconButton } from '@/components/ui/IconButton';
@@ -14,6 +22,7 @@ const NAV: { to: string; key: TranslationKey; icon: typeof Users; cap?: keyof Ap
   { to: '/folders', key: 'nav.folders', icon: FolderClosed, cap: 'catalogs' },
   { to: '/proxies', key: 'nav.proxies', icon: Globe, cap: 'proxy_management' },
   { to: '/diagnostics', key: 'nav.diagnostics', icon: Activity, cap: 'fingerprint_diagnostics' },
+  { to: '/resources', key: 'nav.resources', icon: Gauge, cap: 'browser_runtime' },
   { to: '/settings', key: 'nav.settings', icon: SettingsIcon, cap: 'settings' },
 ];
 
