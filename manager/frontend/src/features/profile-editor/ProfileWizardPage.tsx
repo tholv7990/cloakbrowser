@@ -23,6 +23,7 @@ import { WIZARD_STEPS, type WizardRefs } from './steps';
 import { useCreateProfile, useProfile, useUpdateProfile } from './api';
 import { persistProfileWithExtensions } from './persistence';
 import { useT } from '@/i18n';
+import type { ProfileRead } from '@/types/api';
 
 export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
   const t = useT();
@@ -37,7 +38,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
   const updateProfile = useUpdateProfile();
 
   const [step, setStep] = useState(0);
-  const [savedProfileId, setSavedProfileId] = useState<string | null>(null);
+  const [savedProfile, setSavedProfile] = useState<ProfileRead | null>(null);
   const [assignmentPending, setAssignmentPending] = useState(false);
   const [persisting, setPersisting] = useState(false);
 
@@ -109,7 +110,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
     const values = form.getValues();
     setPersisting(true);
     const result = await persistProfileWithExtensions({
-      savedProfileId,
+      savedProfile,
       extensionIds: values.extension_ids,
       saveProfile: async () => {
         if (mode === 'edit' && editingId) {
@@ -120,17 +121,22 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
         }
         return createProfile.mutateAsync(wizardValuesToPayload(values));
       },
+      updateSavedProfile: async (profile) => {
+        const payload = wizardValuesToPatch(values, profile);
+        if (Object.keys(payload).length === 1) return profile;
+        return updateProfile.mutateAsync({ id: profile.id, payload });
+      },
       assignExtensions: (profileId, extensionIds) =>
         api.setProfileExtensions(profileId, extensionIds),
     }).finally(() => setPersisting(false));
     if (!result.assignmentComplete) {
-      setSavedProfileId(result.profileId);
+      setSavedProfile(result.profile);
       setAssignmentPending(true);
       return null;
     }
-    setSavedProfileId(null);
+    setSavedProfile(null);
     setAssignmentPending(false);
-    return result.profileId;
+    return result.profile.id;
   };
 
   const onSave = async () => {

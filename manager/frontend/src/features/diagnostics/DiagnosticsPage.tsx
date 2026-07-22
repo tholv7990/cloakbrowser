@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, Ban, Clipboard, Play } from 'lucide-react';
 import { useProfiles } from '@/features/profiles/api';
 import { Badge, type Tone } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/states';
 import { useClipboard } from '@/hooks/useClipboard';
@@ -41,7 +42,14 @@ function findingValue(value: boolean | string, yes: string, no: string): string 
 export function DiagnosticsPage() {
   const t = useT();
   const copy = useClipboard();
-  const profiles = useProfiles({ page: 1, page_size: 100, sort: 'name' });
+  const [profileCatalogSearch, setProfileCatalogSearch] = useState('');
+  const [profileCatalogPage, setProfileCatalogPage] = useState(1);
+  const profiles = useProfiles({
+    page: profileCatalogPage,
+    page_size: 50,
+    sort: 'name',
+    query: profileCatalogSearch || undefined,
+  });
   const [profileId, setProfileId] = useState('');
   const [kind, setKind] = useState<Exclude<DiagnosticKind, 'direct_google_control'>>('pixelscan');
   const [statusFilter, setStatusFilter] = useState<DiagnosticStatus | ''>('');
@@ -67,14 +75,55 @@ export function DiagnosticsPage() {
       profileOptions.set(run.profile_id, run.profile_id);
     }
   }
+  if (profileId && !profileOptions.has(profileId)) profileOptions.set(profileId, profileId);
+  if (profileFilter && !profileOptions.has(profileFilter)) {
+    profileOptions.set(profileFilter, profileFilter);
+  }
 
   useEffect(() => setPage(1), [profileFilter, statusFilter, kindFilter, pageSize]);
+  useEffect(() => setProfileCatalogPage(1), [profileCatalogSearch]);
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 px-5 py-6">
       <section className="rounded-lg border border-line bg-surface p-4">
         <h2 className="font-display text-[15px] font-semibold text-ink">{t('diag.controls')}</h2>
         <p className="mt-1 text-[13px] text-ink-muted">{t('diag.observationOnly')}</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface-sunken p-2">
+          <Input
+            type="search"
+            aria-label={t('diag.profileSearch')}
+            value={profileCatalogSearch}
+            onChange={(event) => setProfileCatalogSearch(event.target.value)}
+            placeholder={t('diag.profileSearchPlaceholder')}
+            className="min-w-56 flex-1"
+          />
+          <span className="text-2xs text-ink-muted">
+            {t('diag.profilePage', {
+              page: profiles.data?.page ?? profileCatalogPage,
+              pages: profiles.data?.pages ?? 1,
+            })}
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={t('diag.profilePreviousPage')}
+            disabled={profileCatalogPage <= 1 || profiles.isFetching}
+            onClick={() => setProfileCatalogPage((current) => Math.max(1, current - 1))}
+          >
+            {t('common.previous')}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={t('diag.profileNextPage')}
+            disabled={
+              profiles.isFetching || !profiles.data || profileCatalogPage >= profiles.data.pages
+            }
+            onClick={() => setProfileCatalogPage((current) => current + 1)}
+          >
+            {t('common.next')}
+          </Button>
+        </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button
             variant="secondary"
@@ -97,10 +146,7 @@ export function DiagnosticsPage() {
             value={profileId}
             onChange={(event) => setProfileId(event.target.value)}
             placeholder={t('diag.chooseProfile')}
-            options={(profiles.data?.items ?? []).map((profile) => ({
-              value: profile.id,
-              label: profile.name,
-            }))}
+            options={Array.from(profileOptions, ([value, label]) => ({ value, label }))}
           />
           <Button
             variant="primary"

@@ -90,4 +90,42 @@ describe('DiagnosticsPage', () => {
       expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2, page_size: 20 })),
     );
   });
+
+  it('pages and searches the complete profile catalog for run and filter selection', async () => {
+    const user = userEvent.setup();
+    mockStore.profiles = Array.from({ length: 101 }, (_, index) => ({
+      ...mockStore.profiles[0],
+      id: `catalog-profile-${String(index + 1).padStart(3, '0')}`,
+      name: `Catalog profile ${String(index + 1).padStart(3, '0')}`,
+    }));
+    const listProfiles = vi.spyOn(mockApi, 'listProfiles');
+    renderWithProviders(<DiagnosticsPage />);
+
+    expect(
+      (await screen.findAllByRole('option', { name: 'Catalog profile 001' })).length,
+    ).toBeGreaterThan(0);
+    await user.click(screen.getByRole('button', { name: /next profile catalog page/i }));
+    expect(
+      (await screen.findAllByRole('option', { name: 'Catalog profile 051' })).length,
+    ).toBeGreaterThan(0);
+    expect(listProfiles).toHaveBeenCalledWith(expect.objectContaining({ page: 2, page_size: 50 }));
+
+    const search = screen.getByRole('searchbox', { name: /search profiles for diagnostics/i });
+    await user.clear(search);
+    await user.type(search, 'Catalog profile 101');
+    expect(
+      (await screen.findAllByRole('option', { name: 'Catalog profile 101' })).length,
+    ).toBeGreaterThan(0);
+    expect(listProfiles).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 1, page_size: 50, query: 'Catalog profile 101' }),
+    );
+
+    await user.selectOptions(screen.getByLabelText(/^profile$/i), 'catalog-profile-101');
+    await user.selectOptions(
+      screen.getByLabelText(/filter history by profile/i),
+      'catalog-profile-101',
+    );
+    expect(screen.getByLabelText(/^profile$/i)).toHaveValue('catalog-profile-101');
+    expect(screen.getByLabelText(/filter history by profile/i)).toHaveValue('catalog-profile-101');
+  });
 });

@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
@@ -37,5 +37,25 @@ describe('ExtensionsPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('extension refresh failed');
     await user.click(screen.getByRole('button', { name: /retry extension action/i }));
     await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+  });
+
+  it('keeps unregister failure and retry visible inside the confirmation dialog', async () => {
+    const user = userEvent.setup();
+    const original = mockApi.unregisterExtension.bind(mockApi);
+    const unregister = vi
+      .spyOn(mockApi, 'unregisterExtension')
+      .mockRejectedValueOnce(new Error('extension unregister failed'))
+      .mockImplementation(original);
+    renderWithProviders(<ExtensionsPage />);
+
+    await user.click((await screen.findAllByRole('button', { name: /^unregister$/i }))[0]);
+    const dialog = await screen.findByRole('dialog', { name: /unregister extension/i });
+    await user.click(within(dialog).getByRole('button', { name: /^unregister$/i }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'extension unregister failed',
+    );
+    await user.click(within(dialog).getByRole('button', { name: /retry extension action/i }));
+    await waitFor(() => expect(unregister).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 });

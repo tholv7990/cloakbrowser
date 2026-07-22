@@ -11,6 +11,7 @@ export function ConfirmDialog({
   cancelLabel = 'Cancel',
   tone = 'primary',
   loading = false,
+  error,
 }: {
   open: boolean;
   onClose: () => void;
@@ -21,6 +22,7 @@ export function ConfirmDialog({
   cancelLabel?: string;
   tone?: 'primary' | 'danger';
   loading?: boolean;
+  error?: string | null;
 }) {
   return (
     <Modal
@@ -43,7 +45,17 @@ export function ConfirmDialog({
         </>
       }
     >
-      <p className="text-[13px] leading-relaxed text-ink-muted">{message}</p>
+      <div className="space-y-2">
+        <p className="text-[13px] leading-relaxed text-ink-muted">{message}</p>
+        {error && (
+          <p
+            role="alert"
+            className="rounded-md border border-danger/30 bg-danger/10 p-2 text-[13px] text-danger"
+          >
+            {error}
+          </p>
+        )}
+      </div>
     </Modal>
   );
 }

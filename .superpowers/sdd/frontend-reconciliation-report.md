@@ -22,6 +22,8 @@ Added tests cover:
 - diff-only profile updates and explicit conflict reconciliation;
 - newest-session runtime snapshot deduplication and folder-count invalidation;
 - extension mutation retry and partial-success profile/assignment persistence;
+- create/update assignment recovery across later form edits and repeated failures;
+- profile-catalog page-two/search selection and in-dialog unregister retry;
 - paginated logs, bounded diagnostic findings, import-format parity, and the
   generated static OpenAPI contract gate.
 
@@ -39,11 +41,15 @@ Added tests cover:
 - Profile imports surface safe per-item warnings.
 - Extension catalog supports register, enable/disable, refresh, unregister, and
   deliberate profile assignment. Failed mutations stay visible and retryable;
-  assignment failures retry without duplicating the saved profile.
+  assignment failures retain the full saved-profile baseline, PATCH later form
+  edits, and retry without duplicating creation. Unregister failures remain
+  visible and retryable inside their confirmation dialog.
 - Diagnostics support direct control and Pixelscan/IPHey/Cloudflare/Google
   profile observations, history filters, queued/running progress, cancellation,
   timestamps, bounded labeled findings, accessible progress, pagination, safe
   artifacts, and explicit no-CAPTCHA-automation messaging.
+- Diagnostic run/filter profile selection searches the backend catalog and pages
+  through 50-item results, so profiles beyond the first 100 remain selectable.
 - Runtime snapshots retain only the newest session for each profile and refresh
   profile/folder counts after runtime transitions.
 - The mock adapter now enforces the canonical profile import envelope and UUID
@@ -64,7 +70,7 @@ Detailed notes are in `docs/frontend-backend-contract-questions.md`.
 
 ## Verification
 
-- `npm test`: 57 passed.
+- `npm test`: 60 passed.
 - `npm run typecheck`: passed.
 - `npm run build`: passed (Vite emitted the existing large-chunk advisory).
 - Scoped Prettier formatting completed for every changed frontend file; unrelated

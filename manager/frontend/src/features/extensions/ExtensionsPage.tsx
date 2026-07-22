@@ -30,12 +30,6 @@ export function ExtensionsPage() {
     if (update.variables) update.mutate(update.variables);
   };
 
-  const retryUnregister = () => {
-    if (unregister.variables) {
-      unregister.mutate(unregister.variables, { onSuccess: () => setRemove(null) });
-    }
-  };
-
   const registerDirectory = () => {
     register.mutate(directory, {
       onSuccess: () => {
@@ -61,18 +55,18 @@ export function ExtensionsPage() {
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {t('ext.correlationWarning')}
       </p>
 
-      {(update.isError || unregister.isError) && (
+      {update.isError && (
         <div
           role="alert"
           className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-danger/30 bg-danger/10 p-3 text-[13px] text-danger"
         >
-          <span>{((update.error ?? unregister.error) as Error).message}</span>
+          <span>{(update.error as Error).message}</span>
           <Button
             variant="secondary"
             size="sm"
             aria-label={t('ext.retryAction')}
-            loading={update.isPending || unregister.isPending}
-            onClick={update.isError ? retryUpdate : retryUnregister}
+            loading={update.isPending}
+            onClick={retryUpdate}
           >
             {t('common.retry')}
           </Button>
@@ -120,7 +114,14 @@ export function ExtensionsPage() {
               >
                 <RefreshCw className="h-3.5 w-3.5" /> {t('ext.refresh')}
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setRemove(extension)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  unregister.reset();
+                  setRemove(extension);
+                }}
+              >
                 <Trash2 className="h-3.5 w-3.5" /> {t('ext.unregister')}
               </Button>
             </li>
@@ -165,15 +166,19 @@ export function ExtensionsPage() {
 
       <ConfirmDialog
         open={Boolean(remove)}
-        onClose={() => setRemove(null)}
+        onClose={() => {
+          setRemove(null);
+          unregister.reset();
+        }}
         onConfirm={() =>
           remove && unregister.mutate(remove.id, { onSuccess: () => setRemove(null) })
         }
         title={t('ext.unregisterTitle')}
         message={t('ext.unregisterDesc')}
-        confirmLabel={t('ext.unregister')}
+        confirmLabel={unregister.isError ? t('ext.retryAction') : t('ext.unregister')}
         tone="danger"
         loading={unregister.isPending}
+        error={unregister.isError ? (unregister.error as Error).message : null}
       />
     </div>
   );

@@ -1,29 +1,36 @@
-interface PersistProfileWithExtensionsInput {
-  savedProfileId: string | null;
+interface IdentifiedProfile {
+  id: string;
+}
+
+interface PersistProfileWithExtensionsInput<TProfile extends IdentifiedProfile> {
+  savedProfile: TProfile | null;
   extensionIds: string[];
-  saveProfile: () => Promise<{ id: string }>;
+  saveProfile: () => Promise<TProfile>;
+  updateSavedProfile: (savedProfile: TProfile) => Promise<TProfile>;
   assignExtensions: (profileId: string, extensionIds: string[]) => Promise<unknown>;
 }
 
-export interface ProfilePersistenceResult {
-  profileId: string;
+export interface ProfilePersistenceResult<TProfile extends IdentifiedProfile> {
+  profile: TProfile;
   assignmentComplete: boolean;
 }
 
-/** Preserve the durable profile ID when the independent extension assignment
- * request fails, allowing a retry without repeating profile creation/update. */
-export async function persistProfileWithExtensions({
-  savedProfileId,
+/** Preserve the durable profile after an independent extension assignment
+ * failure. A retry updates that same profile with any later form edits before
+ * assigning extensions, so creation is never repeated and edits are not lost. */
+export async function persistProfileWithExtensions<TProfile extends IdentifiedProfile>({
+  savedProfile,
   extensionIds,
   saveProfile,
+  updateSavedProfile,
   assignExtensions,
-}: PersistProfileWithExtensionsInput): Promise<ProfilePersistenceResult> {
-  const profileId = savedProfileId ?? (await saveProfile()).id;
-  if (extensionIds.length === 0) return { profileId, assignmentComplete: true };
+}: PersistProfileWithExtensionsInput<TProfile>): Promise<ProfilePersistenceResult<TProfile>> {
+  const profile = savedProfile ? await updateSavedProfile(savedProfile) : await saveProfile();
+  if (extensionIds.length === 0) return { profile, assignmentComplete: true };
   try {
-    await assignExtensions(profileId, extensionIds);
-    return { profileId, assignmentComplete: true };
+    await assignExtensions(profile.id, extensionIds);
+    return { profile, assignmentComplete: true };
   } catch {
-    return { profileId, assignmentComplete: false };
+    return { profile, assignmentComplete: false };
   }
 }
