@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any, Protocol
 from datetime import datetime, timezone
 
@@ -87,6 +89,24 @@ def profile_launch_snapshot(
     }
 
 
+_SESSION_FILE = "last-session.json"
+_INTERNAL_URL_PREFIXES = ("about:", "chrome:", "chrome-extension:", "devtools:", "edge:")
+
+
+def _read_last_session(profile_dir: Path) -> list[str]:
+    """Return the tab URLs saved when the profile was last stopped (may be empty)."""
+    try:
+        data = json.loads((profile_dir / _SESSION_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [url for url in data.get("urls", []) if isinstance(url, str) and url]
+
+
+def urls_to_open(profile_dir: Path, startup_urls: list[str]) -> list[str]:
+    """Restore the previous tabs if any were saved; otherwise seed startup_urls."""
+    return _read_last_session(profile_dir) or list(startup_urls)
+
+
 def persistent_context_kwargs(
     snapshot: dict[str, Any], *, headless: bool
 ) -> dict[str, Any]:
@@ -112,6 +132,7 @@ class _PersistentContextHandle:
     def __init__(self, context: Any, user_data_dir: str):
         self._context = context
         self._closed = False
+        self._profile_dir = Path(user_data_dir).parent
         self.browser_pid: int | None = None
         self.browser_created_at: datetime | None = None
         owned_path = user_data_dir.casefold()
@@ -130,8 +151,26 @@ class _PersistentContextHandle:
     def _mark_closed(self, *_args: Any) -> None:
         self._closed = True
 
+    def _save_session(self) -> None:
+        """Persist the open tab URLs so the next launch reopens them."""
+        try:
+            urls: list[str] = []
+            for page in self._context.pages:
+                try:
+                    url = page.url
+                except Exception:
+                    continue
+                if url and not url.startswith(_INTERNAL_URL_PREFIXES):
+                    urls.append(url)
+            (self._profile_dir / _SESSION_FILE).write_text(
+                json.dumps({"urls": urls}), encoding="utf-8"
+            )
+        except Exception:
+            pass  # never let session capture block a clean stop
+
     def close(self) -> None:
         if not self._closed:
+            self._save_session()
             self._context.close()
             self._closed = True
 
@@ -150,6 +189,7 @@ class CloakPersistentLauncher:
             user_data_dir,
             **persistent_context_kwargs(snapshot, headless=False),
         )
-        for url in snapshot["startup_urls"]:
+        # Reopen the tabs from the last stop; fall back to startup_urls on first run.
+        for url in urls_to_open(profile_dir, snapshot["startup_urls"]):
             context.new_page().goto(url)
         return _PersistentContextHandle(context, user_data_dir)
