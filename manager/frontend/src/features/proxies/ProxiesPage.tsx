@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Gauge, Globe, Pencil, Plus, Trash2, Zap } from 'lucide-react';
+import { AlertTriangle, Boxes, Gauge, Globe, Pencil, Plus, Trash2, Zap } from 'lucide-react';
 import type { Proxy } from '@/types/api';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
@@ -10,6 +10,7 @@ import { ReputationBadge } from '@/components/domain/StatusBadges';
 import { formatLatency, formatPercent, relativeTime } from '@/lib/format';
 import { useT, type TranslationKey } from '@/i18n';
 import { useDeleteProxy, useProxies, useQuickTest } from './api';
+import { ProvidersDialog } from './ProvidersDialog';
 import { ProxyEditorDrawer } from './ProxyEditorDrawer';
 
 export function ProxiesPage() {
@@ -22,6 +23,7 @@ export function ProxiesPage() {
     proxy: null,
   });
   const [toDelete, setToDelete] = useState<Proxy | null>(null);
+  const [providersOpen, setProvidersOpen] = useState(false);
 
   const items = proxies.data ?? [];
 
@@ -31,9 +33,14 @@ export function ProxiesPage() {
         <div>
           <p className="text-[13px] text-ink-muted">{t('proxies.desc')}</p>
         </div>
-        <Button variant="primary" size="sm" onClick={() => setEditor({ open: true, proxy: null })}>
-          <Plus className="h-3.5 w-3.5" /> {t('proxies.add')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={() => setProvidersOpen(true)}>
+            <Boxes className="h-3.5 w-3.5" /> {t('prov.button')}
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => setEditor({ open: true, proxy: null })}>
+            <Plus className="h-3.5 w-3.5" /> {t('proxies.add')}
+          </Button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
@@ -205,6 +212,8 @@ export function ProxiesPage() {
         tone="danger"
         loading={deleteProxy.isPending}
       />
+
+      <ProvidersDialog open={providersOpen} onClose={() => setProvidersOpen(false)} />
     </div>
   );
 }

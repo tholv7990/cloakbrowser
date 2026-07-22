@@ -17,11 +17,13 @@ import type {
   CredentialPoolSummary,
   DiagnosticRun,
   Extension,
+  GenerateProxiesResult,
   MediaAsset,
   MediaSettings,
   ProductCatalog,
   ProductCsvInspection,
   ProfileFactoryJob,
+  ProxyProvider,
   RuntimeSessionRecord,
   ShopifyStore,
   StoreProfile,
@@ -305,4 +307,22 @@ export const realApi: ApiAdapter = {
   createMediaAsset: (payload) =>
     apiRequest<MediaAsset>('/media/assets', { method: 'POST', body: payload }),
   deleteMediaAsset: (id) => apiRequest<void>(`/media/assets/${id}`, { method: 'DELETE' }),
+  getMediaAssignments: (assetId) => apiRequest<string[]>(`/media/assets/${assetId}/assignments`),
+  setMediaAssignments: (assetId, profileIds) =>
+    apiRequest<MediaAsset>(`/media/assets/${assetId}/assignments`, {
+      method: 'PUT',
+      body: { profile_ids: profileIds },
+    }),
+
+  listProxyProviders: () => apiRequest<ProxyProvider[]>('/proxies/providers'),
+  configureProxyProvider: (payload) =>
+    apiRequest<ProxyProvider>(`/proxies/providers/${payload.provider}`, {
+      method: 'PUT',
+      body: payload,
+    }),
+  generateProxies: (payload) =>
+    apiRequest<GenerateProxiesResult>('/proxies/providers/generate', {
+      method: 'POST',
+      body: payload,
+    }),
 };

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Gauge, Wand2, Zap } from 'lucide-react';
+import { Gauge, Zap } from 'lucide-react';
 import type { Proxy, ProxyQualityReport, ProxyQuickTest } from '@/types/api';
 import { Drawer } from '@/components/ui/Drawer';
 import { Button } from '@/components/ui/Button';
@@ -9,15 +9,15 @@ import { Field } from '@/components/ui/Field';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Toggle } from '@/components/ui/Toggle';
-import { useToast } from '@/components/ui/Toast';
 import { useT } from '@/i18n';
 import {
+  parseProxyText,
   proxyFormSchema,
   proxySchemes,
   toProxyPayload,
   type ProxyFormValues,
 } from '@/schemas/proxy';
-import { useCreateProxy, useParseProxy, useQualityTest, useQuickTest, useUpdateProxy } from './api';
+import { useCreateProxy, useQualityTest, useQuickTest, useUpdateProxy } from './api';
 import { ProxyQualityReportView, ProxyQuickResult } from './ProxyResultViews';
 import { ProxyTestProgress } from './ProxyTestProgress';
 
@@ -44,7 +44,6 @@ export function ProxyEditorDrawer({
   onClose: () => void;
   onSaved?: (proxy: Proxy) => void;
 }) {
-  const { toast } = useToast();
   const t = useT();
   const [current, setCurrent] = useState<Proxy | null>(proxy);
   const [parseText, setParseText] = useState('');
@@ -53,7 +52,6 @@ export function ProxyEditorDrawer({
 
   const createProxy = useCreateProxy();
   const updateProxy = useUpdateProxy();
-  const parseProxy = useParseProxy();
   const quickTest = useQuickTest();
   const qualityTest = useQualityTest();
 
@@ -80,22 +78,16 @@ export function ProxyEditorDrawer({
     }
   }, [open, proxy, reset]);
 
-  const onParse = async () => {
-    if (!parseText.trim()) return;
-    try {
-      const parsed = await parseProxy.mutateAsync(parseText);
-      setValue('scheme', parsed.scheme, { shouldValidate: true });
-      setValue('host', parsed.host, { shouldValidate: true });
-      setValue('port', parsed.port ?? '', { shouldValidate: true });
-      if (parsed.username) setValue('username', parsed.username);
-      toast({
-        title: t('pxd.parsed'),
-        description: parsed.has_password ? t('pxd.pwDetected') : undefined,
-        tone: 'success',
-      });
-    } catch (error) {
-      toast({ title: t('pxd.parseFailed'), description: (error as Error).message, tone: 'danger' });
-    }
+  // Auto-fill all four fields (incl. password) as the user pastes — no button.
+  const applyParse = (text: string) => {
+    setParseText(text);
+    const parsed = parseProxyText(text);
+    if (!parsed) return;
+    if (parsed.scheme) setValue('scheme', parsed.scheme, { shouldValidate: true });
+    setValue('host', parsed.host, { shouldValidate: true });
+    setValue('port', Number(parsed.port), { shouldValidate: true });
+    setValue('username', parsed.username, { shouldValidate: true });
+    setValue('password', parsed.password, { shouldValidate: true });
   };
 
   const onSubmit = handleSubmit(async (values) => {
@@ -161,22 +153,12 @@ export function ProxyEditorDrawer({
         {!isDirect && (
           <>
             <Field label={t('pxd.pasteParse')} hint={t('pxd.parseHint')}>
-              <div className="flex gap-2">
-                <Input
-                  value={parseText}
-                  onChange={(e) => setParseText(e.target.value)}
-                  placeholder="socks5h://user:pass@host:1080"
-                  className="font-mono text-[12px]"
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={onParse}
-                  loading={parseProxy.isPending}
-                >
-                  <Wand2 className="h-3.5 w-3.5" /> {t('pxd.parse')}
-                </Button>
-              </div>
+              <Input
+                value={parseText}
+                onChange={(e) => applyParse(e.target.value)}
+                placeholder="socks5h://user:pass@host:1080"
+                className="font-mono text-[12px]"
+              />
             </Field>
 
             <div className="grid grid-cols-[1fr_120px] gap-3">

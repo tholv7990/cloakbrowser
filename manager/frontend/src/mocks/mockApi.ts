@@ -20,6 +20,7 @@ import type {
   DiagnosticKind,
   DiagnosticRun,
   Extension,
+  GenerateProxiesResult,
   MediaAsset,
   MediaSettings,
   PlanStep,
@@ -28,6 +29,7 @@ import type {
   ProductRow,
   ProfileFactoryItem,
   ProfileFactoryJob,
+  ProxyProvider,
   RuntimeSessionRecord,
   SessionExitReason,
   ShopifyStore,
@@ -305,6 +307,11 @@ const mockMediaAssets: MediaAsset[] = [
     created_at: now(),
   },
 ];
+const mediaAssignments = new Map<string, Set<string>>();
+const mockProxyProviders: ProxyProvider[] = [
+  { id: 'iproyal', name: 'IPRoyal', configured: false },
+  { id: 'seveneleven', name: '711Proxy', configured: false },
+];
 
 function makeSession(): OwnerSession {
   return { email: mockStore.owner.email ?? ownerEmail, csrf_token: 'mock-csrf-token' };
@@ -400,9 +407,13 @@ function buildQuickResult(proxy: Proxy): ProxyQuickTest {
       exit_ip: '203.0.113.7',
       exit_ip_matches: true,
       latency_ms: 18,
-      country: 'United States',
+      country: 'US',
+      country_name: 'United States',
       city: 'Local network',
       timezone: 'America/New_York',
+      latitude: 40.71427,
+      longitude: -74.00597,
+      zip_code: '10004',
       asn: 'AS64500',
       organization: 'Direct connection',
       checked_at: now(),
@@ -410,17 +421,23 @@ function buildQuickResult(proxy: Proxy): ProxyQuickTest {
     };
   }
   const reachable = proxy.reputation !== 'malicious';
+  // Simulate a GeoIP lookup on the exit IP: fall back to a realistic profile
+  // when the proxy has no stored geo yet (a freshly added/parsed proxy).
   return {
     ok: reachable,
     connectivity: reachable,
-    exit_ip: proxy.exit_ip ?? '203.0.113.10',
+    exit_ip: proxy.exit_ip ?? '172.96.5.74',
     exit_ip_matches: reachable,
     latency_ms: proxy.latency_ms ?? 180,
-    country: proxy.country,
-    city: proxy.city,
-    timezone: proxy.timezone,
-    asn: proxy.asn,
-    organization: proxy.organization,
+    country: proxy.country ?? 'US',
+    country_name: proxy.country ? proxy.country : 'United States',
+    city: proxy.city ?? 'New York City',
+    timezone: proxy.timezone ?? 'America/New_York',
+    latitude: 40.71427,
+    longitude: -74.00597,
+    zip_code: '10004',
+    asn: proxy.asn ?? 'AS9009',
+    organization: proxy.organization ?? 'M247 Europe SRL',
     checked_at: now(),
     error: reachable ? null : 'Connection refused by upstream proxy.',
   };
@@ -1154,6 +1171,11 @@ export const mockApi: ApiAdapter = {
     const result = buildQuickResult(proxy);
     proxy.latency_ms = result.latency_ms;
     proxy.exit_ip = result.exit_ip;
+    proxy.country = result.country;
+    proxy.city = result.city;
+    proxy.timezone = result.timezone;
+    proxy.asn = result.asn;
+    proxy.organization = result.organization;
     proxy.last_checked_at = result.checked_at;
     mockStore.emit('proxy.updated', { proxy: structuredClone(proxy) });
     mockStore.emit('proxy.test.completed', {
@@ -1891,5 +1913,70 @@ export const mockApi: ApiAdapter = {
     await delay(80);
     const index = mockMediaAssets.findIndex((a) => a.id === id);
     if (index >= 0) mockMediaAssets.splice(index, 1);
+    mediaAssignments.delete(id);
+  },
+  async getMediaAssignments(assetId: string): Promise<string[]> {
+    await delay(40);
+    return [...(mediaAssignments.get(assetId) ?? [])];
+  },
+  async setMediaAssignments(assetId, profileIds): Promise<MediaAsset> {
+    await delay(120);
+    const asset = mockMediaAssets.find((a) => a.id === assetId);
+    if (!asset) throw new ApiError(404, 'media_not_found', 'Media asset not found.');
+    mediaAssignments.set(assetId, new Set(profileIds));
+    asset.assigned_profile_count = profileIds.length;
+    return structuredClone(asset);
+  },
+
+  async listProxyProviders(): Promise<ProxyProvider[]> {
+    await delay(50);
+    return structuredClone(mockProxyProviders);
+  },
+  async configureProxyProvider(payload): Promise<ProxyProvider> {
+    await delay(140);
+    const provider = mockProxyProviders.find((p) => p.id === payload.provider);
+    if (!provider) throw new ApiError(404, 'provider_not_found', 'Provider not found.');
+    provider.configured = Boolean(payload.api_token || (payload.username && payload.password));
+    return structuredClone(provider);
+  },
+  async generateProxies(payload): Promise<GenerateProxiesResult> {
+    await delay(400);
+    const provider = mockProxyProviders.find((p) => p.id === payload.provider);
+    if (!provider?.configured)
+      throw new ApiError(422, 'provider_not_configured', 'Configure the provider first.');
+    const count = Math.max(1, Math.min(50, payload.count));
+    const ids: string[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const host = `${payload.country.toLowerCase()}.residential.${payload.provider}.io`;
+      const port = 10000 + Math.floor(Math.random() * 40000);
+      const proxy: Proxy = {
+        id: newId('px'),
+        label: `${provider.name} ${payload.country} ${payload.session_type} #${index + 1}`,
+        scheme: 'socks5h',
+        host,
+        port,
+        username: `user-${Math.random().toString(36).slice(2, 8)}`,
+        has_password: true,
+        masked_endpoint: maskEndpoint('socks5h', host, port, true),
+        test_before_launch: false,
+        assigned_profile_count: 0,
+        exit_ip: null,
+        country: payload.country,
+        city: null,
+        timezone: null,
+        asn: null,
+        organization: provider.name,
+        proxy_type: 'residential',
+        type_confidence: 0.95,
+        reputation: 'clean',
+        latency_ms: null,
+        last_checked_at: null,
+        created_at: now(),
+        updated_at: now(),
+      };
+      mockStore.proxies.push(proxy);
+      ids.push(proxy.id);
+    }
+    return { created: count, proxy_ids: ids };
   },
 };

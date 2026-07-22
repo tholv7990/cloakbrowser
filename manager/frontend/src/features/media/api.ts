@@ -40,3 +40,25 @@ export function useDeleteMediaAsset() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.mediaAssets }),
   });
 }
+
+export function useMediaAssignments(assetId: string | null) {
+  return useQuery({
+    queryKey: ['media', 'assignments', assetId],
+    queryFn: () => api.getMediaAssignments(assetId as string),
+    enabled: Boolean(assetId),
+  });
+}
+
+export function useSetMediaAssignments() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  return useMutation({
+    mutationFn: (input: { assetId: string; profileIds: string[] }) =>
+      api.setMediaAssignments(input.assetId, input.profileIds),
+    onSuccess: (_asset, input) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.mediaAssets });
+      queryClient.invalidateQueries({ queryKey: ['media', 'assignments', input.assetId] });
+      toast({ title: 'Assignments saved', tone: 'success' });
+    },
+  });
+}

@@ -139,8 +139,12 @@ export interface ProxyQuickTest {
   exit_ip_matches: boolean | null;
   latency_ms: number | null;
   country: string | null;
+  country_name: string | null;
   city: string | null;
   timezone: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  zip_code: string | null;
   asn: string | null;
   organization: string | null;
   checked_at: string;
@@ -809,6 +813,40 @@ export interface CreateMediaAssetPayload {
   name: string;
   kind: MediaKind;
   format: string;
+}
+
+// ---------------------------------------------------------------------------
+// Proxy providers — connect IPRoyal / 711Proxy and generate proxies into the
+// pool. Credentials are stored securely and never returned.
+// ---------------------------------------------------------------------------
+
+export type ProxyProviderId = 'iproyal' | 'seveneleven';
+
+export interface ProxyProvider {
+  id: ProxyProviderId;
+  name: string;
+  configured: boolean;
+}
+
+export interface ProxyProviderConfigPayload {
+  provider: ProxyProviderId;
+  /** IPRoyal. */
+  api_token?: string;
+  /** 711Proxy. */
+  username?: string;
+  password?: string;
+}
+
+export interface GenerateProxiesPayload {
+  provider: ProxyProviderId;
+  count: number;
+  country: string;
+  session_type: 'rotating' | 'sticky';
+}
+
+export interface GenerateProxiesResult {
+  created: number;
+  proxy_ids: string[];
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
-import type { FC } from 'react';
+import { useState, type FC } from 'react';
 import { Controller, useFormContext, useWatch } from 'react-hook-form';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Plus, RefreshCw } from 'lucide-react';
 import type { Extension, Folder, Proxy, Tag, WorkflowStatus } from '@/types/api';
 import { Field } from '@/components/ui/Field';
 import { Input, Textarea } from '@/components/ui/Input';
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge, TagChip } from '@/components/ui/Badge';
 import { ProxyHealthDot } from '@/components/domain/StatusBadges';
 import { FingerprintGlyph } from '@/components/FingerprintGlyph';
+import { ProxyEditorDrawer } from '@/features/proxies/ProxyEditorDrawer';
 import type { ProfileWizardValues } from '@/schemas/profile';
 import { useT, type TranslationKey } from '@/i18n';
 
@@ -191,10 +192,11 @@ const GeneralStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
 
 const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
   const t = useT();
-  const { register, formState } = useFormContext<ProfileWizardValues>();
+  const { register, formState, setValue } = useFormContext<ProfileWizardValues>();
   const proxyId = useWatch<ProfileWizardValues>({ name: 'proxy_id' }) as string;
   const geoMode = useWatch<ProfileWizardValues>({ name: 'geolocation_mode' }) as string;
   const selected = refs.proxies.find((p) => p.id === proxyId) ?? null;
+  const [proxyEditorOpen, setProxyEditorOpen] = useState(false);
   return (
     <div className="space-y-4">
       <SelectField
@@ -205,6 +207,20 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
           { value: '', label: t('editor.directNoProxy') },
           ...refs.proxies.map((p) => ({ value: p.id, label: `${p.label} · ${p.masked_endpoint}` })),
         ]}
+      />
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setProxyEditorOpen(true)}
+      >
+        <Plus className="h-3.5 w-3.5" /> {t('dlg.addNewProxy')}
+      </Button>
+      <ProxyEditorDrawer
+        open={proxyEditorOpen}
+        proxy={null}
+        onClose={() => setProxyEditorOpen(false)}
+        onSaved={(saved) => setValue('proxy_id', saved.id, { shouldValidate: true })}
       />
       {selected && (
         <div className="space-y-2 rounded-md border border-line bg-surface-sunken p-3 text-[13px]">
