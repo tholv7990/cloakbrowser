@@ -24,6 +24,7 @@ import type {
   ProxyQuickTest,
   ProxyScheme,
   ProxyWritePayload,
+  ResourceSnapshot,
   RuntimeState,
   Settings,
 } from '@/types/api';
@@ -868,5 +869,49 @@ export const mockApi: ApiAdapter = {
   async checkBrowserUpdate(): Promise<Settings> {
     await delay(80);
     return structuredClone(mockStore.settings);
+  },
+
+  async getResources(): Promise<ResourceSnapshot> {
+    await delay(60);
+    const running = mockStore.profiles.filter(
+      (p) => !p.deleted_at && ['running', 'starting', 'stopping'].includes(p.runtime_state),
+    );
+    const profiles = running
+      .map((p) => ({
+        profile_id: p.id,
+        profile_name: p.name,
+        runtime_state: p.runtime_state,
+        cpu_percent: Math.round(Math.random() * 180) / 10,
+        memory_bytes: Math.round(180e6 + Math.random() * 420e6),
+        process_count: 4 + Math.floor(Math.random() * 6),
+      }))
+      .sort((a, b) => b.cpu_percent - a.cpu_percent || b.memory_bytes - a.memory_bytes);
+    const browsersMem = profiles.reduce((sum, r) => sum + r.memory_bytes, 0);
+    const browsersCpu = Math.round(profiles.reduce((sum, r) => sum + r.cpu_percent, 0) * 10) / 10;
+    const browsersProc = profiles.reduce((sum, r) => sum + r.process_count, 0);
+    const totalMem = 16 * 1024 ** 3;
+    const usedMem = 6 * 1024 ** 3 + browsersMem;
+    return {
+      generated_at: new Date().toISOString(),
+      system: {
+        cpu_percent: Math.round((10 + Math.random() * 30) * 10) / 10,
+        memory_percent: Math.round((usedMem / totalMem) * 1000) / 10,
+        memory_used_bytes: usedMem,
+        memory_total_bytes: totalMem,
+        logical_cpus: 12,
+      },
+      backend: {
+        cpu_percent: Math.round(Math.random() * 30) / 10,
+        memory_bytes: Math.round(120e6 + Math.random() * 40e6),
+        process_count: 1,
+      },
+      browsers: {
+        cpu_percent: browsersCpu,
+        memory_bytes: browsersMem,
+        process_count: browsersProc,
+        profiles_running: profiles.length,
+      },
+      profiles,
+    };
   },
 };

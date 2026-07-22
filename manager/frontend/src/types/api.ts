@@ -415,6 +415,41 @@ export interface AppBootstrap {
 }
 
 // ---------------------------------------------------------------------------
+// Resource monitor (GET /resources) — read-only per-profile CPU/RAM sampling.
+// Observability only: the backend never caps, prioritizes, or allocates.
+// ---------------------------------------------------------------------------
+
+export interface SystemResources {
+  cpu_percent: number;
+  memory_percent: number;
+  memory_used_bytes: number;
+  memory_total_bytes: number;
+  logical_cpus: number;
+}
+
+/** Aggregate usage for a group of OS processes (CPU is 0–100, already ÷ cores). */
+export interface ProcessGroupResources {
+  cpu_percent: number;
+  memory_bytes: number;
+  process_count: number;
+}
+
+export interface ProfileResourceRow extends ProcessGroupResources {
+  profile_id: string;
+  profile_name: string;
+  runtime_state: RuntimeState;
+}
+
+export interface ResourceSnapshot {
+  generated_at: string;
+  system: SystemResources;
+  backend: ProcessGroupResources;
+  browsers: ProcessGroupResources & { profiles_running: number };
+  /** Only running profiles, sorted heaviest-first by the backend. */
+  profiles: ProfileResourceRow[];
+}
+
+// ---------------------------------------------------------------------------
 // Diagnostics + logs
 // ---------------------------------------------------------------------------
 

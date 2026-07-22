@@ -61,6 +61,18 @@ export function formatDuration(seconds: number): string {
   return remMinutes ? `${hours}h ${remMinutes}m` : `${hours}h`;
 }
 
+export function formatBytes(bytes: number | null | undefined): string {
+  if (!bytes || bytes < 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(value >= 100 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
 export const personaLabel: Record<'windows_10' | 'windows_11', string> = {
   windows_10: 'Windows 10',
   windows_11: 'Windows 11',

@@ -30,4 +30,5 @@ export const queryKeys = {
   proxy: (id: string) => ['proxy', id] as const,
   proxyReports: (id: string) => ['proxy', id, 'reports'] as const,
   diagnostics: ['diagnostics'] as const,
+  resources: ['resources'] as const,
 };

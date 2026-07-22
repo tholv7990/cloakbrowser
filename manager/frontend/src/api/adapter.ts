@@ -27,6 +27,7 @@ import type {
   ProxyQualityReport,
   ProxyQuickTest,
   ProxyWritePayload,
+  ResourceSnapshot,
   Settings,
   Tag,
   WorkflowStatus,
@@ -99,4 +100,7 @@ export interface ApiAdapter {
   getSettings(): Promise<Settings>;
   updateSettings(patch: Partial<Settings>): Promise<Settings>;
   checkBrowserUpdate(): Promise<Settings>;
+
+  // Resource monitor (read-only)
+  getResources(): Promise<ResourceSnapshot>;
 }

@@ -23,6 +23,7 @@ import type {
   ProxyQualityReport,
   ProxyQuickTest,
   ProxyWritePayload,
+  ResourceSnapshot,
   Settings,
   Tag,
   WorkflowStatus,
@@ -128,4 +129,6 @@ export const realApi: ApiAdapter = {
     apiRequest<Settings>('/settings', { method: 'PATCH', body: patch }),
   checkBrowserUpdate: () =>
     apiRequest<Settings>('/settings/browser/check-update', { method: 'POST' }),
+
+  getResources: () => apiRequest<ResourceSnapshot>('/resources'),
 };
