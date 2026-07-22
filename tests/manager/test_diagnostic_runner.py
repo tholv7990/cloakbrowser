@@ -12,6 +12,8 @@ from uuid import uuid4
 
 import pytest
 
+from manager_backend.features.diagnostics import artifacts as artifacts_module
+from manager_backend.features.diagnostics import runner as runner_module
 from manager_backend.config import ManagerSettings
 from manager_backend.features.diagnostics.artifacts import (
     ArtifactBoundaryError,
@@ -34,26 +36,61 @@ PNG = b"\x89PNG\r\n\x1a\nlocal-fixture-image"
 
 
 class FakeSession:
-    def __init__(self, *, tier: str = "team", version: str = "136.0.1.2"):
+    def __init__(
+        self,
+        *,
+        tier: str = "team",
+        version: str = "136.0.1.2",
+        close_error: Exception | None = None,
+        terminate_error: Exception | None = None,
+    ):
         self.tier = tier
         self.version = version
         self.closed = False
+        self.close_error = close_error
+        self.terminate_error = terminate_error
+        self.terminate_calls = 0
+        self.close_thread = None
 
     def close(self) -> None:
+        self.close_thread = threading.get_ident()
+        if self.close_error is not None:
+            raise self.close_error
         self.closed = True
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+        if self.terminate_error is not None:
+            raise self.terminate_error
+        self.closed = True
+
+    def is_closed(self) -> bool:
+        return self.closed
 
 
 class FakeBrowserAdapter:
-    def __init__(self, *, error: Exception | None = None):
+    def __init__(
+        self,
+        *,
+        error: Exception | None = None,
+        session_factory=FakeSession,
+        delay: float = 0,
+    ):
         self.error = error
+        self.session_factory = session_factory
+        self.delay = delay
         self.launches: list[dict] = []
         self.sessions: list[FakeSession] = []
+        self.launch_threads: list[int] = []
 
     def launch(self, snapshot, *, timeout_seconds, cancel_event):
+        self.launch_threads.append(threading.get_ident())
         self.launches.append(dict(snapshot))
+        if self.delay:
+            time.sleep(self.delay)
         if self.error is not None:
             raise self.error
-        session = FakeSession()
+        session = self.session_factory()
         self.sessions.append(session)
         return BrowserLaunch(session=session, tier=session.tier, version=session.version)
 
@@ -62,6 +99,7 @@ class FakeTargetAdapter:
     def __init__(self, action=None):
         self.action = action or self._success
         self.calls: list[tuple[FakeSession, str, float]] = []
+        self.call_threads: list[int] = []
 
     @staticmethod
     def _success(_session, target_url, **_kwargs):
@@ -74,6 +112,7 @@ class FakeTargetAdapter:
         )
 
     def run(self, session, target_url, *, timeout_seconds, cancel_event, progress):
+        self.call_threads.append(threading.get_ident())
         self.calls.append((session, target_url, timeout_seconds))
         return self.action(
             session,
@@ -119,7 +158,9 @@ def _request(*, kind="direct_google_control", profile_id=None, target_url=None):
     )
 
 
-def _profile(session_factory, *, name="diagnostic", proxy_id=None) -> str:
+def _profile(
+    session_factory, *, name="diagnostic", proxy_id=None, startup_urls=None
+) -> str:
     with session_factory() as session:
         profile = Profile(
             name=name,
@@ -131,6 +172,7 @@ def _profile(session_factory, *, name="diagnostic", proxy_id=None) -> str:
             browser_version="135.0.0.1",
             user_agent_mode="custom",
             custom_user_agent="FixtureAgent/1.0",
+            startup_urls=startup_urls or [],
             location={
                 "geo_mode": "proxy",
                 "locale": "vi-VN",
@@ -258,6 +300,174 @@ def test_profile_diagnostic_reuses_the_exact_normal_launch_snapshot(
         "classification": "residential",
     }
     assert "secret" not in json.dumps(report)
+
+
+def test_profile_diagnostic_suppresses_normal_startup_urls_and_targets_only_allowlist(
+    db_session_factory, settings
+):
+    profile_id = _profile(
+        db_session_factory,
+        startup_urls=["https://startup.example/", "http://internal.example/"],
+    )
+    browser = FakeBrowserAdapter()
+    target = FakeTargetAdapter()
+    runner = _runner(
+        db_session_factory, _settings(settings), browser=browser, target=target
+    )
+    request = _request(kind="pixelscan", profile_id=profile_id)
+
+    result = runner.run(request, threading.Event(), lambda _value: None)
+
+    assert result.status == "passed"
+    assert browser.launches[0]["startup_urls"] == []
+    assert [call[1] for call in target.calls] == [request.target_url]
+
+
+def test_sync_browser_lifecycle_stays_on_one_owner_thread(
+    db_session_factory, settings
+):
+    browser = FakeBrowserAdapter()
+    target = FakeTargetAdapter()
+    runner = _runner(
+        db_session_factory, _settings(settings), browser=browser, target=target
+    )
+
+    result = runner.run(_request(), threading.Event(), lambda _value: None)
+
+    assert result.status == "passed"
+    assert browser.launch_threads == target.call_threads
+    assert browser.sessions[0].close_thread == browser.launch_threads[0]
+
+
+@pytest.mark.parametrize("stage", ["preflight", "browser", "target"])
+def test_total_deadline_rejects_non_cooperative_synchronous_adapters(
+    db_session_factory, settings, stage
+):
+    profile_id = _profile(db_session_factory) if stage == "preflight" else None
+    browser = FakeBrowserAdapter(delay=0.2 if stage == "browser" else 0)
+
+    def preflight(_snapshot):
+        if stage == "preflight":
+            time.sleep(0.2)
+        return ProxyPreflightResult()
+
+    def target_action(_session, target_url, **_kwargs):
+        if stage == "target":
+            time.sleep(0.2)
+        return TargetResult(
+            status="passed",
+            findings={"page_loaded": True},
+            final_url=target_url,
+            title="late fixture",
+            screenshot=PNG,
+        )
+
+    runner = _runner(
+        db_session_factory,
+        _settings(settings, diagnostic_timeout_seconds=0.05),
+        browser=browser,
+        target=FakeTargetAdapter(target_action),
+        proxy_preflight=preflight,
+    )
+    request = (
+        _request(kind="pixelscan", profile_id=profile_id)
+        if profile_id
+        else _request()
+    )
+
+    started = time.monotonic()
+    result = runner.run(request, threading.Event(), lambda _value: None)
+    elapsed = time.monotonic() - started
+
+    assert result.status == "failed"
+    assert result.error_code == "timeout"
+    assert elapsed < 0.15
+    time.sleep(0.2)
+    assert not any(
+        thread.name.startswith("diagnostic-adapter-")
+        for thread in threading.enumerate()
+    )
+    assert all(session.closed for session in browser.sessions)
+    if stage == "browser":
+        assert browser.launches
+        assert not Path(browser.launches[0]["profile_dir"]).exists()
+        assert runner._semaphore.acquire(timeout=0.05)
+        runner._semaphore.release()
+
+
+def test_late_profile_browser_launch_retains_lock_until_verified_cleanup(
+    db_session_factory, settings
+):
+    profile_id = _profile(db_session_factory)
+    browser = FakeBrowserAdapter(delay=0.2)
+    lock = FakeLock()
+    runner = _runner(
+        db_session_factory,
+        _settings(
+            settings,
+            diagnostic_timeout_seconds=0.05,
+            max_concurrent_diagnostics=1,
+        ),
+        browser=browser,
+        lock_factory=lambda _profile_id: lock,
+    )
+
+    result = runner.run(
+        _request(kind="pixelscan", profile_id=profile_id),
+        threading.Event(),
+        lambda _value: None,
+    )
+
+    assert result.error_code == "timeout"
+    assert not lock.released
+    assert not runner._semaphore.acquire(timeout=0.01)
+    time.sleep(0.2)
+    assert browser.sessions[0].is_closed()
+    assert lock.released
+    assert runner._semaphore.acquire(timeout=0.05)
+    runner._semaphore.release()
+
+
+def test_non_cooperative_target_cannot_ignore_cancellation(
+    db_session_factory, settings
+):
+    entered = threading.Event()
+
+    def ignore_cancel(_session, target_url, **_kwargs):
+        entered.set()
+        time.sleep(0.2)
+        return TargetResult(
+            status="passed",
+            findings={"page_loaded": True},
+            final_url=target_url,
+            title="late fixture",
+            screenshot=PNG,
+        )
+
+    browser = FakeBrowserAdapter()
+    runner = _runner(
+        db_session_factory,
+        _settings(settings),
+        browser=browser,
+        target=FakeTargetAdapter(ignore_cancel),
+    )
+    cancel = threading.Event()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        started = time.monotonic()
+        future = pool.submit(runner.run, _request(), cancel, lambda _value: None)
+        assert entered.wait(1)
+        cancel.set()
+        result = future.result(timeout=0.15)
+        elapsed = time.monotonic() - started
+
+    assert result.status == "cancelled"
+    assert elapsed < 0.15
+    assert browser.sessions[0].closed
+    time.sleep(0.2)
+    assert not any(
+        thread.name.startswith("diagnostic-adapter-")
+        for thread in threading.enumerate()
+    )
 
 
 def test_direct_control_uses_and_removes_a_manager_owned_no_proxy_profile(
@@ -486,6 +696,131 @@ def test_cancellation_closes_browser_removes_temp_profile_and_releases_slot(
     runner._semaphore.release()
 
 
+def test_close_failure_uses_terminate_and_returns_typed_cleanup_failure(
+    db_session_factory, settings
+):
+    profile_id = _profile(db_session_factory)
+    browser = FakeBrowserAdapter(
+        session_factory=lambda: FakeSession(close_error=RuntimeError("raw close"))
+    )
+    lock = FakeLock()
+    runner = _runner(
+        db_session_factory,
+        _settings(settings),
+        browser=browser,
+        lock_factory=lambda _profile_id: lock,
+    )
+
+    result = runner.run(
+        _request(kind="pixelscan", profile_id=profile_id),
+        threading.Event(),
+        lambda _value: None,
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == "cleanup_failed"
+    assert browser.sessions[0].terminate_calls == 1
+    assert browser.sessions[0].is_closed()
+    assert lock.released
+
+
+def test_unverified_browser_cleanup_retains_profile_lock_and_concurrency_slot(
+    db_session_factory, settings
+):
+    profile_id = _profile(db_session_factory)
+    browser = FakeBrowserAdapter(
+        session_factory=lambda: FakeSession(
+            close_error=RuntimeError("raw close"),
+            terminate_error=RuntimeError("raw terminate"),
+        )
+    )
+    lock = FakeLock()
+    runner = _runner(
+        db_session_factory,
+        _settings(settings, max_concurrent_diagnostics=1),
+        browser=browser,
+        lock_factory=lambda _profile_id: lock,
+    )
+
+    result = runner.run(
+        _request(kind="pixelscan", profile_id=profile_id),
+        threading.Event(),
+        lambda _value: None,
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == "cleanup_failed"
+    assert not browser.sessions[0].is_closed()
+    assert not lock.released
+    assert not runner._semaphore.acquire(timeout=0.01)
+
+
+def test_temporary_profile_removal_failure_cannot_return_passed(
+    db_session_factory, settings, monkeypatch
+):
+    real_rmtree = runner_module.shutil.rmtree
+    attempted = []
+
+    def fail_profile_removal(path, *args, **kwargs):
+        attempted.append(Path(path))
+        if Path(path).name.startswith("profile-"):
+            raise OSError("raw removal path")
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(runner_module.shutil, "rmtree", fail_profile_removal)
+    runner = _runner(db_session_factory, _settings(settings))
+
+    result = runner.run(_request(), threading.Event(), lambda _value: None)
+
+    assert result.status == "failed"
+    assert result.error_code == "cleanup_failed"
+    assert attempted
+    assert attempted[0].exists()
+    real_rmtree(attempted[0])
+
+
+@pytest.mark.parametrize(
+    ("final_url", "expected"),
+    [
+        (
+            "https://consent.google.com/m?continue=https%3A%2F%2Fwww.google.com#notice",
+            "https://consent.google.com/m",
+        ),
+        (
+            "https://www.google.com/sorry/index?continue=secret#captcha",
+            "https://www.google.com/sorry/index",
+        ),
+        ("https://www.google.com/search?q=secret#fragment", "https://www.google.com/search"),
+        ("https://evil.example/sorry?secret=1", "https://www.google.com/search"),
+        ("http://www.google.com/sorry?secret=1", "https://www.google.com/search"),
+        (
+            "https://user:password@www.google.com/sorry?secret=1",
+            "https://www.google.com/search",
+        ),
+    ],
+)
+def test_report_retains_only_sanitized_allowed_https_redirects(
+    db_session_factory, settings, final_url, expected
+):
+    target = FakeTargetAdapter(
+        action=lambda _session, _target_url, **_kwargs: TargetResult(
+            status="passed",
+            findings={"page_loaded": True},
+            final_url=final_url,
+            title="redirect fixture",
+            screenshot=PNG,
+        )
+    )
+    runner = _runner(db_session_factory, _settings(settings), target=target)
+
+    result = runner.run(_request(), threading.Event(), lambda _value: None)
+
+    report = json.loads(Path(result.report_path).read_text(encoding="utf-8"))
+    assert report["target"]["final_url"] == expected
+    assert "secret" not in report["target"]["final_url"]
+    assert "password" not in report["target"]["final_url"]
+
+
 def test_concurrency_never_exceeds_the_configured_bound(
     db_session_factory, settings
 ):
@@ -529,3 +864,53 @@ def test_concurrency_never_exceeds_the_configured_bound(
 
     assert all(result.status == "passed" for result in results)
     assert maximum == 2
+
+
+@pytest.mark.parametrize(
+    ("report", "screenshot", "report_limit", "screenshot_limit"),
+    [
+        ({"large": "x" * 100}, None, 16, 1024),
+        ({"safe": True}, b"x" * 100, 1024, 16),
+    ],
+)
+def test_artifact_writer_rejects_oversized_payloads_without_partial_files(
+    tmp_path, report, screenshot, report_limit, screenshot_limit
+):
+    run_id = str(uuid4())
+    with pytest.raises(ArtifactBoundaryError):
+        write_diagnostic_artifacts(
+            tmp_path / "data",
+            run_id,
+            report=report,
+            screenshot=screenshot,
+            max_report_bytes=report_limit,
+            max_screenshot_bytes=screenshot_limit,
+        )
+
+    run_root = tmp_path / "data" / "diagnostics" / run_id
+    assert not (run_root / "report.json").exists()
+    assert not (run_root / "screenshot.png").exists()
+    assert not list(run_root.glob("*.tmp")) if run_root.exists() else True
+
+
+def test_atomic_artifact_interruption_removes_temporary_file(
+    tmp_path, monkeypatch
+):
+    run_id = str(uuid4())
+
+    def interrupt_replace(_source, _destination):
+        raise OSError("simulated interruption")
+
+    monkeypatch.setattr(artifacts_module.os, "replace", interrupt_replace)
+    with pytest.raises(ArtifactBoundaryError):
+        write_diagnostic_artifacts(
+            tmp_path / "data",
+            run_id,
+            report={"safe": True},
+            screenshot=PNG,
+        )
+
+    run_root = tmp_path / "data" / "diagnostics" / run_id
+    assert not (run_root / "report.json").exists()
+    assert not (run_root / "screenshot.png").exists()
+    assert not list(run_root.glob("*.tmp"))
