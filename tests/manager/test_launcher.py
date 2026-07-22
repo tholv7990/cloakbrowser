@@ -4,8 +4,39 @@ import json
 
 from manager_backend.features.runtime.launcher import (
     persistent_context_kwargs,
+    seed_default_search_engine,
     urls_to_open,
 )
+
+
+def _search(prefs):
+    return prefs.get("default_search_provider_data", {}).get("template_url_data", {}).get(
+        "short_name"
+    )
+
+
+def test_seed_default_search_engine_creates_and_preserves(tmp_path):
+    udd = tmp_path / "user-data"
+    prefs = udd / "Default" / "Preferences"
+
+    # Fresh profile -> Google is seeded.
+    seed_default_search_engine(udd)
+    assert _search(json.loads(prefs.read_text(encoding="utf-8"))) == "Google"
+
+    # A search engine the user already chose is never overwritten.
+    prefs.write_text(
+        json.dumps({"default_search_provider_data": {"template_url_data": {"short_name": "Bing"}}}),
+        encoding="utf-8",
+    )
+    seed_default_search_engine(udd)
+    assert _search(json.loads(prefs.read_text(encoding="utf-8"))) == "Bing"
+
+    # An existing profile with other prefs but no search engine gets one added.
+    prefs.write_text(json.dumps({"some_key": 1}), encoding="utf-8")
+    seed_default_search_engine(udd)
+    restored = json.loads(prefs.read_text(encoding="utf-8"))
+    assert restored["some_key"] == 1
+    assert _search(restored) == "Google"
 
 
 def test_urls_to_open_restores_saved_session_over_startup(tmp_path):

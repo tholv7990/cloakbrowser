@@ -93,6 +93,45 @@ def profile_launch_snapshot(
 _SESSION_FILE = "last-session.json"
 _INTERNAL_URL_PREFIXES = ("about:", "chrome:", "chrome-extension:", "devtools:", "edge:")
 
+# A fresh CloakBrowser profile ships with no default search engine, so the
+# address bar treats plain text as a hostname ("test" -> http://test/) instead
+# of searching. Seed Google so it behaves like normal Chrome.
+_DEFAULT_SEARCH_PREFS = {
+    "default_search_provider_data": {
+        "template_url_data": {
+            "short_name": "Google",
+            "keyword": "google.com",
+            "url": "https://www.google.com/search?q={searchTerms}",
+            "suggestions_url": "https://www.google.com/complete/search?client=chrome&q={searchTerms}",
+            "favicon_url": "https://www.google.com/favicon.ico",
+            "prepopulate_id": 1,
+            "safe_for_autoreplace": True,
+        }
+    }
+}
+
+
+def seed_default_search_engine(user_data_dir: Path) -> None:
+    """Ensure the profile has a default search engine (Google) before launch.
+
+    Applies to new profiles and to existing ones that never got one; leaves a
+    search engine the user has already chosen untouched. Written before launch,
+    so the profile is not running and the file is not locked.
+    """
+    prefs = user_data_dir / "Default" / "Preferences"
+    try:
+        if prefs.exists():
+            data = json.loads(prefs.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or "default_search_provider_data" in data:
+                return
+            data.update(_DEFAULT_SEARCH_PREFS)
+        else:
+            prefs.parent.mkdir(parents=True, exist_ok=True)
+            data = dict(_DEFAULT_SEARCH_PREFS)
+        prefs.write_text(json.dumps(data), encoding="utf-8")
+    except (OSError, ValueError):
+        pass  # a bad seed must never block a launch
+
 
 def _read_last_session(profile_dir: Path) -> list[str]:
     """Return the tab URLs saved when the profile was last stopped (may be empty)."""
@@ -222,7 +261,9 @@ class CloakPersistentLauncher:
 
         profile_dir = snapshot["profile_dir"]
         profile_dir.mkdir(parents=True, exist_ok=True)
-        user_data_dir = str(profile_dir / "user-data")
+        user_data_path = profile_dir / "user-data"
+        seed_default_search_engine(user_data_path)
+        user_data_dir = str(user_data_path)
         context = cloakbrowser.launch_persistent_context(
             user_data_dir,
             **persistent_context_kwargs(snapshot, headless=False),
