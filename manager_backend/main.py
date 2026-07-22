@@ -84,11 +84,17 @@ def create_app(
                 application.state.diagnostic_executor.start()
             yield
         finally:
+            diagnostic_shutdown_error = None
             if application.state.diagnostic_executor is not None:
-                await application.state.diagnostic_executor.shutdown()
+                try:
+                    await application.state.diagnostic_executor.shutdown()
+                except Exception as error:
+                    diagnostic_shutdown_error = error
             application.state.runtime_manager.shutdown()
             application.state.proxy_quality_manager.shutdown()
             application.state.engine.dispose()
+            if diagnostic_shutdown_error is not None:
+                raise diagnostic_shutdown_error
 
     app = FastAPI(
         title="CloakBrowser Manager API", version="1.0.0", lifespan=lifespan
@@ -104,6 +110,7 @@ def create_app(
     )
     app.state.event_broker = EventBroker()
     app.state.diagnostic_executor = None
+    app.state.diagnostic_runner = None
     if all(adapter is not None for adapter in diagnostic_adapters):
         diagnostic_runner = DiagnosticRunner(
             app.state.session_factory,
@@ -112,10 +119,15 @@ def create_app(
             target_adapter=diagnostic_target_adapter,
             proxy_preflight=diagnostic_proxy_preflight,
         )
+        app.state.diagnostic_runner = diagnostic_runner
         app.state.diagnostic_executor = DiagnosticExecutor(
             app.state.diagnostic_manager,
             diagnostic_runner,
             app.state.event_broker,
+            cleanup_wait_seconds=resolved.diagnostic_cleanup_wait_seconds,
+            shutdown_cleanup_wait_seconds=(
+                resolved.diagnostic_shutdown_cleanup_wait_seconds
+            ),
         )
     app.state.credential_store = KeyringCredentialStore()
 

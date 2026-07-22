@@ -588,6 +588,9 @@ class DiagnosticExecutor:
         manager: DiagnosticManager,
         runner: DiagnosticRunner,
         events: EventBroker,
+        *,
+        cleanup_wait_seconds: float = 0.25,
+        shutdown_cleanup_wait_seconds: float = 2.0,
     ) -> None:
         self._manager = manager
         self._runner = runner
@@ -595,14 +598,22 @@ class DiagnosticExecutor:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._deferred_tasks: set[asyncio.Task[None]] = set()
+        self._cleanup_tasks: set[asyncio.Task[None]] = set()
         self._cancel_events: dict[str, threading.Event] = {}
+        self._cleanup_wait_seconds = cleanup_wait_seconds
+        self._shutdown_cleanup_wait_seconds = shutdown_cleanup_wait_seconds
         self._accepting = False
         self._state_lock = threading.Lock()
         self._runner.set_deferred_result_callback(self._deferred_result)
 
     @property
     def task_count(self) -> int:
-        return len(self._tasks) + len(self._deferred_tasks)
+        return (
+            len(self._tasks)
+            + len(self._deferred_tasks)
+            + len(self._cleanup_tasks)
+            + self._runner.cleanup_ownership_count
+        )
 
     def start(self) -> None:
         loop = asyncio.get_running_loop()
@@ -661,13 +672,11 @@ class DiagnosticExecutor:
         with suppress(Exception):
             future.result(timeout=5)
 
-    async def _terminal_from_result(
+    def _terminal_from_result(
         self, diagnostic_id: str, result: DiagnosticResult
     ) -> DiagnosticRun:
         if result.status == "cancelled":
-            return await asyncio.to_thread(
-                self._manager.transition, diagnostic_id, "cancelled"
-            )
+            return self._manager.transition(diagnostic_id, "cancelled")
         update = DiagnosticResultUpdate(
             kind=result.kind,
             status=result.status,
@@ -676,17 +685,52 @@ class DiagnosticExecutor:
             screenshot_path=result.screenshot_path,
             report_path=result.report_path,
         )
-        return await asyncio.to_thread(
-            self._manager.store_result, diagnostic_id, update
+        return self._manager.store_result(diagnostic_id, update)
+
+    async def _retry_active_write(
+        self, diagnostic_id: str, operation: Callable[[], DiagnosticRun]
+    ) -> DiagnosticRun:
+        while True:
+            try:
+                return await asyncio.to_thread(operation)
+            except ManagerError as error:
+                if error.code != "diagnostic_conflict":
+                    raise
+                current = await asyncio.to_thread(
+                    self._manager.current, diagnostic_id
+                )
+                if current.status in TERMINAL_STATUSES:
+                    return current
+                await asyncio.sleep(0.02)
+
+    async def _observe_cleanup(self, run_id: UUID) -> None:
+        released = await asyncio.to_thread(
+            self._runner.wait_for_cleanup, run_id, None
         )
+        if released:
+            self._runner.acknowledge_cleanup(run_id)
+
+    def _spawn_cleanup_observer(self, run_id: UUID) -> None:
+        task = asyncio.create_task(
+            self._observe_cleanup(run_id),
+            name=f"diagnostic-cleanup-owner-{run_id}",
+        )
+        self._cleanup_tasks.add(task)
+        task.add_done_callback(self._cleanup_tasks.discard)
 
     async def _run(
         self, diagnostic_id: str, cancel_event: threading.Event
     ) -> None:
+        terminal_owned = False
         try:
-            run = await asyncio.to_thread(
-                self._manager.transition, diagnostic_id, "running"
+            run = await self._retry_active_write(
+                diagnostic_id,
+                lambda: self._manager.transition(diagnostic_id, "running"),
             )
+            if run.status in TERMINAL_STATUSES:
+                terminal_owned = True
+                self._publish("diagnostic.completed", run)
+                return
             self._publish("diagnostic.progress", run)
             request = DiagnosticRequest(
                 run_id=run.id,
@@ -694,6 +738,8 @@ class DiagnosticExecutor:
                 target_url=TARGET_URLS[run.kind],
                 profile_id=run.profile_id,
             )
+            run_uuid = UUID(run.id)
+            self._runner.begin_cleanup_ownership(run_uuid)
             result = await asyncio.to_thread(
                 self._runner.run,
                 request,
@@ -702,8 +748,27 @@ class DiagnosticExecutor:
                     diagnostic_id, value
                 ),
             )
+            cleanup_released = await asyncio.to_thread(
+                self._runner.wait_for_cleanup,
+                run_uuid,
+                self._cleanup_wait_seconds,
+            )
+            if cleanup_released:
+                self._runner.acknowledge_cleanup(run_uuid)
+            else:
+                result = DiagnosticResult(
+                    kind=result.kind,
+                    status="failed",
+                    findings={},
+                    error_code="cleanup_failed",
+                    report_path=result.report_path,
+                )
+                self._spawn_cleanup_observer(run_uuid)
             try:
-                terminal = await self._terminal_from_result(diagnostic_id, result)
+                terminal = await self._retry_active_write(
+                    diagnostic_id,
+                    lambda: self._terminal_from_result(diagnostic_id, result),
+                )
             except ManagerError as error:
                 if error.code not in {"diagnostic_not_active", "diagnostic_conflict"}:
                     raise
@@ -711,31 +776,47 @@ class DiagnosticExecutor:
                     self._manager.current, diagnostic_id
                 )
             if terminal.status in TERMINAL_STATUSES:
+                terminal_owned = True
                 self._publish("diagnostic.completed", terminal)
         except ManagerError as error:
-            if error.code not in {"diagnostic_not_active", "diagnostic_conflict"}:
-                with suppress(ManagerError):
-                    terminal = await asyncio.to_thread(
-                        self._manager._mark_scheduler_unavailable, diagnostic_id
+            with suppress(ManagerError):
+                current = await asyncio.to_thread(
+                    self._manager.current, diagnostic_id
+                )
+                if current.status in TERMINAL_STATUSES:
+                    terminal = current
+                elif error.code not in {
+                    "diagnostic_not_active",
+                    "diagnostic_conflict",
+                }:
+                    terminal = await self._retry_active_write(
+                        diagnostic_id,
+                        lambda: self._manager.transition(
+                            diagnostic_id, "failed"
+                        ),
                     )
+                else:
+                    terminal = current
+                terminal_owned = terminal.status in TERMINAL_STATUSES
+                if terminal_owned:
                     self._publish("diagnostic.completed", terminal)
         except Exception:
             with suppress(ManagerError):
-                failed = DiagnosticResultUpdate(
-                    kind=(await asyncio.to_thread(
-                        self._manager.current, diagnostic_id
-                    )).kind,
-                    status="failed",
-                    findings={},
-                    error_code="diagnostic_failed",
+                current = await asyncio.to_thread(
+                    self._manager.current, diagnostic_id
                 )
-                terminal = await asyncio.to_thread(
-                    self._manager.store_result, diagnostic_id, failed
-                )
+                terminal = await self._retry_active_write(
+                    diagnostic_id,
+                    lambda: self._manager.transition(
+                        diagnostic_id, "failed"
+                    ),
+                ) if current.status in ACTIVE_STATUSES else current
+                terminal_owned = terminal.status in TERMINAL_STATUSES
                 self._publish("diagnostic.completed", terminal)
         finally:
-            self._cancel_events.pop(diagnostic_id, None)
-            self._tasks.pop(diagnostic_id, None)
+            if terminal_owned:
+                self._cancel_events.pop(diagnostic_id, None)
+                self._tasks.pop(diagnostic_id, None)
 
     async def cancel(self, diagnostic_id: str) -> DiagnosticRun:
         current = await asyncio.to_thread(self._manager.current, diagnostic_id)
@@ -792,10 +873,40 @@ class DiagnosticExecutor:
             cancel_event.set()
         tasks = tuple(self._tasks.values())
         if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            _done, pending = await asyncio.wait(
+                tasks, timeout=self._shutdown_cleanup_wait_seconds
+            )
+            if pending:
+                raise RuntimeError(
+                    "diagnostic workers still own active persistence or cleanup"
+                )
         deferred_tasks = tuple(self._deferred_tasks)
         if deferred_tasks:
-            await asyncio.gather(*deferred_tasks, return_exceptions=True)
+            _done, pending = await asyncio.wait(
+                deferred_tasks,
+                timeout=self._shutdown_cleanup_wait_seconds,
+            )
+            if pending:
+                raise RuntimeError("deferred diagnostic results remain owned")
+        cleanup_tasks = tuple(self._cleanup_tasks)
+        if cleanup_tasks:
+            _done, pending = await asyncio.wait(
+                cleanup_tasks,
+                timeout=self._shutdown_cleanup_wait_seconds,
+            )
+            if pending:
+                raise RuntimeError("diagnostic cleanup remains owned")
+        if self._runner.cleanup_ownership_count:
+            raise RuntimeError("diagnostic cleanup could not be safely released")
+        for diagnostic_id in tuple(self._tasks):
+            current = await asyncio.to_thread(
+                self._manager.current, diagnostic_id
+            )
+            if current.status in ACTIVE_STATUSES:
+                raise RuntimeError(
+                    "diagnostic persistence remains active during shutdown"
+                )
         self._tasks.clear()
         self._cancel_events.clear()
         self._deferred_tasks.clear()
+        self._cleanup_tasks.clear()

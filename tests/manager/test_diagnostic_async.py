@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+import sqlite3
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -65,6 +66,23 @@ class BlockingTarget:
             findings={"page_loaded": True},
             final_url=target_url,
             title="must not complete",
+            screenshot=None,
+        )
+
+
+class StubbornTarget:
+    def __init__(self) -> None:
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def run(self, _session, target_url, **_kwargs) -> TargetResult:
+        self.started.set()
+        assert self.release.wait(3)
+        return TargetResult(
+            status="passed",
+            findings={"page_loaded": True},
+            final_url=target_url,
+            title="late local fixture",
             screenshot=None,
         )
 
@@ -172,6 +190,96 @@ def test_cancel_signals_runner_waits_for_cleanup_then_persists_cancelled(setting
         assert client.app.state.diagnostic_executor.task_count == 0
 
 
+def test_cancel_reports_cleanup_failed_and_retains_ownership_until_stubborn_adapter_exits(
+    settings,
+):
+    settings = settings.model_copy(
+        update={
+            "max_concurrent_diagnostics": 1,
+            "diagnostic_timeout_seconds": 0.1,
+            "diagnostic_cleanup_wait_seconds": 0.05,
+        }
+    )
+    target = StubbornTarget()
+    browser = Browser()
+    app = _app(settings, browser, target)
+    with TestClient(app) as client:
+        headers = _login(client)
+        created = client.post(
+            "/api/v1/diagnostics/direct-google-control", headers=headers
+        ).json()
+        assert target.started.wait(2)
+
+        cancelled = client.post(
+            f"/api/v1/diagnostics/{created['id']}/cancel", headers=headers
+        )
+
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "failed"
+        assert cancelled.json()["error_code"] == "cleanup_failed"
+        assert app.state.diagnostic_executor.task_count > 0
+        assert app.state.diagnostic_runner.cleanup_ownership_count > 0
+        run_root = settings.data_root / "diagnostics" / created["id"]
+        assert any(path.name.startswith("profile-") for path in run_root.iterdir())
+
+        blocked = client.post(
+            "/api/v1/diagnostics/direct-google-control", headers=headers
+        ).json()
+        blocked = _wait_terminal(client, headers, blocked["id"])
+        assert blocked["status"] == "failed"
+        assert blocked["error_code"] == "timeout"
+        assert len(browser.sessions) == 1
+
+        target.release.set()
+        deadline = time.monotonic() + 2
+        while (
+            app.state.diagnostic_executor.task_count
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+        assert app.state.diagnostic_executor.task_count == 0
+        assert app.state.diagnostic_runner.cleanup_ownership_count == 0
+        assert not any(path.name.startswith("profile-") for path in run_root.iterdir())
+
+
+def test_profile_lock_remains_owned_until_stubborn_cleanup_exits(settings):
+    bounded = settings.model_copy(
+        update={"diagnostic_cleanup_wait_seconds": 0.05}
+    )
+    target = StubbornTarget()
+    app = _app(bounded, Browser(), target)
+    with TestClient(app) as client:
+        headers = _login(client)
+        profile_id = client.post(
+            "/api/v1/profiles",
+            headers=headers,
+            json={"name": "cleanup-lock-profile"},
+        ).json()["id"]
+        created = client.post(
+            "/api/v1/diagnostics/pixelscan",
+            headers=headers,
+            json={"profile_id": profile_id},
+        ).json()
+        assert target.started.wait(2)
+        lock_path = bounded.profile_root / profile_id / ".runtime.lock"
+        assert lock_path.exists()
+
+        cancelled = client.post(
+            f"/api/v1/diagnostics/{created['id']}/cancel", headers=headers
+        ).json()
+        assert cancelled["status"] == "failed"
+        assert cancelled["error_code"] == "cleanup_failed"
+        assert lock_path.exists()
+        assert app.state.diagnostic_executor.task_count > 0
+
+        target.release.set()
+        deadline = time.monotonic() + 2
+        while lock_path.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not lock_path.exists()
+        assert app.state.diagnostic_executor.task_count == 0
+
+
 def test_lifespan_shutdown_cancels_and_awaits_owned_diagnostics(settings):
     browser = Browser()
     target = BlockingTarget()
@@ -191,6 +299,78 @@ def test_lifespan_shutdown_cancels_and_awaits_owned_diagnostics(settings):
         assert session.get(DiagnosticRun, created["id"]).status == "cancelled"
 
 
+def test_lifespan_shutdown_waits_for_stubborn_owned_cleanup(settings):
+    target = StubbornTarget()
+    app = _app(settings, Browser(), target)
+    client = TestClient(app)
+    client.__enter__()
+    headers = _login(client)
+    created = client.post(
+        "/api/v1/diagnostics/direct-google-control", headers=headers
+    ).json()
+    assert target.started.wait(2)
+
+    exited = threading.Event()
+    errors = []
+
+    def close_client() -> None:
+        try:
+            client.__exit__(None, None, None)
+        except Exception as error:
+            errors.append(error)
+        finally:
+            exited.set()
+
+    closer = threading.Thread(target=close_client)
+    closer.start()
+    time.sleep(0.05)
+    assert not exited.is_set()
+    assert app.state.diagnostic_executor.task_count > 0
+    target.release.set()
+    assert exited.wait(2)
+    closer.join(timeout=1)
+    assert errors == []
+    assert app.state.diagnostic_executor.task_count == 0
+    with app.state.session_factory() as session:
+        from manager_backend.models import DiagnosticRun
+
+        assert session.get(DiagnosticRun, created["id"]).status == "cancelled"
+
+
+def test_shutdown_surfaces_cleanup_that_exceeds_its_bounded_wait(settings):
+    bounded = settings.model_copy(
+        update={"diagnostic_shutdown_cleanup_wait_seconds": 0.1}
+    )
+    target = StubbornTarget()
+    app = _app(bounded, Browser(), target)
+    client = TestClient(app)
+    client.__enter__()
+    try:
+        headers = _login(client)
+        client.post(
+            "/api/v1/diagnostics/direct-google-control", headers=headers
+        )
+        assert target.started.wait(2)
+        started = time.monotonic()
+        try:
+            client.portal.call(app.state.diagnostic_executor.shutdown)
+            raise AssertionError("shutdown hid pending diagnostic cleanup")
+        except RuntimeError as error:
+            assert "diagnostic" in str(error)
+        assert time.monotonic() - started < 0.5
+        assert app.state.diagnostic_executor.task_count > 0
+        assert app.state.diagnostic_runner.cleanup_ownership_count > 0
+        target.release.set()
+        deadline = time.monotonic() + 2
+        while app.state.diagnostic_executor.task_count and time.monotonic() < deadline:
+            time.sleep(0.01)
+        client.portal.call(app.state.diagnostic_executor.shutdown)
+        assert app.state.diagnostic_executor.task_count == 0
+    finally:
+        target.release.set()
+        client.__exit__(None, None, None)
+
+
 def test_diagnostic_mutations_remain_authenticated_and_csrf_protected(settings):
     with TestClient(_app(settings, Browser(), PassingTarget())) as client:
         assert (
@@ -205,8 +385,28 @@ def test_diagnostic_mutations_remain_authenticated_and_csrf_protected(settings):
         assert no_csrf.status_code == 403
 
 
-class DeferredRunner:
+class ImmediateCleanupOwnership:
     def __init__(self) -> None:
+        self.owned: set[UUID] = set()
+
+    def begin_cleanup_ownership(self, run_id: UUID) -> None:
+        self.owned.add(run_id)
+
+    def wait_for_cleanup(self, run_id: UUID, _timeout) -> bool:
+        return run_id in self.owned
+
+    def acknowledge_cleanup(self, run_id: UUID) -> bool:
+        self.owned.discard(run_id)
+        return True
+
+    @property
+    def cleanup_ownership_count(self) -> int:
+        return len(self.owned)
+
+
+class DeferredRunner(ImmediateCleanupOwnership):
+    def __init__(self) -> None:
+        super().__init__()
         self.callback = None
         self.first_run_id: str | None = None
 
@@ -302,8 +502,9 @@ def test_scheduler_rejects_new_work_after_executor_shutdown(db_session_factory):
     assert created.error_code == "scheduler_unavailable"
 
 
-class RacingRunner:
+class RacingRunner(ImmediateCleanupOwnership):
     def __init__(self) -> None:
+        super().__init__()
         self.started = threading.Event()
         self.release = threading.Event()
 
@@ -367,3 +568,73 @@ def test_cancel_complete_races_leave_exactly_one_terminal_row(db_session_factory
 
     statuses = asyncio.run(scenario())
     assert len(statuses) == 20
+
+
+def _write_lock(settings):
+    connection = sqlite3.connect(
+        str(settings.data_root / "manager.db"), timeout=0, isolation_level=None
+    )
+    connection.execute("BEGIN IMMEDIATE")
+    return connection
+
+
+def _lower_busy_timeout(engine):
+    from sqlalchemy import event
+
+    def configure(dbapi_connection, _record, _proxy) -> None:
+        dbapi_connection.execute("PRAGMA busy_timeout=20")
+
+    event.listen(engine, "checkout", configure)
+    return configure
+
+
+def test_queued_to_running_retries_real_sqlite_write_contention(settings):
+    app = _app(settings, Browser(), PassingTarget())
+    with TestClient(app) as client:
+        headers = _login(client)
+        manager = app.state.diagnostic_manager
+        manager.set_scheduler(lambda _run_id: None)
+        created = manager.create("direct_google_control", None)
+        configure = _lower_busy_timeout(app.state.engine)
+        lock = _write_lock(settings)
+        try:
+            app.state.diagnostic_executor.schedule(created.id)
+            time.sleep(0.1)
+            assert manager.current(created.id).status == "queued"
+            assert app.state.diagnostic_executor.task_count > 0
+        finally:
+            lock.rollback()
+            lock.close()
+            from sqlalchemy import event
+
+            event.remove(app.state.engine, "checkout", configure)
+        terminal = _wait_terminal(client, headers, created.id)
+        assert terminal["status"] == "passed"
+        assert app.state.diagnostic_executor.task_count == 0
+
+
+def test_running_to_terminal_retries_real_sqlite_write_contention(settings):
+    target = StubbornTarget()
+    app = _app(settings, Browser(), target)
+    with TestClient(app) as client:
+        headers = _login(client)
+        created = client.post(
+            "/api/v1/diagnostics/direct-google-control", headers=headers
+        ).json()
+        assert target.started.wait(2)
+        configure = _lower_busy_timeout(app.state.engine)
+        lock = _write_lock(settings)
+        try:
+            target.release.set()
+            time.sleep(0.1)
+            assert app.state.diagnostic_manager.current(created["id"]).status == "running"
+            assert app.state.diagnostic_executor.task_count > 0
+        finally:
+            lock.rollback()
+            lock.close()
+            from sqlalchemy import event
+
+            event.remove(app.state.engine, "checkout", configure)
+        terminal = _wait_terminal(client, headers, created["id"])
+        assert terminal["status"] == "passed"
+        assert app.state.diagnostic_executor.task_count == 0

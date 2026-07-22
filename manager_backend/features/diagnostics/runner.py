@@ -176,6 +176,14 @@ class DiagnosticResult:
 DeferredDiagnosticResultCallback = Callable[[UUID, DiagnosticResult], None]
 
 
+@dataclass(slots=True)
+class DiagnosticCleanupLease:
+    run_id: UUID
+    settled: threading.Event = field(default_factory=threading.Event)
+    released: bool = False
+    cleanup_failed: bool = False
+
+
 class _RunnerFailure(Exception):
     def __init__(self, code: str):
         self.code = code
@@ -304,6 +312,8 @@ class DiagnosticRunner:
             )
         )
         self._deferred_result = deferred_result
+        self._cleanup_leases: dict[UUID, DiagnosticCleanupLease] = {}
+        self._cleanup_leases_lock = threading.Lock()
         self._semaphore = threading.BoundedSemaphore(
             settings.max_concurrent_diagnostics
         )
@@ -314,6 +324,59 @@ class DiagnosticRunner:
         """Bind the lifecycle owner that correlates deferred cleanup outcomes."""
 
         self._deferred_result = callback
+
+    def begin_cleanup_ownership(self, run_id: UUID) -> None:
+        with self._cleanup_leases_lock:
+            if run_id in self._cleanup_leases:
+                raise RuntimeError("diagnostic cleanup is already owned")
+            self._cleanup_leases[run_id] = DiagnosticCleanupLease(run_id)
+
+    def _settle_cleanup_ownership(
+        self, run_id: str, *, released: bool, cleanup_failed: bool
+    ) -> None:
+        try:
+            key = UUID(run_id)
+        except ValueError:
+            return
+        with self._cleanup_leases_lock:
+            lease = self._cleanup_leases.get(key)
+            if lease is None:
+                return
+            lease.released = bool(released)
+            lease.cleanup_failed = bool(cleanup_failed)
+            lease.settled.set()
+
+    def wait_for_cleanup(self, run_id: UUID, timeout: float | None) -> bool:
+        with self._cleanup_leases_lock:
+            lease = self._cleanup_leases.get(run_id)
+        if lease is None:
+            return True
+        if not lease.settled.wait(timeout):
+            return False
+        return lease.released and not lease.cleanup_failed
+
+    def acknowledge_cleanup(self, run_id: UUID) -> bool:
+        with self._cleanup_leases_lock:
+            lease = self._cleanup_leases.get(run_id)
+            if (
+                lease is None
+                or not lease.settled.is_set()
+                or not lease.released
+                or lease.cleanup_failed
+            ):
+                return False
+            del self._cleanup_leases[run_id]
+            return True
+
+    @property
+    def cleanup_ownership_count(self) -> int:
+        with self._cleanup_leases_lock:
+            return len(self._cleanup_leases)
+
+    @property
+    def cleanup_ownership_ids(self) -> tuple[UUID, ...]:
+        with self._cleanup_leases_lock:
+            return tuple(self._cleanup_leases)
 
     @staticmethod
     def _emit(progress: Callable[[int], None], value: int) -> None:
@@ -609,6 +672,13 @@ class DiagnosticRunner:
                     cleanup_failed = True
             if safe and release_slot:
                 self._semaphore.release()
+
+            released = safe and not cleanup_failed
+            self._settle_cleanup_ownership(
+                request.run_id,
+                released=released,
+                cleanup_failed=cleanup_failed,
+            )
 
             if not cleanup_failed:
                 return
@@ -1124,6 +1194,9 @@ class DiagnosticRunner:
                 report_path = self._artifacts(request, report, None).report_path
             except (ArtifactBoundaryError, OSError, ValueError, TypeError):
                 pass
+            self._settle_cleanup_ownership(
+                request.run_id, released=False, cleanup_failed=True
+            )
             return DiagnosticResult(
                 kind=str(request.kind),
                 status="failed",
@@ -1133,4 +1206,7 @@ class DiagnosticRunner:
                 report_path=report_path,
             )
 
+        self._settle_cleanup_ownership(
+            request.run_id, released=True, cleanup_failed=False
+        )
         return outcome

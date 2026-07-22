@@ -25,6 +25,10 @@ class ManagerSettings(BaseModel):
     max_concurrent_launches: int = Field(default=2, ge=1, le=8)
     max_concurrent_diagnostics: int = Field(default=2, ge=1, le=8)
     diagnostic_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
+    diagnostic_cleanup_wait_seconds: float = Field(default=0.25, gt=0, le=5)
+    diagnostic_shutdown_cleanup_wait_seconds: float = Field(
+        default=2.0, gt=0, le=30
+    )
     diagnostic_max_report_bytes: int = Field(
         default=1024 * 1024, ge=1024, le=10 * 1024 * 1024
     )
