@@ -2,7 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, queryKeys } from '@/api';
 import type { ProfileCreatePayload, ProfileUpdatePayload } from '@/types/api';
 import { useToast } from '@/components/ui/Toast';
-import { ApiError } from '@/api';
+import {
+  handleProfileConflict,
+  PROFILE_CONFLICT_REVIEW_MESSAGE,
+} from '@/features/profiles/conflicts';
 
 export function useProfile(id: string | null) {
   return useQuery({
@@ -43,17 +46,11 @@ export function useUpdateProfile() {
       queryClient.invalidateQueries({ queryKey: ['folders'] });
       toast({ title: 'Profile saved', description: profile.name, tone: 'success' });
     },
-    onError: (error) => {
-      if (error instanceof ApiError && error.code === 'profile_conflict') {
-        queryClient.invalidateQueries({ queryKey: ['profile'] });
-        queryClient.invalidateQueries({ queryKey: ['profiles'] });
-      }
+    onError: (error, variables) => {
+      const conflict = handleProfileConflict(queryClient, error, variables.id);
       toast({
         title: 'Could not save profile',
-        description:
-          error instanceof ApiError && error.code === 'profile_conflict'
-            ? 'This profile changed in another editor. Refresh and review the latest values.'
-            : (error as Error).message,
+        description: conflict ? PROFILE_CONFLICT_REVIEW_MESSAGE : (error as Error).message,
         tone: 'danger',
       });
     },

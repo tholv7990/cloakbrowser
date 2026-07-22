@@ -89,7 +89,7 @@ export const workflowStatuses: WorkflowStatus[] = [
 
 export const extensions: Extension[] = [
   {
-    id: 'ext-wallet',
+    id: '11111111-1111-4111-8111-111111111111',
     name: 'Wallet helper (local)',
     directory: 'C:\\ext\\wallet-helper',
     version: '1.0.0',
@@ -102,7 +102,7 @@ export const extensions: Extension[] = [
     updated_at: '2026-06-01T09:00:00Z',
   },
   {
-    id: 'ext-cookie',
+    id: '22222222-2222-4222-8222-222222222222',
     name: 'Cookie editor (local)',
     directory: 'C:\\ext\\cookie-editor',
     version: '1.0.0',

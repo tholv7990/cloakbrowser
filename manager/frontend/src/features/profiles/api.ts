@@ -11,6 +11,7 @@ import type {
 } from '@/types/api';
 import { useToast } from '@/components/ui/Toast';
 import { emptyProfileWrite } from './view';
+import { handleProfileConflict, PROFILE_CONFLICT_REVIEW_MESSAGE } from './conflicts';
 
 export function useProfiles(params: ProfileListParams) {
   return useQuery({
@@ -72,7 +73,11 @@ function useRuntimeTransition(
         tone: 'danger',
       });
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['profiles'] }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['profiles'] });
+      queryClient.invalidateQueries({ queryKey: ['folders'] });
+      queryClient.invalidateQueries({ queryKey: ['bootstrap'] });
+    },
   });
 }
 
@@ -157,11 +162,12 @@ export function useUpdateProfileInline() {
       patchInLists(queryClient, read.id, (p) => ({ ...p, ...changes }) as ProfileRead);
       return { snapshot };
     },
-    onError: (error, _vars, context) => {
+    onError: (error, variables, context) => {
       context?.snapshot?.forEach(([key, data]) => queryClient.setQueryData(key, data));
+      const conflict = handleProfileConflict(queryClient, error, variables.read.id);
       toast({
         title: 'Could not save change',
-        description: (error as Error).message,
+        description: conflict ? PROFILE_CONFLICT_REVIEW_MESSAGE : (error as Error).message,
         tone: 'danger',
       });
     },
@@ -255,12 +261,14 @@ export function useImportCookies() {
   });
 }
 
-export function useProfileLogs(id: string | null) {
+export function useProfileLogs(id: string | null, page = 1, pageSize = 20) {
   return useQuery({
-    queryKey: id ? queryKeys.profileLogs(id) : ['profile', 'logs', 'none'],
-    queryFn: () => api.getProfileLogs(id!, { page: 1, page_size: 100 }),
+    queryKey: id
+      ? [...queryKeys.profileLogs(id), { page, page_size: pageSize }]
+      : ['profile', 'logs', 'none'],
+    queryFn: () => api.getProfileLogs(id!, { page, page_size: pageSize }),
     enabled: Boolean(id),
-    refetchInterval: 2_000,
+    refetchInterval: page === 1 ? 2_000 : false,
   });
 }
 

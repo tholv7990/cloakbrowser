@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FormProvider, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ArrowLeft, ArrowRight, Check, Play, Save, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, Play, Save, X } from 'lucide-react';
 import { api } from '@/api';
 import { useAppData } from '@/hooks/useAppData';
 import { useProxies } from '@/features/proxies/api';
@@ -15,11 +15,13 @@ import {
   profileToWizardValues,
   profileWizardSchema,
   stepFields,
+  wizardValuesToPatch,
   wizardValuesToPayload,
   type ProfileWizardValues,
 } from '@/schemas/profile';
 import { WIZARD_STEPS, type WizardRefs } from './steps';
 import { useCreateProfile, useProfile, useUpdateProfile } from './api';
+import { persistProfileWithExtensions } from './persistence';
 import { useT } from '@/i18n';
 
 export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
@@ -35,6 +37,9 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
   const updateProfile = useUpdateProfile();
 
   const [step, setStep] = useState(0);
+  const [savedProfileId, setSavedProfileId] = useState<string | null>(null);
+  const [assignmentPending, setAssignmentPending] = useState(false);
+  const [persisting, setPersisting] = useState(false);
 
   const form = useForm<ProfileWizardValues>({
     resolver: zodResolver(profileWizardSchema),
@@ -83,7 +88,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
   }
 
   const isLast = step === WIZARD_STEPS.length - 1;
-  const saving = createProfile.isPending || updateProfile.isPending;
+  const saving = createProfile.isPending || updateProfile.isPending || persisting;
 
   const goNext = async () => {
     const valid = await form.trigger(stepFields[step]);
@@ -102,23 +107,30 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
       return null;
     }
     const values = form.getValues();
-    const payload = wizardValuesToPayload(values);
-    if (mode === 'edit' && editingId) {
-      const { fingerprint_seed: _seed, ...editable } = payload;
-      await updateProfile.mutateAsync({
-        id: editingId,
-        payload: { expected_updated_at: profileQuery.data!.updated_at, ...editable },
-      });
-      if (values.extension_ids.length > 0) {
-        await api.setProfileExtensions(editingId, values.extension_ids);
-      }
-      return editingId;
+    setPersisting(true);
+    const result = await persistProfileWithExtensions({
+      savedProfileId,
+      extensionIds: values.extension_ids,
+      saveProfile: async () => {
+        if (mode === 'edit' && editingId) {
+          return updateProfile.mutateAsync({
+            id: editingId,
+            payload: wizardValuesToPatch(values, profileQuery.data!),
+          });
+        }
+        return createProfile.mutateAsync(wizardValuesToPayload(values));
+      },
+      assignExtensions: (profileId, extensionIds) =>
+        api.setProfileExtensions(profileId, extensionIds),
+    }).finally(() => setPersisting(false));
+    if (!result.assignmentComplete) {
+      setSavedProfileId(result.profileId);
+      setAssignmentPending(true);
+      return null;
     }
-    const created = await createProfile.mutateAsync(payload);
-    if (values.extension_ids.length > 0) {
-      await api.setProfileExtensions(created.id, values.extension_ids);
-    }
-    return created.id;
+    setSavedProfileId(null);
+    setAssignmentPending(false);
+    return result.profileId;
   };
 
   const onSave = async () => {
@@ -233,6 +245,18 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
             <ArrowLeft className="h-4 w-4" /> {t('common.back')}
           </Button>
           <div className="flex items-center gap-2">
+            {assignmentPending && (
+              <div
+                role="alert"
+                className="mr-2 flex max-w-md items-center gap-2 text-2xs text-warning"
+              >
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <span>{t('editor.extensionAssignmentPartial')}</span>
+                <Button size="sm" variant="ghost" loading={saving} onClick={onSave}>
+                  {t('editor.retryExtensionAssignment')}
+                </Button>
+              </div>
+            )}
             <Button variant="secondary" onClick={onSave} loading={saving}>
               <Save className="h-4 w-4" /> {t('common.save')}
             </Button>

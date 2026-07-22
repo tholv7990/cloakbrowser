@@ -280,7 +280,7 @@ function ImportProfileModal({
         rows={10}
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder='{"schema_version": 1, "profile": { … }}'
+        placeholder='{"format":"cloakbrowser-manager-profile","version":1,"exported_at":"2026-07-22T00:00:00Z","profile":{…},"extensions":[]}'
         className="font-mono text-[12px]"
         invalid={Boolean(error)}
       />

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ProfileRead, ProfileWrite } from '@/types/api';
+import type { ProfileRead, ProfileUpdatePayload, ProfileWrite } from '@/types/api';
 
 const VERSION_RE = /^[0-9]+(?:\.[0-9]+){3,4}$/;
 const URL_SCHEME_RE = /^(https?|chrome-extension):\/\//i;
@@ -291,4 +291,48 @@ export function wizardValuesToPayload(v: ProfileWizardValues): ProfileWrite {
     proxy_id: v.proxy_id || null,
     test_proxy_before_launch: v.test_proxy_before_launch,
   };
+}
+
+const PATCHABLE_PROFILE_KEYS: (keyof Omit<ProfileWrite, 'fingerprint_seed'>)[] = [
+  'name',
+  'folder_id',
+  'workflow_status_id',
+  'tag_ids',
+  'notes',
+  'pinned',
+  'startup_urls',
+  'fingerprint_preset',
+  'browser_version_mode',
+  'browser_version',
+  'user_agent_mode',
+  'custom_user_agent',
+  'location',
+  'window',
+  'behavior',
+  'proxy_id',
+  'test_proxy_before_launch',
+];
+
+function sameValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/** Build an optimistic-concurrency PATCH by diffing against the profile loaded
+ * into the editor. Read-only identity fields and unchanged values are omitted. */
+export function wizardValuesToPatch(
+  values: ProfileWizardValues,
+  loaded: ProfileRead,
+): ProfileUpdatePayload {
+  const candidate = { ...wizardValuesToPayload(values), pinned: loaded.pinned };
+  const baseline = {
+    ...wizardValuesToPayload(profileToWizardValues(loaded)),
+    pinned: loaded.pinned,
+  };
+  const changed: Partial<Omit<ProfileWrite, 'fingerprint_seed'>> = {};
+  for (const key of PATCHABLE_PROFILE_KEYS) {
+    if (!sameValue(candidate[key], baseline[key])) {
+      Object.assign(changed, { [key]: candidate[key] });
+    }
+  }
+  return { expected_updated_at: loaded.updated_at, ...changed };
 }

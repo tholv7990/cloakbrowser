@@ -26,6 +26,16 @@ export function ExtensionsPage() {
   const [directory, setDirectory] = useState('');
   const [remove, setRemove] = useState<Extension | null>(null);
 
+  const retryUpdate = () => {
+    if (update.variables) update.mutate(update.variables);
+  };
+
+  const retryUnregister = () => {
+    if (unregister.variables) {
+      unregister.mutate(unregister.variables, { onSuccess: () => setRemove(null) });
+    }
+  };
+
   const registerDirectory = () => {
     register.mutate(directory, {
       onSuccess: () => {
@@ -50,6 +60,24 @@ export function ExtensionsPage() {
       <p className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-[13px] text-warning">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {t('ext.correlationWarning')}
       </p>
+
+      {(update.isError || unregister.isError) && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-danger/30 bg-danger/10 p-3 text-[13px] text-danger"
+        >
+          <span>{((update.error ?? unregister.error) as Error).message}</span>
+          <Button
+            variant="secondary"
+            size="sm"
+            aria-label={t('ext.retryAction')}
+            loading={update.isPending || unregister.isPending}
+            onClick={update.isError ? retryUpdate : retryUnregister}
+          >
+            {t('common.retry')}
+          </Button>
+        </div>
+      )}
 
       {extensions.isLoading ? (
         <LoadingBlock label={t('ext.loading')} />

@@ -27,12 +27,13 @@ function clone<T>(value: T): T {
 }
 
 let idCounter = 1000;
-export function newId(prefix: string): string {
+export function newId(_prefix: string): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+    return crypto.randomUUID();
   }
   idCounter += 1;
-  return `${prefix}-${idCounter}`;
+  const suffix = idCounter.toString(16).padStart(12, '0').slice(-12);
+  return `00000000-0000-4000-8000-${suffix}`;
 }
 
 interface Owner {

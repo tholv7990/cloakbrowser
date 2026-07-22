@@ -19,6 +19,7 @@ import { ProxyQualityReportView, ProxyQuickResult } from '@/features/proxies/Pro
 import { ProxyEditorDrawer } from '@/features/proxies/ProxyEditorDrawer';
 import type { RowDialog } from './ProfileRowActions';
 import { useImportCookies, useMoveToTrash, useProfileLogs, useRegenerateFingerprint } from './api';
+import { handleProfileConflict, PROFILE_CONFLICT_REVIEW_MESSAGE } from './conflicts';
 
 interface DialogState {
   type: RowDialog;
@@ -41,8 +42,10 @@ export function ProfileDialogs({
   const t = useT();
   const profile = dialog?.profile ?? null;
   const id = profile?.id ?? null;
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsPageSize, setLogsPageSize] = useState(20);
 
-  const logs = useProfileLogs(dialog?.type === 'logs' ? id : null);
+  const logs = useProfileLogs(dialog?.type === 'logs' ? id : null, logsPage, logsPageSize);
   const reports = useProxyReports(
     dialog?.type === 'proxy-report' ? (profile?.proxy?.id ?? null) : null,
   );
@@ -74,12 +77,14 @@ export function ProfileDialogs({
       queryClient.invalidateQueries({ queryKey: ['folders'] });
       onClose();
     },
-    onError: (error) =>
+    onError: (error) => {
+      const conflict = handleProfileConflict(queryClient, error, id!);
       toast({
         title: t('dlg.updateFailed'),
-        description: (error as Error).message,
+        description: conflict ? PROFILE_CONFLICT_REVIEW_MESSAGE : (error as Error).message,
         tone: 'danger',
-      }),
+      });
+    },
   });
 
   const [folderId, setFolderId] = useState('');
@@ -97,6 +102,8 @@ export function ProfileDialogs({
     setProxyId(dialog.profile.proxy?.id ?? '');
     setCookieFormat('playwright');
     setCookieContent('');
+    setLogsPage(1);
+    setLogsPageSize(20);
     setProxyEditor({ open: false, proxy: null });
     importCookies.reset();
     quickTest.reset();
@@ -330,6 +337,7 @@ export function ProfileDialogs({
               {t('dlg.cookies.imported', {
                 imported: importCookies.data.imported_count,
                 skipped: importCookies.data.skipped_count,
+                rejected: importCookies.data.rejected_count,
               })}
               {importCookies.data.warnings.map((w) => (
                 <p key={`${w.index}-${w.code}`} className="mt-1 text-warning">
@@ -422,28 +430,65 @@ export function ProfileDialogs({
         ) : logs.isError ? (
           <ErrorState message={(logs.error as Error).message} onRetry={() => logs.refetch()} />
         ) : logs.data && logs.data.items.length > 0 ? (
-          <div className="space-y-1 rounded-md border border-line bg-surface-sunken p-3 font-mono text-[12px]">
-            {logs.data.items.map((entry) => (
-              <div key={entry.id} className="flex gap-3">
-                <span className="shrink-0 text-ink-faint">
-                  {new Date(entry.created_at).toLocaleTimeString()}
-                </span>
-                <Badge
-                  tone={
-                    entry.level === 'error'
-                      ? 'danger'
-                      : entry.level === 'warning'
-                        ? 'warning'
-                        : 'neutral'
-                  }
-                >
-                  {entry.level}
-                </Badge>
-                <span className="text-ink-faint">{entry.event}</span>
-                <span className="text-ink-muted">{entry.message}</span>
-              </div>
-            ))}
-            <p className="pt-2 text-2xs text-ink-faint">{t('dlg.logs.polling')}</p>
+          <div className="space-y-3">
+            <div className="space-y-1 rounded-md border border-line bg-surface-sunken p-3 font-mono text-[12px]">
+              {logs.data.items.map((entry) => (
+                <div key={entry.id} className="flex gap-3">
+                  <span className="shrink-0 text-ink-faint">
+                    {new Date(entry.created_at).toLocaleTimeString()}
+                  </span>
+                  <Badge
+                    tone={
+                      entry.level === 'error'
+                        ? 'danger'
+                        : entry.level === 'warning'
+                          ? 'warning'
+                          : 'neutral'
+                    }
+                  >
+                    {entry.level}
+                  </Badge>
+                  <span className="text-ink-faint">{entry.event}</span>
+                  <span className="text-ink-muted">{entry.message}</span>
+                </div>
+              ))}
+              {logsPage === 1 && (
+                <p className="pt-2 text-2xs text-ink-faint">{t('dlg.logs.polling')}</p>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2 text-2xs text-ink-muted">
+              <Select
+                aria-label={t('dlg.logs.pageSize')}
+                value={String(logsPageSize)}
+                onChange={(event) => {
+                  setLogsPageSize(Number(event.target.value));
+                  setLogsPage(1);
+                }}
+                options={[20, 50, 100].map((size) => ({
+                  value: String(size),
+                  label: String(size),
+                }))}
+              />
+              <span>{t('dlg.logs.page', { page: logs.data.page, pages: logs.data.pages })}</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-label={t('dlg.logs.previousPage')}
+                disabled={logsPage <= 1}
+                onClick={() => setLogsPage((current) => Math.max(1, current - 1))}
+              >
+                {t('common.previous')}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-label={t('dlg.logs.nextPage')}
+                disabled={logsPage >= logs.data.pages}
+                onClick={() => setLogsPage((current) => current + 1)}
+              >
+                {t('common.next')}
+              </Button>
+            </div>
           </div>
         ) : (
           <EmptyState title={t('dlg.logs.empty.title')} description={t('dlg.logs.empty.desc')} />

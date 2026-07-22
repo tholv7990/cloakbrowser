@@ -81,7 +81,14 @@ export interface ReconciliationCompletedData {
 /** Backend runtime snapshot (spec §14 real WS): the full set of owned sessions,
  * re-sent whenever any changes. `state` uses the backend vocabulary. */
 export interface RuntimeSnapshotData {
-  runtimes: { profile_id: string; state: string; last_message: string | null }[];
+  runtimes: {
+    id?: string;
+    profile_id: string;
+    state: string;
+    last_message: string | null;
+    created_at?: string;
+    updated_at?: string;
+  }[];
   running_session_count: number;
 }
 

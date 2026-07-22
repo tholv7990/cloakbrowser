@@ -810,10 +810,10 @@ export const mockApi: ApiAdapter = {
     const document = {
       format: 'cloakbrowser-manager-profile',
       version: 1,
+      exported_at: now(),
       profile: {
         name: p.name,
         fingerprint_preset: p.fingerprint_preset,
-        fingerprint_seed: p.fingerprint_seed,
         browser_version_mode: p.browser_version_mode,
         browser_version: p.browser_version,
         user_agent_mode: p.user_agent_mode,
@@ -821,10 +821,9 @@ export const mockApi: ApiAdapter = {
         location: p.location,
         window: p.window,
         behavior: p.behavior,
-        proxy: proxy
-          ? { label: proxy.label, scheme: proxy.scheme, masked_endpoint: proxy.masked_endpoint }
-          : null,
+        proxy: proxy ? { scheme: proxy.scheme, host: proxy.host, port: proxy.port } : null,
       },
+      extensions: [],
     };
     return {
       blob: new Blob([JSON.stringify(document)], { type: 'application/json' }),
@@ -834,7 +833,21 @@ export const mockApi: ApiAdapter = {
 
   async importProfile(payload: Record<string, unknown>) {
     await delay(200);
-    const source = (payload.profile ?? payload) as Record<string, unknown>;
+    if (
+      payload.format !== 'cloakbrowser-manager-profile' ||
+      payload.version !== 1 ||
+      typeof payload.exported_at !== 'string' ||
+      !payload.profile ||
+      typeof payload.profile !== 'object' ||
+      Array.isArray(payload.profile)
+    ) {
+      throw new ApiError(
+        422,
+        'profile_import_invalid',
+        'Expected a CloakBrowser Manager profile export with format and version 1.',
+      );
+    }
+    const source = payload.profile as Record<string, unknown>;
     const name =
       typeof source.name === 'string' && source.name
         ? `${source.name}-imported`
@@ -1002,6 +1015,21 @@ export const mockApi: ApiAdapter = {
   },
   async setProfileExtensions(id: string, extensionIds: string[]) {
     mockStore.requireProfile(id);
+    const uuidPattern =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const validIds = new Set(mockStore.extensions.map((extension) => extension.id));
+    if (
+      new Set(extensionIds).size !== extensionIds.length ||
+      extensionIds.some(
+        (extensionId) => !uuidPattern.test(extensionId) || !validIds.has(extensionId),
+      )
+    ) {
+      throw new ApiError(
+        422,
+        'invalid_extension_reference',
+        'Extension assignments must contain unique registered extension UUIDs.',
+      );
+    }
     return { extension_ids: structuredClone(extensionIds) };
   },
 

@@ -19,6 +19,11 @@ Added tests cover:
 - backend runtime/diagnostic WebSocket frame normalization;
 - extension catalog rendering and local-directory registration;
 - all diagnostic targets, observation history, and CAPTCHA user-action copy.
+- diff-only profile updates and explicit conflict reconciliation;
+- newest-session runtime snapshot deduplication and folder-count invalidation;
+- extension mutation retry and partial-success profile/assignment persistence;
+- paginated logs, bounded diagnostic findings, import-format parity, and the
+  generated static OpenAPI contract gate.
 
 ## Implemented frontend behavior
 
@@ -28,14 +33,23 @@ Added tests cover:
 - Profile folder actions use the actual manager-owned directory and backend
   Windows open action.
 - Inline and editor changes send only changed profile fields plus
-  `expected_updated_at`; conflicts invalidate cached data and request review.
+  `expected_updated_at`; conflicts invalidate list/detail caches and explicitly
+  ask the owner to review the refreshed profile.
 - Profile and cookie downloads preserve the filename supplied by the backend.
 - Profile imports surface safe per-item warnings.
 - Extension catalog supports register, enable/disable, refresh, unregister, and
-  deliberate profile assignment.
+  deliberate profile assignment. Failed mutations stay visible and retryable;
+  assignment failures retry without duplicating the saved profile.
 - Diagnostics support direct control and Pixelscan/IPHey/Cloudflare/Google
   profile observations, history filters, queued/running progress, cancellation,
-  timestamps, safe artifacts, and explicit no-CAPTCHA-automation messaging.
+  timestamps, bounded labeled findings, accessible progress, pagination, safe
+  artifacts, and explicit no-CAPTCHA-automation messaging.
+- Runtime snapshots retain only the newest session for each profile and refresh
+  profile/folder counts after runtime transitions.
+- The mock adapter now enforces the canonical profile import envelope and UUID
+  extension references, matching the real contract more closely.
+- `manager_backend/openapi.json` is generated from the running app and guarded
+  by a deterministic no-drift test.
 
 ## Contract gaps retained as safe fallbacks
 
@@ -50,13 +64,12 @@ Detailed notes are in `docs/frontend-backend-contract-questions.md`.
 
 ## Verification
 
-- `npm test`: 43 passed.
+- `npm test`: 57 passed.
 - `npm run typecheck`: passed.
 - `npm run build`: passed (Vite emitted the existing large-chunk advisory).
-- `npm run format` completed and all scoped files are formatted. A whole-tree
-  `format:check` passes immediately after that rewrite, but a clean Windows
-  worktree still reports the 91 pre-existing CRLF-formatted frontend files; the
-  unrelated line-ending-only rewrite was intentionally not committed.
+- Scoped Prettier formatting completed for every changed frontend file; unrelated
+  whole-tree line-ending rewrites were intentionally excluded.
 - Relevant backend profile/runtime/portability/cookie/extension/diagnostic tests:
-  197 passed, 2 skipped.
+  202 passed, 2 skipped.
+- Static OpenAPI no-drift test: passed after deterministic regeneration.
 - `git diff --check`: run against the scoped commit before handoff.

@@ -41,4 +41,14 @@ describe('ProfilesPage', () => {
     expect(await screen.findByRole('menuitem', { name: /Edit profile/i })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: /Move profile to trash/i })).toBeInTheDocument();
   });
+
+  it('shows the canonical profile import format and version example', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ProfilesPage />);
+    await user.click(await screen.findByRole('button', { name: /^import$/i }));
+    expect(screen.getByPlaceholderText(/cloakbrowser-manager-profile/)).toHaveAttribute(
+      'placeholder',
+      expect.stringMatching(/"version":\s*1/),
+    );
+  });
 });

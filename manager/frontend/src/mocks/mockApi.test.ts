@@ -84,6 +84,24 @@ describe('mock profiles contract', () => {
   });
 });
 
+describe('mock portability and UUID parity', () => {
+  const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+  it('rejects a profile document without the canonical format and version', async () => {
+    await expect(
+      mockApi.importProfile({ schema_version: 1, profile: { name: 'wrong' } }),
+    ).rejects.toMatchObject({
+      status: 422,
+      code: 'profile_import_invalid',
+    });
+  });
+
+  it('uses canonical UUIDs for newly registered extensions', async () => {
+    const extension = await mockApi.registerExtension('C:\\extensions\\uuid');
+    expect(extension.id).toMatch(UUID_V4);
+  });
+});
+
 describe('mock settings contract', () => {
   it('checks for a browser update and returns refreshed binary facts', async () => {
     const settings = await mockApi.checkBrowserUpdate();

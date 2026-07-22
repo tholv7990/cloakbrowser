@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Activity, AlertTriangle, Ban, Clipboard, Play } from 'lucide-react';
 import { useProfiles } from '@/features/profiles/api';
 import { Badge, type Tone } from '@/components/ui/Badge';
@@ -22,6 +22,22 @@ const STATUS_TONE: Record<DiagnosticStatus, Tone> = {
   cancelled: 'neutral',
 };
 
+const MAX_VISIBLE_FINDINGS = 12;
+
+function findingLabel(key: string): string {
+  const words = key
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.toLowerCase())
+    .join(' ');
+  return words ? words[0].toUpperCase() + words.slice(1) : key;
+}
+
+function findingValue(value: boolean | string, yes: string, no: string): string {
+  if (typeof value === 'boolean') return value ? yes : no;
+  return findingLabel(value);
+}
+
 export function DiagnosticsPage() {
   const t = useT();
   const copy = useClipboard();
@@ -30,15 +46,29 @@ export function DiagnosticsPage() {
   const [kind, setKind] = useState<Exclude<DiagnosticKind, 'direct_google_control'>>('pixelscan');
   const [statusFilter, setStatusFilter] = useState<DiagnosticStatus | ''>('');
   const [kindFilter, setKindFilter] = useState<DiagnosticKind | ''>('');
+  const [profileFilter, setProfileFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const diagnostics = useDiagnostics({
+    profile: profileFilter || undefined,
     status: statusFilter || undefined,
     kind: kindFilter || undefined,
-    page: 1,
-    page_size: 50,
+    page,
+    page_size: pageSize,
   });
   const run = useRunDiagnostic();
   const cancel = useCancelDiagnostic();
   const runs = diagnostics.data?.items ?? [];
+  const profileOptions = new Map(
+    (profiles.data?.items ?? []).map((profile) => [profile.id, profile.name]),
+  );
+  for (const run of runs) {
+    if (run.profile_id && !profileOptions.has(run.profile_id)) {
+      profileOptions.set(run.profile_id, run.profile_id);
+    }
+  }
+
+  useEffect(() => setPage(1), [profileFilter, statusFilter, kindFilter, pageSize]);
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 px-5 py-6">
@@ -90,7 +120,16 @@ export function DiagnosticsPage() {
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-display text-[15px] font-semibold text-ink">{t('diag.history')}</h2>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Select
+              aria-label={t('diag.filterProfile')}
+              value={profileFilter}
+              onChange={(event) => setProfileFilter(event.target.value)}
+              options={[
+                { value: '', label: t('diag.allProfiles') },
+                ...Array.from(profileOptions, ([value, label]) => ({ value, label })),
+              ]}
+            />
             <Select
               aria-label={t('diag.filterKind')}
               value={kindFilter}
@@ -158,10 +197,31 @@ export function DiagnosticsPage() {
                           <AlertTriangle className="h-4 w-4" /> {t('diag.captchaAction')}
                         </p>
                       )}
+                      {Object.keys(item.findings).length > 0 && (
+                        <dl className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
+                          {Object.entries(item.findings)
+                            .slice(0, MAX_VISIBLE_FINDINGS)
+                            .map(([key, value]) => (
+                              <div
+                                key={key}
+                                className="flex items-center justify-between gap-3 rounded bg-surface-sunken px-2 py-1 text-2xs"
+                              >
+                                <dt className="text-ink-faint">{findingLabel(key)}</dt>
+                                <dd className="font-medium text-ink">
+                                  {findingValue(value, t('common.yes'), t('common.no'))}
+                                </dd>
+                              </div>
+                            ))}
+                        </dl>
+                      )}
                       {active && (
                         <div
                           className="mt-2"
+                          role="progressbar"
                           aria-label={t('diag.progress', { progress: item.progress })}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={item.progress}
                         >
                           <div className="h-1.5 overflow-hidden rounded bg-surface-sunken">
                             <div
@@ -212,6 +272,37 @@ export function DiagnosticsPage() {
               );
             })}
           </ul>
+        )}
+        {diagnostics.data && diagnostics.data.total > 0 && (
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-2 text-2xs text-ink-muted">
+            <Select
+              aria-label={t('diag.pageSize')}
+              value={String(pageSize)}
+              onChange={(event) => setPageSize(Number(event.target.value))}
+              options={[20, 50, 100].map((size) => ({ value: String(size), label: String(size) }))}
+            />
+            <span>
+              {t('diag.page', { page: diagnostics.data.page, pages: diagnostics.data.pages })}
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={t('diag.previousPage')}
+              disabled={page <= 1}
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+            >
+              {t('common.previous')}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={t('diag.nextPage')}
+              disabled={page >= diagnostics.data.pages}
+              onClick={() => setPage((current) => current + 1)}
+            >
+              {t('common.next')}
+            </Button>
+          </div>
         )}
       </section>
     </div>

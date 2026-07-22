@@ -60,13 +60,14 @@ function patchProfile(
   );
 }
 
-function applyEvent(queryClient: QueryClient, event: AppEvent): void {
+export function applyEvent(queryClient: QueryClient, event: AppEvent): void {
   switch (event.event) {
     case 'profile.runtime.changed': {
       const { profile_id, runtime_state, message } = event.data;
       patchProfile(queryClient, profile_id, (p) => ({ ...p, runtime_state }));
       if (message) useRuntimeStore.getState().setMessage(profile_id, message);
       queryClient.invalidateQueries({ queryKey: ['bootstrap'] });
+      queryClient.invalidateQueries({ queryKey: ['folders'] });
       break;
     }
     case 'profile.runtime.message': {
@@ -113,6 +114,7 @@ function applyEvent(queryClient: QueryClient, event: AppEvent): void {
         patchProfile(queryClient, runtime.profile_id, (p) => ({ ...p, runtime_state: state }));
         if (runtime.last_message) store.setMessage(runtime.profile_id, runtime.last_message);
       }
+      queryClient.invalidateQueries({ queryKey: ['folders'] });
       break;
     }
     default:
