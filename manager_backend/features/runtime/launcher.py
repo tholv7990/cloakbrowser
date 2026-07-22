@@ -147,15 +147,32 @@ def urls_to_open(profile_dir: Path, startup_urls: list[str]) -> list[str]:
     return _read_last_session(profile_dir) or list(startup_urls)
 
 
+# The consistent fingerprint preset spoofs a 1920x1080 screen. Sizing the window
+# to it makes outer==screen (a coherent, maximized-looking window) instead of
+# OS-maximizing to a larger real monitor — which would leak the real size (e.g.
+# an ultrawide) and contradict the spoofed screen. The 146 free binary lacks the
+# engine's screen-clamp (a 148+ feature), so the manager sizes the window itself.
+_DEFAULT_WINDOW_SIZE = (1920, 1080)
+
+
+def _window_size_arg(window: dict[str, Any]) -> str:
+    if window.get("mode") == "custom" and window.get("width") and window.get("height"):
+        return f"--window-size={int(window['width'])},{int(window['height'])}"
+    return f"--window-size={_DEFAULT_WINDOW_SIZE[0]},{_DEFAULT_WINDOW_SIZE[1]}"
+
+
 def persistent_context_kwargs(
     snapshot: dict[str, Any], *, headless: bool
 ) -> dict[str, Any]:
     """Translate a Manager snapshot into CloakBrowser persistent-context options."""
 
+    args = [f"--fingerprint={snapshot['fingerprint_seed']}"]
+    if not headless:  # headed runtime only — not the cookie/diagnostic utility launches
+        args.append(_window_size_arg(snapshot.get("window") or {}))
     kwargs = {
         "headless": headless,
         "fingerprint_preset": snapshot["fingerprint_preset"],
-        "args": [f"--fingerprint={snapshot['fingerprint_seed']}"],
+        "args": args,
         "browser_version": snapshot.get("browser_version"),
         "user_agent": snapshot.get("custom_user_agent"),
         "proxy": snapshot.get("proxy_url"),

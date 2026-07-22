@@ -58,8 +58,30 @@ def test_urls_to_open_falls_back_on_corrupt_session(tmp_path):
     assert urls_to_open(tmp_path, ["https://start.example/"]) == ["https://start.example/"]
 
 
-def test_persistent_context_kwargs_args_unchanged():
+def test_headless_launches_get_no_window_size():
+    # Cookie/diagnostic (headless) utility launches must not be window-sized.
     kwargs = persistent_context_kwargs(
         {"fingerprint_seed": 8200, "fingerprint_preset": "consistent"}, headless=True
     )
     assert kwargs["args"] == ["--fingerprint=8200"]
+
+
+def test_headed_runtime_sizes_window_to_spoofed_screen():
+    # Maximized/default -> 1920x1080 (matches the consistent preset's screen), so
+    # the window can't leak a larger real monitor.
+    maximized = persistent_context_kwargs(
+        {"fingerprint_seed": 8200, "fingerprint_preset": "consistent", "window": {"mode": "maximized"}},
+        headless=False,
+    )
+    assert maximized["args"] == ["--fingerprint=8200", "--window-size=1920,1080"]
+
+    # A custom size is honored verbatim.
+    custom = persistent_context_kwargs(
+        {
+            "fingerprint_seed": 8200,
+            "fingerprint_preset": "consistent",
+            "window": {"mode": "custom", "width": 1366, "height": 768},
+        },
+        headless=False,
+    )
+    assert custom["args"] == ["--fingerprint=8200", "--window-size=1366,768"]
