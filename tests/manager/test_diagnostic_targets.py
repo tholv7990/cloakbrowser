@@ -253,6 +253,241 @@ def test_oversized_allowlisted_text_becomes_unknown_layout_warning():
 
 
 @pytest.mark.parametrize(
+    ("normalizer", "labels", "section", "misplaced_value"),
+    [
+        (
+            normalize_pixelscan,
+            {
+                "consistency": "passed",
+                "automation": "not_detected",
+                "browser": "aligned",
+                "hardware": "aligned",
+                "location": "aligned",
+                "overall_result": "passed",
+            },
+            "consistency",
+            "aligned",
+        ),
+        (
+            normalize_pixelscan,
+            {
+                "consistency": "passed",
+                "automation": "not_detected",
+                "browser": "aligned",
+                "hardware": "aligned",
+                "location": "aligned",
+                "overall_result": "passed",
+            },
+            "automation",
+            "aligned",
+        ),
+        (
+            normalize_pixelscan,
+            {
+                "consistency": "passed",
+                "automation": "not_detected",
+                "browser": "aligned",
+                "hardware": "aligned",
+                "location": "aligned",
+                "overall_result": "passed",
+            },
+            "browser",
+            "not_detected",
+        ),
+        (
+            normalize_pixelscan,
+            {
+                "consistency": "passed",
+                "automation": "not_detected",
+                "browser": "aligned",
+                "hardware": "aligned",
+                "location": "aligned",
+                "overall_result": "passed",
+            },
+            "hardware",
+            "passed",
+        ),
+        (
+            normalize_pixelscan,
+            {
+                "consistency": "passed",
+                "automation": "not_detected",
+                "browser": "aligned",
+                "hardware": "aligned",
+                "location": "aligned",
+                "overall_result": "passed",
+            },
+            "location",
+            "not_detected",
+        ),
+        (
+            normalize_pixelscan,
+            {
+                "consistency": "passed",
+                "automation": "not_detected",
+                "browser": "aligned",
+                "hardware": "aligned",
+                "location": "aligned",
+                "overall_result": "passed",
+            },
+            "overall_result",
+            "aligned",
+        ),
+        (
+            normalize_iphey,
+            {
+                "browser": "passed",
+                "location": "aligned",
+                "hardware": "aligned",
+                "privacy": "passed",
+            },
+            "browser",
+            "not_detected",
+        ),
+        (
+            normalize_iphey,
+            {
+                "browser": "passed",
+                "location": "aligned",
+                "hardware": "aligned",
+                "privacy": "passed",
+            },
+            "location",
+            "passed",
+        ),
+        (
+            normalize_iphey,
+            {
+                "browser": "passed",
+                "location": "aligned",
+                "hardware": "aligned",
+                "privacy": "passed",
+            },
+            "hardware",
+            "not_detected",
+        ),
+        (
+            normalize_iphey,
+            {
+                "browser": "passed",
+                "location": "aligned",
+                "hardware": "aligned",
+                "privacy": "passed",
+            },
+            "privacy",
+            "aligned",
+        ),
+    ],
+)
+def test_cross_section_labels_are_layout_drift_not_guessed_pass(
+    normalizer, labels: dict[str, object], section: str, misplaced_value: str
+):
+    adversarial = dict(labels)
+    adversarial[section] = misplaced_value
+
+    result = normalizer(TargetSnapshot(page_loaded=True, labels=adversarial))
+
+    assert result.status == "warning"
+    assert result.error_code == "target_layout_changed"
+    assert result.findings[section] == "unknown"
+
+
+@pytest.mark.parametrize(
+    ("section", "value", "status"),
+    [
+        ("consistency", "warning", "warning"),
+        ("automation", "detected", "failed"),
+        ("browser", "mismatch", "warning"),
+        ("hardware", "mismatch", "warning"),
+        ("location", "mismatch", "warning"),
+        ("overall_result", "failed", "failed"),
+    ],
+)
+def test_pixelscan_uses_section_specific_severity(
+    section: str, value: str, status: str
+):
+    labels = {
+        "consistency": "passed",
+        "automation": "not_detected",
+        "browser": "aligned",
+        "hardware": "aligned",
+        "location": "aligned",
+        "overall_result": "passed",
+    }
+    labels[section] = value
+
+    result = normalize_pixelscan(TargetSnapshot(page_loaded=True, labels=labels))
+
+    assert result.status == status
+    assert result.error_code is None
+
+
+@pytest.mark.parametrize(
+    ("section", "value", "status"),
+    [
+        ("browser", "warning", "warning"),
+        ("browser", "failed", "failed"),
+        ("location", "mismatch", "warning"),
+        ("location", "failed", "failed"),
+        ("hardware", "mismatch", "warning"),
+        ("hardware", "failed", "failed"),
+        ("privacy", "warning", "warning"),
+        ("privacy", "failed", "failed"),
+    ],
+)
+def test_iphey_uses_section_specific_severity(
+    section: str, value: str, status: str
+):
+    labels = {
+        "browser": "passed",
+        "location": "aligned",
+        "hardware": "aligned",
+        "privacy": "passed",
+    }
+    labels[section] = value
+
+    result = normalize_iphey(TargetSnapshot(page_loaded=True, labels=labels))
+
+    assert result.status == status
+    assert result.error_code is None
+
+
+@pytest.mark.parametrize(
+    "signals",
+    [
+        {"managed_challenge": True, "user_interaction_required": True},
+        {"managed_challenge": False, "user_interaction_required": True},
+    ],
+)
+def test_cloudflare_challenge_takes_priority_over_page_load_failure(signals):
+    result = normalize_cloudflare(
+        TargetSnapshot(page_loaded=False, signals=signals)
+    )
+
+    assert result.status == "warning"
+    assert result.error_code == "captcha_user_action_required"
+    assert result.findings["page_loaded"] is False
+
+
+@pytest.mark.parametrize(
+    "signals",
+    [
+        {"captcha_detected": True},
+        {"unusual_traffic": True},
+    ],
+)
+def test_google_captcha_takes_priority_over_page_load_failure(signals):
+    result = normalize_google_search(
+        TargetSnapshot(page_loaded=False, signals=signals)
+    )
+
+    assert result.status == "warning"
+    assert result.error_code == "captcha_user_action_required"
+    assert result.findings["page_loaded"] is False
+    assert result.findings["captcha_detected"] is True
+
+
+@pytest.mark.parametrize(
     "normalizer",
     [normalize_pixelscan, normalize_iphey, normalize_cloudflare, normalize_google_search],
 )

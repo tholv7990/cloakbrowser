@@ -8,19 +8,24 @@ from .runner import TargetResult
 
 _MAX_SNAPSHOT_ITEMS = 16
 _MAX_VISIBLE_LABEL_CHARS = 64
-_PASS_LABELS = frozenset({"passed", "aligned", "not_detected"})
-_CANONICAL_LABELS = frozenset(
-    {"passed", "warning", "failed", "unknown", "aligned", "mismatch", "detected", "not_detected"}
-)
-_PIXELSCAN_KEYS = (
-    "consistency",
-    "automation",
-    "browser",
-    "hardware",
-    "location",
-    "overall_result",
-)
-_IPHEY_KEYS = ("browser", "location", "hardware", "privacy")
+_PIXELSCAN_SEMANTICS = {
+    "consistency": {"passed": "pass", "warning": "warn", "failed": "fail"},
+    "automation": {"not_detected": "pass", "detected": "fail"},
+    "browser": {"aligned": "pass", "mismatch": "warn"},
+    "hardware": {"aligned": "pass", "mismatch": "warn"},
+    "location": {"aligned": "pass", "mismatch": "warn"},
+    "overall_result": {
+        "passed": "pass",
+        "warning": "warn",
+        "failed": "fail",
+    },
+}
+_IPHEY_SEMANTICS = {
+    "browser": {"passed": "pass", "warning": "warn", "failed": "fail"},
+    "location": {"aligned": "pass", "mismatch": "warn", "failed": "fail"},
+    "hardware": {"aligned": "pass", "mismatch": "warn", "failed": "fail"},
+    "privacy": {"passed": "pass", "warning": "warn", "failed": "fail"},
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,12 +48,17 @@ def _safe_mapping(value: object) -> Mapping[str, object]:
     return value
 
 
-def _visible_label(labels: Mapping[str, object], key: str) -> str:
+def _visible_label(
+    labels: Mapping[str, object], key: str, semantics: Mapping[str, str]
+) -> tuple[str, str | None]:
     value = labels.get(key)
     if not isinstance(value, str) or len(value) > _MAX_VISIBLE_LABEL_CHARS:
-        return "unknown"
+        return "unknown", None
     normalized = "_".join(value.strip().casefold().replace("-", " ").split())
-    return normalized if normalized in _CANONICAL_LABELS else "unknown"
+    severity = semantics.get(normalized)
+    if severity is None:
+        return "unknown", None
+    return normalized, severity
 
 
 def _visible_bool(signals: Mapping[str, object], key: str) -> bool | None:
@@ -56,9 +66,16 @@ def _visible_bool(signals: Mapping[str, object], key: str) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
-def _label_result(snapshot: TargetSnapshot, keys: tuple[str, ...]) -> TargetResult:
+def _label_result(
+    snapshot: TargetSnapshot, section_semantics: Mapping[str, Mapping[str, str]]
+) -> TargetResult:
     labels = _safe_mapping(snapshot.labels)
-    findings = {key: _visible_label(labels, key) for key in keys}
+    normalized = {
+        key: _visible_label(labels, key, semantics)
+        for key, semantics in section_semantics.items()
+    }
+    findings = {key: value for key, (value, _severity) in normalized.items()}
+    severities = [severity for _value, severity in normalized.values()]
     if snapshot.page_loaded is not True:
         return TargetResult(
             status="failed",
@@ -68,7 +85,7 @@ def _label_result(snapshot: TargetSnapshot, keys: tuple[str, ...]) -> TargetResu
             screenshot=None,
             error_code="diagnostic_failed",
         )
-    if "unknown" in findings.values():
+    if None in severities:
         return TargetResult(
             status="warning",
             findings=findings,
@@ -77,12 +94,12 @@ def _label_result(snapshot: TargetSnapshot, keys: tuple[str, ...]) -> TargetResu
             screenshot=None,
             error_code="target_layout_changed",
         )
-    if "failed" in findings.values():
+    if "fail" in severities:
         status = "failed"
-    elif all(value in _PASS_LABELS for value in findings.values()):
-        status = "passed"
-    else:
+    elif "warn" in severities:
         status = "warning"
+    else:
+        status = "passed"
     return TargetResult(
         status=status,
         findings=findings,
@@ -95,13 +112,13 @@ def _label_result(snapshot: TargetSnapshot, keys: tuple[str, ...]) -> TargetResu
 def normalize_pixelscan(snapshot: TargetSnapshot) -> TargetResult:
     """Normalize only Pixelscan's six allowlisted visible result labels."""
 
-    return _label_result(snapshot, _PIXELSCAN_KEYS)
+    return _label_result(snapshot, _PIXELSCAN_SEMANTICS)
 
 
 def normalize_iphey(snapshot: TargetSnapshot) -> TargetResult:
     """Normalize only IPhey's four allowlisted visible result labels."""
 
-    return _label_result(snapshot, _IPHEY_KEYS)
+    return _label_result(snapshot, _IPHEY_SEMANTICS)
 
 
 def normalize_cloudflare(snapshot: TargetSnapshot) -> TargetResult:
@@ -116,15 +133,6 @@ def normalize_cloudflare(snapshot: TargetSnapshot) -> TargetResult:
         "managed_challenge": challenge is True,
         "user_interaction_required": interaction is True or challenge is True,
     }
-    if not loaded:
-        return TargetResult(
-            status="failed",
-            findings=findings,
-            final_url="",
-            title="",
-            screenshot=None,
-            error_code="diagnostic_failed",
-        )
     if challenge is True or interaction is True:
         return TargetResult(
             status="warning",
@@ -133,6 +141,15 @@ def normalize_cloudflare(snapshot: TargetSnapshot) -> TargetResult:
             title="",
             screenshot=None,
             error_code="captcha_user_action_required",
+        )
+    if not loaded:
+        return TargetResult(
+            status="failed",
+            findings=findings,
+            final_url="",
+            title="",
+            screenshot=None,
+            error_code="diagnostic_failed",
         )
     if challenge is None or interaction is None:
         return TargetResult(
@@ -168,15 +185,6 @@ def normalize_google_search(snapshot: TargetSnapshot) -> TargetResult:
         "captcha_detected": captcha_detected,
         "results_visible": results is True,
     }
-    if not loaded:
-        return TargetResult(
-            status="failed",
-            findings=findings,
-            final_url="",
-            title="",
-            screenshot=None,
-            error_code="diagnostic_failed",
-        )
     if captcha_detected:
         return TargetResult(
             status="warning",
@@ -185,6 +193,15 @@ def normalize_google_search(snapshot: TargetSnapshot) -> TargetResult:
             title="",
             screenshot=None,
             error_code="captcha_user_action_required",
+        )
+    if not loaded:
+        return TargetResult(
+            status="failed",
+            findings=findings,
+            final_url="",
+            title="",
+            screenshot=None,
+            error_code="diagnostic_failed",
         )
     if consent is True:
         return TargetResult(
