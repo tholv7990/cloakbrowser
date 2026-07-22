@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
+import os
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from threading import Barrier, Event, get_ident
@@ -368,9 +370,14 @@ def test_diagnostic_migration_upgrade_and_downgrade(tmp_path, monkeypatch):
             row[1] for row in connection.execute("PRAGMA table_info(diagnostic_runs)")
         }
         indexes = {
-            row[1] for row in connection.execute("PRAGMA index_list(diagnostic_runs)")
+            row[1]: row
+            for row in connection.execute("PRAGMA index_list(diagnostic_runs)")
         }
         foreign_keys = list(connection.execute("PRAGMA foreign_key_list(diagnostic_runs)"))
+        active_index_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name=?",
+            ("uq_diagnostic_runs_active_profile",),
+        ).fetchone()[0]
 
     assert {
         "id",
@@ -390,11 +397,54 @@ def test_diagnostic_migration_upgrade_and_downgrade(tmp_path, monkeypatch):
         "error_message",
     } <= columns
     assert "uq_diagnostic_runs_active_profile" in indexes
+    assert indexes["uq_diagnostic_runs_active_profile"][2] == 1
+    assert indexes["uq_diagnostic_runs_active_profile"][4] == 1
+    assert active_index_sql.split(" WHERE ", 1)[1] == (
+        "profile_id IS NOT NULL AND status IN ('queued','running')"
+    )
     assert any(
         row[2] == "profiles" and row[3] == "profile_id" and row[6] == "SET NULL"
         for row in foreign_keys
     )
     with sqlite3.connect(database) as connection:
+        now = "2026-07-22T00:00:00Z"
+        connection.execute(
+            "INSERT INTO profiles "
+            "(id, name, notes, pinned, fingerprint_seed, fingerprint_preset, "
+            "test_proxy_before_launch, total_runtime_seconds, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("migration-profile", "Migration", "", 0, "999001", "consistent", 1, 0, now, now),
+        )
+
+        def insert_run(
+            run_id, *, kind="pixelscan", status="queued", progress=0, profile=True
+        ):
+            connection.execute(
+                "INSERT INTO diagnostic_runs "
+                "(id, profile_id, kind, status, target_url, requested_at, progress, findings_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    run_id,
+                    "migration-profile" if profile else None,
+                    kind,
+                    status,
+                    (
+                        "https://pixelscan.net/"
+                        if kind == "pixelscan"
+                        else "https://www.google.com/search?q=CloakBrowser+diagnostic"
+                    ),
+                    now,
+                    progress,
+                    "{}",
+                ),
+            )
+
+        insert_run("active-queued")
+        with pytest.raises(sqlite3.IntegrityError):
+            insert_run("active-running", status="running")
+        insert_run("terminal-passed", status="passed")
+        insert_run("terminal-cancelled", status="cancelled")
+
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute(
                 "INSERT INTO diagnostic_runs "
@@ -410,6 +460,23 @@ def test_diagnostic_migration_upgrade_and_downgrade(tmp_path, monkeypatch):
                     "{}",
                 ),
             )
+        with pytest.raises(sqlite3.IntegrityError):
+            insert_run("bad-kind", kind="invalid", profile=False)
+        with pytest.raises(sqlite3.IntegrityError):
+            insert_run("bad-status", status="complete", profile=False)
+        with pytest.raises(sqlite3.IntegrityError):
+            insert_run("bad-progress-low", progress=-1, profile=False)
+        with pytest.raises(sqlite3.IntegrityError):
+            insert_run("bad-progress-high", progress=101, profile=False)
+
+        stored_statuses = {
+            row[0]
+            for row in connection.execute(
+                "SELECT status FROM diagnostic_runs WHERE profile_id=?",
+                ("migration-profile",),
+            )
+        }
+        assert stored_statuses == {"queued", "passed", "cancelled"}
 
     command.downgrade(config, "0009_extensions")
     with sqlite3.connect(database) as connection:
@@ -848,3 +915,129 @@ def test_typed_result_persistence_and_legacy_serialization_are_bounded(
     assert bounded["summary"] == "Diagnostic completed with warnings."
     assert bounded["error_code"] == "target_layout_changed"
     assert bounded["screenshot_path"] == str(screenshot.resolve())
+
+
+def test_artifact_run_root_escape_is_rejected_for_persistence_and_serialization(
+    client, auth_headers, monkeypatch, tmp_path
+):
+    from manager_backend.errors import ManagerError
+    from manager_backend.features.diagnostics import service
+    from manager_backend.features.diagnostics.schemas import DiagnosticResultUpdate
+    from manager_backend.models import DiagnosticRun
+
+    profile_id = _profile(client, auth_headers, "Resolver escape profile")
+    client.app.state.diagnostic_manager.set_scheduler(lambda _run_id: None)
+    created = _create(client, auth_headers, "pixelscan", profile_id).json()
+    client.app.state.diagnostic_manager.transition(created["id"], "running")
+
+    data_root = client.app.state.settings.data_root
+    diagnostics_root = data_root / "diagnostics"
+    apparent_run_root = diagnostics_root / created["id"]
+    apparent_report = apparent_run_root / "report.json"
+    escaped_run_root = tmp_path / "outside" / created["id"]
+    escaped_report = escaped_run_root / "report.json"
+    original_resolve = service.Path.resolve
+
+    def simulated_junction(path):
+        current = service.Path(path)
+        if current == apparent_run_root:
+            return escaped_run_root
+        if current == apparent_report:
+            return escaped_report
+        return original_resolve(current)
+
+    monkeypatch.setattr(service.Path, "resolve", simulated_junction)
+
+    with pytest.raises(ManagerError) as caught:
+        client.app.state.diagnostic_manager.store_result(
+            created["id"],
+            DiagnosticResultUpdate(
+                kind="pixelscan",
+                status="passed",
+                screenshot_path=str(apparent_report),
+            ),
+        )
+    assert caught.value.code == "invalid_diagnostic_artifact"
+
+    with client.app.state.session_factory() as session:
+        run = session.get(DiagnosticRun, created["id"])
+        run.screenshot_path = str(apparent_report)
+        session.commit()
+        serialized = service.diagnostic_to_dict(run, data_root)
+    assert serialized["screenshot_path"] is None
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows junction regression")
+def test_real_windows_junction_escape_is_rejected_if_junctions_are_available(
+    client, auth_headers, tmp_path
+):
+    from manager_backend.errors import ManagerError
+    from manager_backend.features.diagnostics.schemas import DiagnosticResultUpdate
+
+    profile_id = _profile(client, auth_headers, "Junction escape profile")
+    client.app.state.diagnostic_manager.set_scheduler(lambda _run_id: None)
+    created = _create(client, auth_headers, "pixelscan", profile_id).json()
+    client.app.state.diagnostic_manager.transition(created["id"], "running")
+    diagnostics_root = client.app.state.settings.data_root / "diagnostics"
+    diagnostics_root.mkdir(parents=True, exist_ok=True)
+    outside = tmp_path / "junction-outside"
+    outside.mkdir()
+    run_root = diagnostics_root / created["id"]
+    linked = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(run_root), str(outside)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if linked.returncode != 0:
+        pytest.skip("Windows junction creation is unavailable")
+    try:
+        with pytest.raises(ManagerError) as caught:
+            client.app.state.diagnostic_manager.store_result(
+                created["id"],
+                DiagnosticResultUpdate(
+                    kind="pixelscan",
+                    status="passed",
+                    report_path=str(run_root / "report.json"),
+                ),
+            )
+        assert caught.value.code == "invalid_diagnostic_artifact"
+    finally:
+        os.rmdir(run_root)
+
+
+def test_legacy_error_codes_are_sanitized_by_terminal_status(client, auth_headers):
+    from manager_backend.models import DiagnosticRun
+
+    cases = (
+        ("warning", "browser_crashed", None),
+        ("warning", "captcha_user_action_required", "captcha_user_action_required"),
+        ("failed", "captcha_user_action_required", "diagnostic_failed"),
+        ("failed", "browser_crashed", "browser_crashed"),
+    )
+    ids = []
+    with client.app.state.session_factory() as session:
+        for index, (status, code, _expected) in enumerate(cases):
+            run = DiagnosticRun(
+                kind="direct_google_control",
+                status=status,
+                target_url="https://www.google.com/search?q=CloakBrowser+diagnostic",
+                progress=100,
+                error_code=code,
+                error_message="legacy arbitrary error text",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(run)
+            session.flush()
+            ids.append(run.id)
+        session.commit()
+
+    for run_id, (_status, _code, expected) in zip(ids, cases):
+        body = client.get(
+            f"/api/v1/diagnostics/{run_id}", headers=auth_headers
+        ).json()
+        assert body["error_code"] == expected
+        if expected is None:
+            assert body["error_message"] is None
+        else:
+            assert body["error_message"] != "legacy arbitrary error text"

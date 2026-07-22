@@ -53,6 +53,21 @@ ERROR_MESSAGES = {
     "target_layout_changed": "The diagnostic target could not be read reliably.",
     "captcha_user_action_required": "The target requires user interaction.",
 }
+WARNING_ERROR_CODES = frozenset(
+    {"target_layout_changed", "captcha_user_action_required"}
+)
+FAILURE_ERROR_CODES = frozenset(
+    {
+        "diagnostic_failed",
+        "manager_restarted",
+        "scheduler_unavailable",
+        "browser_crashed",
+        "proxy_preflight_failed",
+        "network_error",
+        "timeout",
+        "target_layout_changed",
+    }
+)
 
 _TRANSITIONS = {
     "queued": frozenset({"running", "failed", "cancelled"}),
@@ -96,8 +111,14 @@ def _safe_artifact_path(
     if value is None:
         return None
     try:
+        resolved_data_root = Path(data_root).resolve()
+        diagnostics_root = (resolved_data_root / "diagnostics").resolve()
+        if not diagnostics_root.is_relative_to(resolved_data_root):
+            return None
+        owned_root = (diagnostics_root / run_id).resolve()
+        if not owned_root.is_relative_to(diagnostics_root):
+            return None
         candidate = Path(value).resolve()
-        owned_root = (data_root / "diagnostics" / run_id).resolve()
         if not candidate.is_relative_to(owned_root):
             return None
     except (OSError, RuntimeError, ValueError):
@@ -119,11 +140,15 @@ def _validated_artifact_path(
 
 
 def _safe_error(status: str, value: object) -> tuple[str | None, str | None]:
-    if status not in {"failed", "warning"}:
+    code = value if isinstance(value, str) else None
+    if status == "warning":
+        if code not in WARNING_ERROR_CODES:
+            return None, None
+    elif status == "failed":
+        if code not in FAILURE_ERROR_CODES:
+            code = "diagnostic_failed"
+    else:
         return None, None
-    code = value if isinstance(value, str) and value in ERROR_MESSAGES else None
-    if code is None and status == "failed":
-        code = "diagnostic_failed"
     return code, ERROR_MESSAGES.get(code) if code is not None else None
 
 

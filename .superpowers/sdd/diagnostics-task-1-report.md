@@ -96,3 +96,40 @@ python -m pytest tests/manager -q
 ```
 
 The warning remains the pre-existing Starlette `TestClient`/`httpx` deprecation warning. No frontend, public navigation, or push was added.
+
+## Final Lifecycle Review Pass
+
+The remaining containment, legacy-error, and migration-verification findings were corrected with another RED/GREEN pass.
+
+- Artifact validation now resolves the configured data root, its diagnostics directory, the expected run directory, and the candidate. The diagnostics directory must remain below the resolved data root, and the resolved run directory must remain below the resolved diagnostics directory before candidate containment is considered.
+- The same containment function gates internal result persistence and public serialization. A deterministic simulated-resolver test and a real Windows `mklink /J` regression both confirm that an apparent run directory redirected outside diagnostics is rejected.
+- Warning rows expose only approved warning codes (`captcha_user_action_required` and `target_layout_changed`). Mismatched legacy warning codes redact to no error. Failed rows expose only approved failure codes; mismatches fall back to `diagnostic_failed` and its fixed safe message.
+- Migration coverage now verifies the active-profile index is both unique and partial, checks its exact predicate, proves duplicate queued/running rows are rejected, proves terminal history remains allowed, and exercises kind, status, progress, and target URL checks at the database boundary.
+
+Final-pass RED evidence:
+
+```text
+python -m pytest tests/manager/test_diagnostics_api.py -q -k "artifact_run_root_escape or real_windows_junction or legacy_error_codes or diagnostic_migration"
+3 failed, 1 passed, 41 deselected
+```
+
+Final-pass verification:
+
+```text
+python -m pytest tests/manager/test_diagnostics_api.py -q
+45 passed, 1 warning in 9.17s
+
+python -m pytest tests/manager/test_diagnostics_api.py::test_diagnostic_migration_upgrade_and_downgrade -q
+1 passed, 1 warning in 0.31s
+
+# Five repetitions of 20 terminal races plus three progress/create races
+5 x 23 passed (115 stress cases)
+
+python -m pytest tests/manager -q
+406 passed, 3 skipped, 1 warning in 59.58s
+
+python -m compileall -q manager_backend
+exit 0
+```
+
+The real Windows junction test ran and passed on this host. The sole warning remains the pre-existing Starlette `TestClient`/`httpx` deprecation warning.
