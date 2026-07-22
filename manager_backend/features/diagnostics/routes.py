@@ -107,6 +107,10 @@ def diagnostic(diagnostic_id: str, request: Request, session: SessionDependency)
 
 
 @router.post("/diagnostics/{diagnostic_id}/cancel", response_model=DiagnosticRead)
-def cancel_diagnostic(diagnostic_id: str, request: Request):
-    run = request.app.state.diagnostic_manager.cancel(diagnostic_id)
+async def cancel_diagnostic(diagnostic_id: str, request: Request):
+    executor = request.app.state.diagnostic_executor
+    if executor is None:
+        run = request.app.state.diagnostic_manager.cancel(diagnostic_id)
+    else:
+        run = await executor.cancel(diagnostic_id)
     return _serialize(request, run)

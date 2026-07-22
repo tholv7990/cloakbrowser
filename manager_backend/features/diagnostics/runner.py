@@ -308,6 +308,13 @@ class DiagnosticRunner:
             settings.max_concurrent_diagnostics
         )
 
+    def set_deferred_result_callback(
+        self, callback: DeferredDiagnosticResultCallback | None
+    ) -> None:
+        """Bind the lifecycle owner that correlates deferred cleanup outcomes."""
+
+        self._deferred_result = callback
+
     @staticmethod
     def _emit(progress: Callable[[int], None], value: int) -> None:
         try:

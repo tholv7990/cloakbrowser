@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
+from contextlib import suppress
 from math import ceil
 from pathlib import Path
 import sqlite3
+import threading
+from uuid import UUID
 
 from sqlalchemy import func, select, update as sql_update
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from ...errors import ManagerError
+from ...events import EventBroker, diagnostic_event
 from ...models import DiagnosticRun, Profile, utc_now
+from .runner import DiagnosticRequest, DiagnosticResult, DiagnosticRunner
 from .schemas import DiagnosticResultUpdate, TARGET_URLS, bounded_findings
 
 
@@ -275,6 +281,9 @@ class DiagnosticManager:
         with self._session_factory() as session:
             return get_diagnostic(session, diagnostic_id)
 
+    def current(self, diagnostic_id: str) -> DiagnosticRun:
+        return self._current(diagnostic_id)
+
     def create(self, kind: str, profile_id: str | None) -> DiagnosticRun:
         if kind not in DIAGNOSTIC_KINDS:
             raise ManagerError(
@@ -450,11 +459,14 @@ class DiagnosticManager:
                 raise ManagerError(
                     "diagnostic_not_active", "The diagnostic is no longer active.", 409
                 )
+            bounded = max(run.progress, max(0, min(100, int(progress))))
+            if bounded == run.progress:
+                return run
             return self._cas_update(
                 session,
                 diagnostic_id,
                 run.status,
-                {"progress": max(0, min(100, int(progress)))},
+                {"progress": bounded},
                 expected_progress=run.progress,
             )
 
@@ -513,3 +525,277 @@ class DiagnosticManager:
             )
             session.commit()
             return int(result.rowcount or 0)
+
+    def amend_cleanup_failure(
+        self, diagnostic_id: str, result: DiagnosticResult
+    ) -> DiagnosticRun:
+        """Amend only the explicitly correlated run after deferred cleanup fails."""
+
+        if result.status != "failed" or result.error_code != "cleanup_failed":
+            return self._current(diagnostic_id)
+        with self._session_factory() as session:
+            run = get_diagnostic(session, diagnostic_id)
+            if run.kind != result.kind:
+                raise ManagerError(
+                    "diagnostic_result_kind_mismatch",
+                    "The result does not match the diagnostic kind.",
+                    409,
+                )
+            values = {
+                "status": "failed",
+                "progress": 100,
+                "completed_at": utc_now(),
+                "summary": SUMMARY_TEMPLATES["failed"],
+                "findings": {},
+                "error_code": "cleanup_failed",
+                "error_message": ERROR_MESSAGES["cleanup_failed"],
+                "screenshot_path": _validated_artifact_path(
+                    result.screenshot_path, self._data_root, diagnostic_id
+                ),
+                "report_path": _validated_artifact_path(
+                    result.report_path, self._data_root, diagnostic_id
+                ),
+            }
+            update_result = session.execute(
+                sql_update(DiagnosticRun)
+                .where(
+                    DiagnosticRun.id == diagnostic_id,
+                    DiagnosticRun.status.in_(ACTIVE_STATUSES | TERMINAL_STATUSES),
+                )
+                .values(**values)
+                .execution_options(synchronize_session=False)
+            )
+            if update_result.rowcount != 1:
+                session.rollback()
+                raise ManagerError(
+                    "diagnostic_not_active",
+                    "The diagnostic is no longer active.",
+                    409,
+                )
+            session.commit()
+            session.expire_all()
+            amended = session.get(DiagnosticRun, diagnostic_id)
+            if amended is None:
+                raise _not_found()
+            return amended
+
+
+class DiagnosticExecutor:
+    """Own asynchronous diagnostic tasks, cancellation signals, and events."""
+
+    def __init__(
+        self,
+        manager: DiagnosticManager,
+        runner: DiagnosticRunner,
+        events: EventBroker,
+    ) -> None:
+        self._manager = manager
+        self._runner = runner
+        self._events = events
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._deferred_tasks: set[asyncio.Task[None]] = set()
+        self._cancel_events: dict[str, threading.Event] = {}
+        self._accepting = False
+        self._state_lock = threading.Lock()
+        self._runner.set_deferred_result_callback(self._deferred_result)
+
+    @property
+    def task_count(self) -> int:
+        return len(self._tasks) + len(self._deferred_tasks)
+
+    def start(self) -> None:
+        loop = asyncio.get_running_loop()
+        with self._state_lock:
+            self._loop = loop
+            self._accepting = True
+        self._manager.set_scheduler(self.schedule)
+
+    def schedule(self, diagnostic_id: str) -> None:
+        with self._state_lock:
+            loop = self._loop
+            accepting = self._accepting
+        if not accepting or loop is None or loop.is_closed():
+            raise RuntimeError("diagnostic scheduler is unavailable")
+        loop.call_soon_threadsafe(self._spawn, diagnostic_id)
+
+    def _spawn(self, diagnostic_id: str) -> None:
+        if not self._accepting or diagnostic_id in self._tasks:
+            if not self._accepting:
+                self._manager._mark_scheduler_unavailable(diagnostic_id)
+            return
+        cancel_event = threading.Event()
+        self._cancel_events[diagnostic_id] = cancel_event
+        task = asyncio.create_task(
+            self._run(diagnostic_id, cancel_event),
+            name=f"diagnostic-{diagnostic_id}",
+        )
+        self._tasks[diagnostic_id] = task
+
+    def _serialize(self, run: DiagnosticRun) -> dict:
+        return diagnostic_to_dict(run, self._manager._data_root)
+
+    def _publish(self, event_type: str, run: DiagnosticRun) -> None:
+        self._events.publish(
+            diagnostic_event(event_type, self._serialize(run))  # type: ignore[arg-type]
+        )
+
+    async def _progress(self, diagnostic_id: str, value: int) -> None:
+        try:
+            before = await asyncio.to_thread(self._manager.current, diagnostic_id)
+            run = await asyncio.to_thread(
+                self._manager.update_progress, diagnostic_id, value
+            )
+        except ManagerError:
+            return
+        if run.progress > before.progress:
+            self._publish("diagnostic.progress", run)
+
+    def _progress_from_worker(self, diagnostic_id: str, value: int) -> None:
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return
+        future = asyncio.run_coroutine_threadsafe(
+            self._progress(diagnostic_id, value), loop
+        )
+        with suppress(Exception):
+            future.result(timeout=5)
+
+    async def _terminal_from_result(
+        self, diagnostic_id: str, result: DiagnosticResult
+    ) -> DiagnosticRun:
+        if result.status == "cancelled":
+            return await asyncio.to_thread(
+                self._manager.transition, diagnostic_id, "cancelled"
+            )
+        update = DiagnosticResultUpdate(
+            kind=result.kind,
+            status=result.status,
+            findings=result.findings,
+            error_code=result.error_code,
+            screenshot_path=result.screenshot_path,
+            report_path=result.report_path,
+        )
+        return await asyncio.to_thread(
+            self._manager.store_result, diagnostic_id, update
+        )
+
+    async def _run(
+        self, diagnostic_id: str, cancel_event: threading.Event
+    ) -> None:
+        try:
+            run = await asyncio.to_thread(
+                self._manager.transition, diagnostic_id, "running"
+            )
+            self._publish("diagnostic.progress", run)
+            request = DiagnosticRequest(
+                run_id=run.id,
+                kind=run.kind,
+                target_url=TARGET_URLS[run.kind],
+                profile_id=run.profile_id,
+            )
+            result = await asyncio.to_thread(
+                self._runner.run,
+                request,
+                cancel_event,
+                lambda value: self._progress_from_worker(
+                    diagnostic_id, value
+                ),
+            )
+            try:
+                terminal = await self._terminal_from_result(diagnostic_id, result)
+            except ManagerError as error:
+                if error.code not in {"diagnostic_not_active", "diagnostic_conflict"}:
+                    raise
+                terminal = await asyncio.to_thread(
+                    self._manager.current, diagnostic_id
+                )
+            if terminal.status in TERMINAL_STATUSES:
+                self._publish("diagnostic.completed", terminal)
+        except ManagerError as error:
+            if error.code not in {"diagnostic_not_active", "diagnostic_conflict"}:
+                with suppress(ManagerError):
+                    terminal = await asyncio.to_thread(
+                        self._manager._mark_scheduler_unavailable, diagnostic_id
+                    )
+                    self._publish("diagnostic.completed", terminal)
+        except Exception:
+            with suppress(ManagerError):
+                failed = DiagnosticResultUpdate(
+                    kind=(await asyncio.to_thread(
+                        self._manager.current, diagnostic_id
+                    )).kind,
+                    status="failed",
+                    findings={},
+                    error_code="diagnostic_failed",
+                )
+                terminal = await asyncio.to_thread(
+                    self._manager.store_result, diagnostic_id, failed
+                )
+                self._publish("diagnostic.completed", terminal)
+        finally:
+            self._cancel_events.pop(diagnostic_id, None)
+            self._tasks.pop(diagnostic_id, None)
+
+    async def cancel(self, diagnostic_id: str) -> DiagnosticRun:
+        current = await asyncio.to_thread(self._manager.current, diagnostic_id)
+        if current.status not in ACTIVE_STATUSES:
+            raise ManagerError(
+                "diagnostic_not_active", "The diagnostic is no longer active.", 409
+            )
+        await asyncio.sleep(0)
+        cancel_event = self._cancel_events.get(diagnostic_id)
+        task = self._tasks.get(diagnostic_id)
+        if cancel_event is None or task is None:
+            terminal = await asyncio.to_thread(
+                self._manager.transition, diagnostic_id, "cancelled"
+            )
+            self._publish("diagnostic.completed", terminal)
+            return terminal
+        cancel_event.set()
+        await asyncio.shield(task)
+        return await asyncio.to_thread(self._manager.current, diagnostic_id)
+
+    def _deferred_result(self, run_id: UUID, result: DiagnosticResult) -> None:
+        with self._state_lock:
+            loop = self._loop
+            accepting = self._accepting
+        if not accepting or loop is None or loop.is_closed():
+            return
+        loop.call_soon_threadsafe(self._spawn_deferred, run_id, result)
+
+    def _spawn_deferred(self, run_id: UUID, result: DiagnosticResult) -> None:
+        if not self._accepting:
+            return
+        task = asyncio.create_task(
+            self._apply_deferred_result(str(run_id), result),
+            name=f"diagnostic-deferred-{run_id}",
+        )
+        self._deferred_tasks.add(task)
+        task.add_done_callback(self._deferred_tasks.discard)
+
+    async def _apply_deferred_result(
+        self, diagnostic_id: str, result: DiagnosticResult
+    ) -> None:
+        try:
+            amended = await asyncio.to_thread(
+                self._manager.amend_cleanup_failure, diagnostic_id, result
+            )
+        except ManagerError:
+            return
+        self._publish("diagnostic.completed", amended)
+
+    async def shutdown(self) -> None:
+        with self._state_lock:
+            self._accepting = False
+        for cancel_event in tuple(self._cancel_events.values()):
+            cancel_event.set()
+        tasks = tuple(self._tasks.values())
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        deferred_tasks = tuple(self._deferred_tasks)
+        if deferred_tasks:
+            await asyncio.gather(*deferred_tasks, return_exceptions=True)
+        self._tasks.clear()
+        self._cancel_events.clear()
+        self._deferred_tasks.clear()

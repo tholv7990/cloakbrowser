@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
@@ -29,12 +31,38 @@ from .features.proxies.quality import ProxyQualityManager, recover_orphan_qualit
 from .features.portability.browser_cookies import CookieContextAdapter
 from .features.settings.store import SettingsStore
 from .features.diagnostics.service import DiagnosticManager
+from .features.diagnostics.runner import (
+    BrowserAdapter,
+    DiagnosticRunner,
+    ProxyPreflightResult,
+    TargetAdapter,
+)
+from .features.diagnostics.service import DiagnosticExecutor
+from .events import EventBroker
 
 
-def create_app(settings: ManagerSettings | None = None) -> FastAPI:
+def create_app(
+    settings: ManagerSettings | None = None,
+    *,
+    diagnostic_browser_adapter: BrowserAdapter | None = None,
+    diagnostic_target_adapter: TargetAdapter | None = None,
+    diagnostic_proxy_preflight: Callable[
+        [dict[str, Any]], ProxyPreflightResult
+    ]
+    | None = None,
+) -> FastAPI:
     resolved = settings or ManagerSettings()
     if resolved.host != "127.0.0.1":
         raise ValueError("CloakBrowser Manager must bind to 127.0.0.1")
+    diagnostic_adapters = (
+        diagnostic_browser_adapter,
+        diagnostic_target_adapter,
+        diagnostic_proxy_preflight,
+    )
+    if any(adapter is not None for adapter in diagnostic_adapters) and not all(
+        adapter is not None for adapter in diagnostic_adapters
+    ):
+        raise ValueError("all diagnostic adapters must be injected together")
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -52,8 +80,12 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
             application.state.diagnostic_recovered = (
                 application.state.diagnostic_manager.recover_orphans()
             )
+            if application.state.diagnostic_executor is not None:
+                application.state.diagnostic_executor.start()
             yield
         finally:
+            if application.state.diagnostic_executor is not None:
+                await application.state.diagnostic_executor.shutdown()
             application.state.runtime_manager.shutdown()
             application.state.proxy_quality_manager.shutdown()
             application.state.engine.dispose()
@@ -70,6 +102,21 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
     app.state.diagnostic_manager = DiagnosticManager(
         app.state.session_factory, data_root=resolved.data_root
     )
+    app.state.event_broker = EventBroker()
+    app.state.diagnostic_executor = None
+    if all(adapter is not None for adapter in diagnostic_adapters):
+        diagnostic_runner = DiagnosticRunner(
+            app.state.session_factory,
+            resolved,
+            browser_adapter=diagnostic_browser_adapter,
+            target_adapter=diagnostic_target_adapter,
+            proxy_preflight=diagnostic_proxy_preflight,
+        )
+        app.state.diagnostic_executor = DiagnosticExecutor(
+            app.state.diagnostic_manager,
+            diagnostic_runner,
+            app.state.event_broker,
+        )
     app.state.credential_store = KeyringCredentialStore()
 
     app.state.cookie_context_adapter = CookieContextAdapter(resolved)
@@ -118,6 +165,7 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
                 await websocket.close(code=4401, reason="authentication_required")
                 return
         await websocket.accept()
+        diagnostic_queue = app.state.event_broker.subscribe()
         sequence = 0
         previous = None
         try:
@@ -150,8 +198,19 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
                         )
                     )
                     previous = marker
-                await asyncio.sleep(0.05)
+                try:
+                    event = await asyncio.wait_for(
+                        diagnostic_queue.get(), timeout=0.05
+                    )
+                except asyncio.TimeoutError:
+                    continue
+                sequence += 1
+                await websocket.send_json(
+                    jsonable_encoder({"sequence": sequence, **event})
+                )
         except WebSocketDisconnect:
             return
+        finally:
+            app.state.event_broker.unsubscribe(diagnostic_queue)
 
     return app
