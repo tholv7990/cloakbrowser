@@ -15,10 +15,10 @@ def _create(client, auth_headers, **changes):
     payload = {
         "label": "Quick test",
         "scheme": "socks5",
-        "host": "193.169.218.22",
+        "host": "198.51.100.25",
         "port": 50101,
-        "username": "MSproxy",
-        "password": "TrustProxy",
+        "username": "fixture-user",
+        "password": "fixture-pass",
         "test_before_launch": True,
     }
     payload.update(changes)
@@ -67,10 +67,10 @@ def test_quick_test_returns_and_caches_only_safe_results(client, auth_headers):
         "error": None,
     }
     assert tester.received[1] == 20
-    assert "MSproxy" in tester.received[0]
-    assert "TrustProxy" in tester.received[0]
+    assert "fixture-user" in tester.received[0]
+    assert "fixture-pass" in tester.received[0]
     serialized = str(body)
-    assert "MSproxy" not in serialized and "TrustProxy" not in serialized
+    assert "fixture-user" not in serialized and "fixture-pass" not in serialized
     cached = client.get(f"/api/v1/proxies/{proxy['id']}").json()
     assert cached["exit_ip"] == "74.0.96.143"
     assert cached["city"] == "Dallas"

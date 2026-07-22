@@ -88,4 +88,8 @@ path = "cloakbrowser/_version.py"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-markers = ["slow: marks tests that hit live detection sites (deselect with '-m \"not slow\"')"]
+markers = [
+    "slow: marks tests that hit live detection sites (deselect with '-m \"not slow\"')",
+    "manager_e2e: authenticated local Windows Manager end-to-end tests",
+    "manager_e2e_existing_owner: optional existing-owner authenticated smoke tests",
+]

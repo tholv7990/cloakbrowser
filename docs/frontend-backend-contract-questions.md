@@ -45,3 +45,15 @@ that contract for deterministic UI tests.
   guarantees.
 - CAPTCHA detection stops at an explicit owner-action-required result. No solve,
   bypass, or automatic interaction is offered.
+
+## Authenticated E2E contract gate
+
+Run `.\scripts\run_manager_e2e.ps1 -Mode Deterministic` with the license already
+present in `CLOAKBROWSER_LICENSE_KEY`. The gate starts Vite and Uvicorn on reserved
+loopback ports, waits on HTTP readiness conditions, and uses a disposable owner
+and data root. The authenticated scenario verifies the frontend login, REST
+cookies/CSRF, runtime WebSocket snapshot, server log events, extension launch
+arguments, cookie semantics, profile export/import identity separation, and
+contained paths. Cleanup targets only IDs created by the suite and the exact
+isolated root. Existing-owner mode is environment-only and skips with a named
+missing-variable reason when either credential is absent.

@@ -7,10 +7,10 @@ def _proxy_payload(**changes):
     payload = {
         "label": "Dallas residential",
         "scheme": "socks5",
-        "host": "193.169.218.22",
+        "host": "198.51.100.25",
         "port": 50101,
-        "username": "MSproxy",
-        "password": "TrustProxy",
+        "username": "fixture-user",
+        "password": "fixture-pass",
         "test_before_launch": True,
     }
     payload.update(changes)
@@ -30,7 +30,7 @@ def test_create_list_and_read_proxy_never_return_credentials(client, auth_header
     body = created.json()
     assert body["username"] is None
     assert body["has_password"] is True
-    assert body["masked_endpoint"] == "socks5://193.169.218.22:50101"
+    assert body["masked_endpoint"] == "socks5://198.51.100.25:50101"
     assert "password" not in body
 
     listing = client.get("/api/v1/proxies")
@@ -102,14 +102,14 @@ def test_parse_route_returns_editable_fields_but_not_password(client, auth_heade
     response = client.post(
         "/api/v1/proxies/parse",
         headers=auth_headers,
-        json={"raw": "socks5://MSproxy:TrustProxy@193.169.218.22:50101"},
+        json={"raw": "socks5://fixture-user:fixture-pass@198.51.100.25:50101"},
     )
     assert response.status_code == 200
     assert response.json() == {
         "scheme": "socks5",
-        "host": "193.169.218.22",
+        "host": "198.51.100.25",
         "port": 50101,
-        "username": "MSproxy",
+        "username": "fixture-user",
         "has_password": True,
     }
 

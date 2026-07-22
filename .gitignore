@@ -33,6 +33,7 @@ htmlcov/
 
 # Generated benchmark and browser runtime output
 artifacts/
+/artifacts/manager-e2e/
 benchmarks/results/
 
 # Binary cache (downloaded chromium)

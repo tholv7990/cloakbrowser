@@ -15,10 +15,10 @@ def _proxy(client, auth_headers):
         json={
             "label": "Quality proxy",
             "scheme": "socks5",
-            "host": "193.169.218.22",
+            "host": "198.51.100.25",
             "port": 50101,
-            "username": "MSproxy",
-            "password": "TrustProxy",
+            "username": "fixture-user",
+            "password": "fixture-pass",
             "test_before_launch": True,
         },
     )
@@ -81,7 +81,7 @@ def test_quality_run_and_report_routes_return_sanitized_report(client, auth_head
     assert response.status_code == 202
     body = response.json()
     assert body["state"] == "completed"
-    assert "TrustProxy" not in str(body)
+    assert "fixture-pass" not in str(body)
     assert client.get(f"/api/v1/proxies/{proxy['id']}/reports").json() == [body]
     assert client.get(f"/api/v1/proxy-reports/{body['id']}").json() == body
 

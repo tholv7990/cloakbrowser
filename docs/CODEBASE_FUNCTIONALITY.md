@@ -382,7 +382,25 @@ Connectivity evidence records all three echo attempts, both endpoint identities,
 
 The behavior and intended evidence model are specified in [Proxy Quality Scanner Design](superpowers/specs/2026-07-21-proxy-quality-scanner-design.md); the implementation is in [`benchmarks/proxy_quality.py`](../benchmarks/proxy_quality.py), [`benchmarks/proxy_quality_models.py`](../benchmarks/proxy_quality_models.py), [`benchmarks/proxy_intelligence.py`](../benchmarks/proxy_intelligence.py), and [`benchmarks/proxy_site_checks.py`](../benchmarks/proxy_site_checks.py).
 
-## 10. Primary source map
+## 10. Authenticated Manager end-to-end gate
+
+`scripts/run_manager_e2e.ps1` runs the opt-in Windows release smoke against an
+isolated temporary Manager data root. Deterministic mode performs real owner
+setup, logout/login, CSRF-protected API operations, local frontend login, partial
+profile PATCH, unpacked extension register/assign/runtime loading, persistent
+cookie import/export, real CloakBrowser launch/count/WebSocket/log/stop,
+profile export/import with a fresh identity, local diagnostic normalization, and
+path-containment checks. It uses no proxy and makes no public diagnostic request.
+
+The installed binary and `CLOAKBROWSER_LICENSE_KEY` must be available in the
+process environment. Existing-owner mode additionally reads only
+`CLOAK_MANAGER_EMAIL` and `CLOAK_MANAGER_PASSWORD`; no credential is accepted on
+the command line or written to the report. Generated JSON and Markdown reports
+live below ignored `artifacts/manager-e2e/`. Public Pixelscan, IPhey, Cloudflare,
+or Google checks remain separately opt-in through `CLOAK_LIVE_DIAGNOSTICS=1` and
+never solve CAPTCHAs.
+
+## 11. Primary source map
 
 | Concern | Python | TypeScript | .NET |
 |---|---|---|---|

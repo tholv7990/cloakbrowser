@@ -1,0 +1,12 @@
+[
+  {
+    "name": "manager_e2e",
+    "value": "deterministic-fixture",
+    "domain": ".example.com",
+    "path": "/",
+    "expires": 1893456000,
+    "httpOnly": true,
+    "secure": false,
+    "sameSite": "Lax"
+  }
+]

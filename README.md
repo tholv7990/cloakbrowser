@@ -2,6 +2,25 @@
 <img src="https://i.imgur.com/cqkp6fG.png" width="500" alt="CloakBrowser">
 </p>
 
+## Manager authenticated Windows smoke test
+
+The local Manager has an opt-in deterministic Windows end-to-end gate. It starts
+isolated loopback backend and frontend processes, creates a disposable owner via
+the real setup/login/CSRF flow, exercises profile portability, cookies,
+extensions, runtime logs/count/WebSocket state, and launches/stops the installed
+CloakBrowser binary without a proxy or public navigation.
+
+```powershell
+$env:CLOAKBROWSER_LICENSE_KEY = "<set outside Git>"
+.\scripts\run_manager_e2e.ps1 -Mode Deterministic
+```
+
+Existing-owner validation reads `CLOAK_MANAGER_EMAIL` and
+`CLOAK_MANAGER_PASSWORD` only from the process environment. Reports are written
+under ignored `artifacts/manager-e2e/` with authentication, cookie, and license
+material redacted. `-LiveDiagnostics` only enables explicitly marked public-site
+checks; CAPTCHA observations always stop for manual action and are never solved.
+
 <p align="center">
 <a href="https://pypi.org/project/cloakbrowser/"><img src="https://img.shields.io/pypi/v/cloakbrowser" alt="PyPI"></a>
 <a href="https://www.npmjs.com/package/cloakbrowser"><img src="https://img.shields.io/npm/v/cloakbrowser" alt="npm"></a>
