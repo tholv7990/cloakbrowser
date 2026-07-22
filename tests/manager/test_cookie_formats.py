@@ -7,6 +7,7 @@ import pytest
 from manager_backend.features.portability import cookies as cookie_parser
 from manager_backend.features.portability.cookies import (
     MAX_COOKIE_COUNT,
+    MAX_COOKIE_EXPIRY_SECONDS,
     MAX_COOKIE_PAYLOAD_BYTES,
     parse_cookie_payload,
     to_netscape,
@@ -220,6 +221,16 @@ def test_localhost_and_ip_subdomain_cookie_domains_are_rejected(domain):
 
 
 @pytest.mark.parametrize(
+    "domain", ["2001:db8::1", "fe80::1%eth0", "[fe80::1%eth0]"]
+)
+def test_ipv6_cookie_domains_require_brackets_and_forbid_scope_identifiers(domain):
+    result = parse_cookie_payload({"cookies": [_manager_cookie(domain=domain)]}, "json")
+
+    assert result.cookies == []
+    assert result.warnings[0].code == "invalid_domain"
+
+
+@pytest.mark.parametrize(
     ("changes", "warning_code"),
     [
         ({"name": "__Secure-id", "secure": False}, "insecure_secure_prefix"),
@@ -252,6 +263,25 @@ def test_netscape_expiry_policy_preserves_only_unambiguous_integral_values():
 
     with pytest.raises(ValueError, match="invalid_cookie_for_export"):
         to_netscape([_manager_cookie(expires=0)])
+
+
+def test_netscape_expiry_length_is_bounded_before_integer_conversion():
+    oversized = parse_cookie_payload(
+        ".example.com\tTRUE\t/\tTRUE\t" + ("9" * 5000) + "\tsession\tvalue\n",
+        "netscape",
+    )
+    assert oversized.cookies == []
+    assert [(warning.index, warning.code) for warning in oversized.warnings] == [
+        (0, "invalid_expiry")
+    ]
+
+    near_bound = parse_cookie_payload(
+        ".example.com\tTRUE\t/\tTRUE\t"
+        + str(MAX_COOKIE_EXPIRY_SECONDS)
+        + "\tsession\tvalue\n",
+        "netscape",
+    )
+    assert near_bound.cookies[0]["expires"] == float(MAX_COOKIE_EXPIRY_SECONDS)
 
 
 @pytest.mark.parametrize(

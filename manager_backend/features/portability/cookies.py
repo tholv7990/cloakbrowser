@@ -314,10 +314,16 @@ def _iter_netscape_records(payload: bytes) -> Iterator[_CookieRecord]:
         }:
             yield _CookieRecord(error_code="invalid_netscape_record")
             continue
-        if not expiry_text.isdecimal():
+        if not expiry_text.isdecimal() or len(expiry_text) > len(
+            str(MAX_COOKIE_EXPIRY_SECONDS)
+        ):
             yield _CookieRecord(error_code="invalid_expiry")
             continue
-        expiry = int(expiry_text)
+        try:
+            expiry = int(expiry_text)
+        except ValueError:
+            yield _CookieRecord(error_code="invalid_expiry")
+            continue
         if expiry > MAX_COOKIE_EXPIRY_SECONDS:
             yield _CookieRecord(error_code="invalid_expiry")
             continue
@@ -428,13 +434,20 @@ def _is_valid_domain(domain: Any) -> bool:
     if not hostname or hostname.endswith(".") or any(character.isspace() for character in hostname):
         return False
 
-    ip_hostname = hostname[1:-1] if hostname.startswith("[") and hostname.endswith("]") else hostname
+    if "%" in hostname:
+        return False
+    is_bracketed = hostname.startswith("[") and hostname.endswith("]")
+    if hostname.startswith("[") != hostname.endswith("]"):
+        return False
+    ip_hostname = hostname[1:-1] if is_bracketed else hostname
     try:
-        ipaddress.ip_address(ip_hostname)
+        ip_address = ipaddress.ip_address(ip_hostname)
     except ValueError:
         pass
     else:
-        return not is_subdomain_cookie
+        if isinstance(ip_address, ipaddress.IPv6Address):
+            return is_bracketed and not is_subdomain_cookie
+        return not is_bracketed and not is_subdomain_cookie
 
     if hostname.lower() == "localhost":
         return not is_subdomain_cookie
