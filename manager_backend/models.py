@@ -614,3 +614,69 @@ class ProfileFactoryItem(Base):
     profile_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class ShopifyStore(TimestampMixin, Base):
+    __tablename__ = "shopify_stores"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    label: Mapped[str] = mapped_column(String(160), nullable=False)
+    shop_domain: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    scopes_json: Mapped[Any] = mapped_column(JSON, nullable=False, default=list)
+    shop_info_json: Mapped[Any] = mapped_column(JSON, nullable=False, default=dict)
+    inspection_json: Mapped[Any] = mapped_column(JSON, nullable=False, default=dict)
+    proxy_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    credentials_ref: Mapped[str] = mapped_column(String(36), nullable=False)
+    token_ref: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    niche: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    language: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    store_name: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    support_email: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+
+
+class ShopifyAiSetting(Base):
+    __tablename__ = "shopify_ai_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False, default="openai")
+    model: Mapped[str] = mapped_column(String(80), nullable=False, default="gpt-image-1")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    api_key_ref: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
+class ShopifyBuildPlan(Base):
+    __tablename__ = "shopify_build_plans"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('staged','running','completed','partial','failed')",
+            name="ck_shopify_build_plans_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    store_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("shopify_stores.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="staged")
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="draft_only")
+    config_json: Mapped[Any] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class ShopifyPlanStep(Base):
+    __tablename__ = "shopify_plan_steps"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    plan_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("shopify_build_plans.id", ondelete="CASCADE"), nullable=False
+    )
+    key: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="planned")
+    reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    result_json: Mapped[Any | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

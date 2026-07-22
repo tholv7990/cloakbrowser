@@ -20,6 +20,7 @@ def test_foundation_routes_are_authenticated_and_typed(client, auth_headers):
             "resources": True,
             "media": True,
             "automation": True,
+            "shopify_builder": True,
         },
     }
 

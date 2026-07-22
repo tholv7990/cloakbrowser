@@ -33,6 +33,7 @@ from .features.backups.service import maybe_auto_backup
 from .features.automation.controller import StubAutomationController
 from .features.automation.coordinator import RunCoordinator, recover_interrupted_runs
 from .features.automation.factory import FactoryCoordinator
+from .features.shopify.clients import HttpOpenAIImageClient, HttpShopifyClient
 from .features.portability.browser_cookies import CookieContextAdapter
 from .features.settings.store import SettingsStore
 from .features.diagnostics.service import DiagnosticManager
@@ -160,6 +161,8 @@ def create_app(
     app.state.automation_factory = FactoryCoordinator(
         app.state.session_factory, app.state.automation_runs
     )
+    app.state.shopify_client = HttpShopifyClient()
+    app.state.openai_image_client = HttpOpenAIImageClient()
     app.state.proxy_quality_manager = ProxyQualityManager(
         app.state.session_factory, app.state.credential_store, resolved
     )

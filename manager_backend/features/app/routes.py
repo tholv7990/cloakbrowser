@@ -34,6 +34,7 @@ def bootstrap(request: Request, session: SessionDependency) -> AppBootstrap:
             "resources": True,
             "media": True,
             "automation": True,
+            "shopify_builder": True,
         },
         running_session_count=count_active_runtimes(session),
     )

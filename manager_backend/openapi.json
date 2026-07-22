@@ -7516,6 +7516,1086 @@
         }
       }
     },
+    "/api/v1/shopify-builder/stores": {
+      "get": {
+        "tags": [
+          "shopify"
+        ],
+        "summary": "List Stores",
+        "operationId": "shopify_stores_list",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ShopifyStoreRead"
+                  },
+                  "type": "array",
+                  "title": "Response Shopify Stores List"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/shopify-builder/stores/connect": {
+      "post": {
+        "tags": [
+          "shopify"
+        ],
+        "summary": "Connect Store",
+        "operationId": "shopify_stores_connect",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectStorePayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopifyStoreRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/shopify-builder/stores/{store_id}/inspect": {
+      "post": {
+        "tags": [
+          "shopify"
+        ],
+        "summary": "Inspect Store",
+        "operationId": "shopify_stores_inspect",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "store_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Store Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopifyStoreRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shopify-builder/stores/{store_id}/network-route": {
+      "put": {
+        "tags": [
+          "shopify"
+        ],
+        "summary": "Set Network Route",
+        "operationId": "shopify_stores_network_route",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "store_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Store Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NetworkRoutePayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopifyStoreRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shopify-builder/stores/{store_id}": {
+      "delete": {
+        "tags": [
+          "shopify"
+        ],
+        "summary": "Delete Store",
+        "operationId": "shopify_stores_delete",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "store_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Store Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shopify-builder/stores/{store_id}/profile": {
+      "get": {
+        "tags": [
+          "shopify"
+        ],
+        "summary": "Get Store Profile",
+        "operationId": "shopify_store_profile_get",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "store_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Store Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoreProfileRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "shopify"
+        ],
+        "summary": "Update Store Profile",
+        "operationId": "shopify_store_profile_update",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "store_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Store Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoreProfileWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoreProfileRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shopify-builder/ai-images/settings": {
+      "get": {
+        "tags": [
+          "shopify"
+        ],
+        "summary": "Get Ai Settings",
+        "operationId": "shopify_ai_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiImageSettingsRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "shopify"
+        ],
+        "summary": "Update Ai Settings",
+        "operationId": "shopify_ai_settings_update",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiImageSettingsWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiImageSettingsRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/shopify-builder/stores/{store_id}/themes/library": {
+      "get": {
+        "tags": [
+          "shopify"
+        ],
+        "summary": "Themes Library",
+        "operationId": "shopify_themes_library",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "store_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Store Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeLibrary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shopify-builder/catalogs": {
+      "get": {
+        "tags": [
+          "shopify"
+        ],
+        "summary": "List Catalogs",
+        "operationId": "shopify_catalogs_list",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProductCatalog"
+                  },
+                  "type": "array",
+                  "title": "Response Shopify Catalogs List"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/shopify-builder/stores/{store_id}/product-csv/inspect": {
+      "post": {
+        "tags": [
+          "shopify"
+        ],
+        "summary": "Inspect Product Csv",
+        "operationId": "shopify_product_csv_inspect",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "store_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Store Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductCsvInspectRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductCsvInspection"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shopify-builder/stores/{store_id}/plans": {
+      "post": {
+        "tags": [
+          "shopify"
+        ],
+        "summary": "Create Plan",
+        "operationId": "shopify_plans_create",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "store_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Store Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePlanPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildPlanRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shopify-builder/stores/{store_id}/plans/{plan_id}": {
+      "get": {
+        "tags": [
+          "shopify"
+        ],
+        "summary": "Get Plan",
+        "operationId": "shopify_plans_get",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "store_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Store Id"
+            }
+          },
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildPlanRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shopify-builder/stores/{store_id}/plans/{plan_id}/execute": {
+      "post": {
+        "tags": [
+          "shopify"
+        ],
+        "summary": "Execute Plan",
+        "operationId": "shopify_plans_execute",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "store_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Store Id"
+            }
+          },
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecutePlanPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildPlanRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "summary": "Health",
@@ -7549,6 +8629,90 @@
   },
   "components": {
     "schemas": {
+      "AiImageSettingsRead": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "has_api_key": {
+            "type": "boolean",
+            "title": "Has Api Key"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "enabled",
+          "provider",
+          "model",
+          "has_api_key"
+        ],
+        "title": "AiImageSettingsRead"
+      },
+      "AiImageSettingsWrite": {
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key",
+            "writeOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AiImageSettingsWrite"
+      },
       "AlignmentFindingRead": {
         "properties": {
           "status": {
@@ -7648,6 +8812,10 @@
           "automation": {
             "type": "boolean",
             "title": "Automation"
+          },
+          "shopify_builder": {
+            "type": "boolean",
+            "title": "Shopify Builder"
           }
         },
         "additionalProperties": false,
@@ -7662,7 +8830,8 @@
           "settings",
           "resources",
           "media",
-          "automation"
+          "automation",
+          "shopify_builder"
         ],
         "title": "AppCapabilities"
       },
@@ -8450,6 +9619,111 @@
         ],
         "title": "BrowsersResources"
       },
+      "BuildPlanRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "store_id": {
+            "type": "string",
+            "title": "Store Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "staged",
+              "running",
+              "completed",
+              "partial",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "mode": {
+            "type": "string",
+            "const": "draft_only",
+            "title": "Mode"
+          },
+          "niche": {
+            "type": "string",
+            "title": "Niche"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language"
+          },
+          "theme_name": {
+            "type": "string",
+            "title": "Theme Name"
+          },
+          "preset": {
+            "type": "string",
+            "title": "Preset"
+          },
+          "product_count": {
+            "type": "integer",
+            "title": "Product Count"
+          },
+          "ai_hero": {
+            "type": "boolean",
+            "title": "Ai Hero"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/PlanStepRead"
+            },
+            "type": "array",
+            "title": "Steps"
+          },
+          "admin_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admin Url"
+          },
+          "preview_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Url"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "store_id",
+          "status",
+          "mode",
+          "niche",
+          "language",
+          "theme_name",
+          "preset",
+          "product_count",
+          "ai_hero",
+          "steps",
+          "admin_url",
+          "preview_url",
+          "created_at"
+        ],
+        "title": "BuildPlanRead"
+      },
       "BulkProfileRequest": {
         "properties": {
           "action": {
@@ -8549,6 +9823,55 @@
         ],
         "title": "ChangePasswordRequest"
       },
+      "ConnectStorePayload": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 160,
+            "title": "Label",
+            "default": ""
+          },
+          "shop_domain": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Shop Domain"
+          },
+          "client_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Client Id",
+            "writeOnly": true
+          },
+          "client_secret": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Client Secret",
+            "writeOnly": true
+          },
+          "proxy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "shop_domain",
+          "client_id",
+          "client_secret"
+        ],
+        "title": "ConnectStorePayload"
+      },
       "CookieImportResult": {
         "properties": {
           "format": {
@@ -8620,6 +9943,63 @@
           "code"
         ],
         "title": "CookieImportWarning"
+      },
+      "CreatePlanPayload": {
+        "properties": {
+          "theme_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Theme Id"
+          },
+          "preset": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Preset",
+            "default": ""
+          },
+          "product_source": {
+            "type": "string",
+            "enum": [
+              "catalog",
+              "csv"
+            ],
+            "title": "Product Source"
+          },
+          "catalog_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Id"
+          },
+          "niche_override": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Niche Override"
+          },
+          "ai_hero": {
+            "type": "boolean",
+            "title": "Ai Hero",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "theme_id",
+          "product_source"
+        ],
+        "title": "CreatePlanPayload"
       },
       "CredentialImport": {
         "properties": {
@@ -8980,6 +10360,18 @@
           "error"
         ],
         "title": "ErrorEnvelope"
+      },
+      "ExecutePlanPayload": {
+        "properties": {
+          "confirm": {
+            "type": "boolean",
+            "title": "Confirm",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ExecutePlanPayload"
       },
       "ExtensionPatch": {
         "properties": {
@@ -9567,6 +10959,24 @@
         ],
         "title": "MediaSettingsRead"
       },
+      "NetworkRoutePayload": {
+        "properties": {
+          "proxy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "NetworkRoutePayload"
+      },
       "OwnerSessionRead": {
         "properties": {
           "email": {
@@ -9664,6 +11074,57 @@
         ],
         "title": "ParsedProxyRead"
       },
+      "PlanStepRead": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "ready",
+              "blocked",
+              "running",
+              "completed",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "status",
+          "reason",
+          "error"
+        ],
+        "title": "PlanStepRead"
+      },
       "ProcessGroupResources": {
         "properties": {
           "cpu_percent": {
@@ -9687,6 +11148,119 @@
           "process_count"
         ],
         "title": "ProcessGroupResources"
+      },
+      "ProductCatalog": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "niche": {
+            "type": "string",
+            "title": "Niche"
+          },
+          "product_count": {
+            "type": "integer",
+            "title": "Product Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "niche",
+          "product_count"
+        ],
+        "title": "ProductCatalog"
+      },
+      "ProductCsvInspectRequest": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "maxLength": 5000000,
+            "minLength": 1,
+            "title": "Content",
+            "writeOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "ProductCsvInspectRequest"
+      },
+      "ProductCsvInspection": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "sample": {
+            "items": {
+              "$ref": "#/components/schemas/ProductRow"
+            },
+            "type": "array",
+            "title": "Sample"
+          },
+          "columns_mapped": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns Mapped"
+          },
+          "columns_unmapped": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns Unmapped"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "total",
+          "sample",
+          "columns_mapped",
+          "columns_unmapped"
+        ],
+        "title": "ProductCsvInspection"
+      },
+      "ProductRow": {
+        "properties": {
+          "handle": {
+            "type": "string",
+            "title": "Handle"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "price": {
+            "type": "string",
+            "title": "Price"
+          },
+          "variants": {
+            "type": "integer",
+            "title": "Variants"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "handle",
+          "title",
+          "price",
+          "variants"
+        ],
+        "title": "ProductRow"
       },
       "ProfileCreate": {
         "properties": {
@@ -11834,6 +13408,131 @@
         ],
         "title": "SettingsRead"
       },
+      "ShopifyStoreRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "shop_domain": {
+            "type": "string",
+            "title": "Shop Domain"
+          },
+          "connected": {
+            "type": "boolean",
+            "title": "Connected"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scopes"
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/StoreCapabilities"
+          },
+          "shop_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shop Name"
+          },
+          "product_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Count"
+          },
+          "proxy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Id"
+          },
+          "exit_ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Ip"
+          },
+          "niche": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Niche"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "shop_domain",
+          "connected",
+          "scopes",
+          "capabilities",
+          "shop_name",
+          "product_count",
+          "proxy_id",
+          "exit_ip",
+          "niche",
+          "language",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ShopifyStoreRead"
+      },
       "StartFactoryPayload": {
         "properties": {
           "quantity": {
@@ -11897,6 +13596,122 @@
           "assignments"
         ],
         "title": "StartRunPayload"
+      },
+      "StoreCapabilities": {
+        "properties": {
+          "write_products": {
+            "type": "boolean",
+            "title": "Write Products",
+            "default": false
+          },
+          "write_pages": {
+            "type": "boolean",
+            "title": "Write Pages",
+            "default": false
+          },
+          "write_legal_policies": {
+            "type": "boolean",
+            "title": "Write Legal Policies",
+            "default": false
+          },
+          "write_navigation": {
+            "type": "boolean",
+            "title": "Write Navigation",
+            "default": false
+          },
+          "write_themes": {
+            "type": "boolean",
+            "title": "Write Themes",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "StoreCapabilities"
+      },
+      "StoreProfileRead": {
+        "properties": {
+          "niche": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Niche"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "store_name": {
+            "type": "string",
+            "title": "Store Name"
+          },
+          "support_email": {
+            "type": "string",
+            "title": "Support Email"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "niche",
+          "language",
+          "store_name",
+          "support_email"
+        ],
+        "title": "StoreProfileRead"
+      },
+      "StoreProfileWrite": {
+        "properties": {
+          "niche": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Niche"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "store_name": {
+            "type": "string",
+            "maxLength": 160,
+            "title": "Store Name",
+            "default": ""
+          },
+          "support_email": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Support Email",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "StoreProfileWrite"
       },
       "SystemResources": {
         "properties": {
@@ -12053,6 +13868,68 @@
           "name"
         ],
         "title": "TemplateWrite"
+      },
+      "ThemeInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "main",
+              "unpublished",
+              "demo"
+            ],
+            "title": "Role"
+          },
+          "presets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Presets"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "role",
+          "presets"
+        ],
+        "title": "ThemeInfo"
+      },
+      "ThemeLibrary": {
+        "properties": {
+          "integrated": {
+            "items": {
+              "$ref": "#/components/schemas/ThemeInfo"
+            },
+            "type": "array",
+            "title": "Integrated"
+          },
+          "store": {
+            "items": {
+              "$ref": "#/components/schemas/ThemeInfo"
+            },
+            "type": "array",
+            "title": "Store"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "integrated",
+          "store"
+        ],
+        "title": "ThemeLibrary"
       },
       "ValidationError": {
         "properties": {

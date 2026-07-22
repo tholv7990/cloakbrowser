@@ -14,6 +14,7 @@ class AppCapabilities(StrictModel):
     resources: bool
     media: bool
     automation: bool
+    shopify_builder: bool
 
 
 class AppBootstrap(StrictModel):
