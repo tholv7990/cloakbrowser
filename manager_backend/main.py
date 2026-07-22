@@ -29,6 +29,7 @@ from .features.proxies.testing import ScannerQuickTester
 from .features.proxies.providers import DefaultProviderClient
 from .features.proxies.service import build_proxy_preflight
 from .features.proxies.quality import ProxyQualityManager, recover_orphan_quality_runs
+from .features.backups.service import maybe_auto_backup
 from .features.portability.browser_cookies import CookieContextAdapter
 from .features.settings.store import SettingsStore
 from .features.diagnostics.service import DiagnosticManager
@@ -83,6 +84,13 @@ def create_app(
             )
             if application.state.diagnostic_executor is not None:
                 application.state.diagnostic_executor.start()
+            if application.state.settings.auto_backup_enabled:
+                try:
+                    application.state.auto_backup = maybe_auto_backup(
+                        application.state.engine, application.state.settings.data_root
+                    )
+                except Exception:  # a backup failure must never block startup
+                    application.state.auto_backup = None
             yield
         finally:
             diagnostic_shutdown_error = None

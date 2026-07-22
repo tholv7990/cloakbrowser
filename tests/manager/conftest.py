@@ -13,6 +13,7 @@ def settings(tmp_path):
         data_root=tmp_path / "manager-data",
         allowed_origin="http://127.0.0.1:5173",
         install_token="test-local-token",
+        auto_backup_enabled=False,
     )
 
 

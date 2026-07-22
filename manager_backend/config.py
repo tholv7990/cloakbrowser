@@ -22,6 +22,7 @@ class ManagerSettings(BaseModel):
     port: int = 8765
     allowed_origin: str = "http://127.0.0.1:5273"
     install_token: str | None = None
+    auto_backup_enabled: bool = True
     max_concurrent_launches: int = Field(default=2, ge=1, le=8)
     max_concurrent_diagnostics: int = Field(default=2, ge=1, le=8)
     diagnostic_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
