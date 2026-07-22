@@ -24,7 +24,7 @@ from .dependencies import SESSION_COOKIE
 from .models import RuntimeSession
 from .features.proxies.credentials import KeyringCredentialStore
 from .features.proxies.testing import ScannerQuickTester
-from .features.proxies.service import build_proxy_preflight, resolve_proxy_url
+from .features.proxies.service import build_proxy_preflight
 from .features.proxies.quality import ProxyQualityManager, recover_orphan_quality_runs
 from .features.portability.browser_cookies import CookieContextAdapter
 from .features.settings.store import SettingsStore
@@ -65,18 +65,7 @@ def create_app(settings: ManagerSettings | None = None) -> FastAPI:
     app.state.session_factory = create_session_factory(app.state.engine)
     app.state.credential_store = KeyringCredentialStore()
 
-    def resolve_cookie_proxy(profile):
-        if profile.proxy_id is None:
-            return None
-        with app.state.session_factory() as session:
-            return resolve_proxy_url(
-                session, app.state.credential_store, profile.proxy_id
-            )
-
-    app.state.cookie_context_adapter = CookieContextAdapter(
-        resolved,
-        proxy_resolver=resolve_cookie_proxy,
-    )
+    app.state.cookie_context_adapter = CookieContextAdapter(resolved)
     app.state.proxy_quick_tester = ScannerQuickTester()
     app.state.proxy_quality_manager = ProxyQualityManager(
         app.state.session_factory, app.state.credential_store, resolved

@@ -140,3 +140,84 @@ Additional checks:
 None. The 10 MiB ceiling intentionally applies to the complete multipart HTTP
 request, including its small framing overhead, matching the design's request
 limit and ensuring multipart parsing never sees an oversized request.
+
+## Review fix: event-loop-safe synchronous browser import
+
+The original async import route streamed the request safely but then called the
+synchronous cookie parser and `CookieContextAdapter` directly on the asyncio
+event-loop thread. CloakBrowser's synchronous Playwright API rejects that usage.
+The adapter also owned a proxy resolver that opened a database session, so
+wrapping the old adapter call in `to_thread()` would have moved both an ORM
+profile and database work across threads.
+
+The route now resolves the proxy and creates a frozen `CookieProfileConfig` on
+the request thread. The owned worker receives only the adapter, immutable config,
+format, and bytes/string content; it performs JSON envelope decoding, accepted
+cookie parsing, context launch/import, and cleanup together. The request awaits
+the worker through `asyncio.shield()`, while a strong task registry retains a
+cancelled request's worker until its adapter `finally` cleanup completes.
+
+Content-Type dispatch now compares the exact case-folded base media type while
+allowing parameters. The buffered multipart request normalizes the base media
+type before Starlette parsing so valid mixed-case multipart types remain
+accepted, while prefix lookalikes are rejected before parsing.
+
+### RED
+
+Command:
+
+```powershell
+python -m pytest tests/manager/test_cookie_api.py::test_import_route_offloads_real_adapter_and_playwright_probe tests/manager/test_cookie_api.py::test_cookie_json_content_type_requires_an_exact_base_media_type tests/manager/test_cookie_api.py::test_cookie_multipart_content_type_requires_an_exact_base_media_type -q
+```
+
+Result before the fix (exit code 1):
+
+```text
+3 failed, 2 warnings in 1.78s
+```
+
+The real `sync_playwright()` guard returned HTTP 500 on the route loop,
+`application/jsonp` returned HTTP 200, and the multipart lookalike reached the
+form parser.
+
+The cancellation ownership test also failed before implementation because the
+owned worker helper did not exist:
+
+```text
+1 failed, 1 warning in 0.37s
+```
+
+A positive mixed-case multipart regression then exposed Starlette's
+case-sensitive base media-type dispatch:
+
+```text
+1 failed, 21 passed, 1 warning in 4.55s
+```
+
+### GREEN
+
+Focused command:
+
+```powershell
+python -m pytest tests/manager/test_cookie_api.py tests/manager/test_cookie_formats.py tests/manager/test_runtime_manager.py -q
+```
+
+Result (exit code 0):
+
+```text
+84 passed, 1 warning in 5.76s
+```
+
+Full Manager command:
+
+```powershell
+python -m pytest tests/manager -q
+```
+
+Result (exit code 0):
+
+```text
+319 passed, 2 skipped, 1 warning in 37.18s
+```
+
+The warning and skips are the same third-party/platform items noted above.

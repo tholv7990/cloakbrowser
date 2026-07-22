@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
 
 import pytest
+from playwright.sync_api import sync_playwright
+from starlette.requests import Request
 
 from manager_backend.errors import ManagerError
 from manager_backend.models import Profile, RuntimeSession
@@ -277,7 +281,10 @@ def test_cookie_adapter_failures_return_value_free_errors(
 def test_cookie_context_adapter_uses_headless_normal_profile_config_and_closes(
     settings, db_session_factory
 ):
-    from manager_backend.features.portability.browser_cookies import CookieContextAdapter
+    from manager_backend.features.portability.browser_cookies import (
+        CookieContextAdapter,
+        CookieProfileConfig,
+    )
 
     calls = []
 
@@ -307,12 +314,13 @@ def test_cookie_context_adapter_uses_headless_normal_profile_config_and_closes(
         session.add(profile)
         session.commit()
         profile_id = profile.id
-        adapter = CookieContextAdapter(
+        config = CookieProfileConfig.from_profile(
+            profile,
             settings,
-            launch_persistent_context=launch,
-            proxy_resolver=lambda _profile: "http://user:pass@proxy.example:8080",
+            proxy_url="http://user:pass@proxy.example:8080",
         )
-        adapter.import_cookies(profile, [COOKIE])
+        adapter = CookieContextAdapter(settings, launch_persistent_context=launch)
+        adapter.import_cookies(config, [COOKIE])
 
     assert calls == [
         (
@@ -339,7 +347,10 @@ def test_cookie_context_adapter_uses_headless_normal_profile_config_and_closes(
 def test_cookie_context_adapter_closes_after_cookie_api_failure(
     settings, db_session_factory, operation
 ):
-    from manager_backend.features.portability.browser_cookies import CookieContextAdapter
+    from manager_backend.features.portability.browser_cookies import (
+        CookieContextAdapter,
+        CookieProfileConfig,
+    )
 
     closed = []
 
@@ -365,12 +376,13 @@ def test_cookie_context_adapter_closes_after_cookie_api_failure(
         adapter = CookieContextAdapter(
             settings, launch_persistent_context=lambda *_args, **_kwargs: Context()
         )
+        config = CookieProfileConfig.from_profile(profile, settings)
 
         with pytest.raises(ManagerError) as caught:
             if operation == "import":
-                adapter.import_cookies(profile, [COOKIE])
+                adapter.import_cookies(config, [COOKIE])
             else:
-                adapter.export_cookies(profile)
+                adapter.export_cookies(config)
 
     assert caught.value.code == "cookie_operation_failed"
     assert "cookie-secret" not in caught.value.message
@@ -381,7 +393,10 @@ def test_cookie_context_adapter_closes_after_cookie_api_failure(
 def test_cookie_context_adapter_maps_cleanup_failure_to_safe_error(
     settings, db_session_factory
 ):
-    from manager_backend.features.portability.browser_cookies import CookieContextAdapter
+    from manager_backend.features.portability.browser_cookies import (
+        CookieContextAdapter,
+        CookieProfileConfig,
+    )
 
     class Context:
         def add_cookies(self, _cookies):
@@ -402,8 +417,9 @@ def test_cookie_context_adapter_maps_cleanup_failure_to_safe_error(
         adapter = CookieContextAdapter(
             settings, launch_persistent_context=lambda *_args, **_kwargs: Context()
         )
+        config = CookieProfileConfig.from_profile(profile, settings)
         with pytest.raises(ManagerError) as caught:
-            adapter.import_cookies(profile, [COOKIE])
+            adapter.import_cookies(config, [COOKIE])
 
     assert caught.value.code == "cookie_operation_failed"
     assert "cookie-secret" not in caught.value.message
@@ -413,9 +429,8 @@ def test_cookie_context_adapter_maps_cleanup_failure_to_safe_error(
 def test_cookie_context_adapter_rejects_a_running_profile_before_launch(
     settings, db_session_factory
 ):
-    from manager_backend.features.portability.browser_cookies import CookieContextAdapter
+    from manager_backend.features.portability.browser_cookies import CookieProfileConfig
 
-    launched = []
     with db_session_factory() as session:
         profile = Profile(
             name="Running",
@@ -427,12 +442,189 @@ def test_cookie_context_adapter_rejects_a_running_profile_before_launch(
         session.add(RuntimeSession(profile_id=profile.id, state="running"))
         session.commit()
         session.refresh(profile)
-        adapter = CookieContextAdapter(
-            settings,
-            launch_persistent_context=lambda *_args, **_kwargs: launched.append(True),
-        )
         with pytest.raises(ManagerError) as caught:
-            adapter.import_cookies(profile, [COOKIE])
+            CookieProfileConfig.from_profile(profile, settings)
 
     assert caught.value.code == "profile_not_stopped"
-    assert launched == []
+
+
+def test_import_route_offloads_real_adapter_and_playwright_probe(
+    client, auth_headers, settings, monkeypatch
+):
+    from manager_backend.features.portability import routes as portability_routes
+    from manager_backend.features.portability.browser_cookies import CookieContextAdapter
+
+    profile_id = _profile(client)
+    loop_threads = []
+    parser_threads = []
+    adapter_threads = []
+    adapter_inputs = []
+    closed = []
+    original_parts = portability_routes._cookie_request_parts
+    original_parser = portability_routes.parse_cookie_payload
+
+    async def record_loop_thread(request, body):
+        loop_threads.append(threading.get_ident())
+        return await original_parts(request, body)
+
+    def record_parser_thread(content, format):
+        parser_threads.append(threading.get_ident())
+        return original_parser(content, format)
+
+    class Context:
+        def add_cookies(self, _cookies):
+            return None
+
+        def close(self):
+            closed.append(True)
+
+    def launch(*_args, **_kwargs):
+        adapter_threads.append(threading.get_ident())
+        # This is Playwright's real sync/async loop guard. It raises when the
+        # sync API is invoked from the route's running asyncio loop.
+        with sync_playwright():
+            pass
+        return Context()
+
+    class ProbeAdapter(CookieContextAdapter):
+        def import_cookies(self, profile_config, cookies):
+            adapter_inputs.append(profile_config)
+            return super().import_cookies(profile_config, cookies)
+
+    monkeypatch.setattr(portability_routes, "_cookie_request_parts", record_loop_thread)
+    monkeypatch.setattr(portability_routes, "parse_cookie_payload", record_parser_thread)
+    client.app.state.cookie_context_adapter = ProbeAdapter(
+        settings, launch_persistent_context=launch
+    )
+
+    response = client.post(
+        f"/api/v1/profiles/{profile_id}/cookies/import",
+        headers=auth_headers,
+        json={"format": "playwright", "content": json.dumps([COOKIE])},
+    )
+
+    assert response.status_code == 200
+    assert len(loop_threads) == len(parser_threads) == len(adapter_threads) == 1
+    assert parser_threads == adapter_threads
+    assert adapter_threads[0] != loop_threads[0]
+    assert len(adapter_inputs) == 1
+    assert not isinstance(adapter_inputs[0], Profile)
+    assert closed == [True]
+
+
+def test_cookie_json_content_type_requires_an_exact_base_media_type(
+    client, auth_headers
+):
+    profile_id = _profile(client)
+    adapter = FakeCookieAdapter()
+    client.app.state.cookie_context_adapter = adapter
+
+    response = client.post(
+        f"/api/v1/profiles/{profile_id}/cookies/import",
+        headers={**auth_headers, "Content-Type": "Application/JSONP; charset=utf-8"},
+        content=json.dumps({"format": "playwright", "content": "[]"}),
+    )
+
+    assert response.status_code == 422
+    assert adapter.imported == []
+
+
+def test_cookie_json_content_type_allows_case_and_parameters(client, auth_headers):
+    profile_id = _profile(client)
+    adapter = FakeCookieAdapter()
+    client.app.state.cookie_context_adapter = adapter
+
+    response = client.post(
+        f"/api/v1/profiles/{profile_id}/cookies/import",
+        headers={**auth_headers, "Content-Type": "Application/JSON; Charset=UTF-8"},
+        content=json.dumps({"format": "playwright", "content": "[]"}),
+    )
+
+    assert response.status_code == 200
+    assert adapter.imported == [(profile_id, [])]
+
+
+def test_cookie_multipart_content_type_requires_an_exact_base_media_type(
+    client, auth_headers, monkeypatch
+):
+    profile_id = _profile(client)
+    adapter = FakeCookieAdapter()
+    client.app.state.cookie_context_adapter = adapter
+    parsed = []
+
+    async def form_must_not_run(*_args, **_kwargs):
+        parsed.append(True)
+        raise AssertionError("invalid media type reached multipart parser")
+
+    monkeypatch.setattr(Request, "form", form_must_not_run)
+    response = client.post(
+        f"/api/v1/profiles/{profile_id}/cookies/import",
+        headers={
+            **auth_headers,
+            "Content-Type": "Multipart/Form-DataEvil; boundary=not-a-boundary",
+        },
+        content=b"attacker-controlled",
+    )
+
+    assert response.status_code == 422
+    assert parsed == []
+    assert adapter.imported == []
+
+
+def test_cookie_multipart_content_type_allows_case_and_parameters(
+    client, auth_headers
+):
+    profile_id = _profile(client)
+    adapter = FakeCookieAdapter()
+    client.app.state.cookie_context_adapter = adapter
+    boundary = "CaseSensitiveBoundary"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="format"\r\n\r\n'
+        "playwright\r\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="cookies.json"\r\n'
+        "Content-Type: application/json\r\n\r\n"
+        "[]\r\n"
+        f"--{boundary}--\r\n"
+    ).encode("ascii")
+
+    response = client.post(
+        f"/api/v1/profiles/{profile_id}/cookies/import",
+        headers={
+            **auth_headers,
+            "Content-Type": f"Multipart/Form-Data; Boundary={boundary}",
+        },
+        content=body,
+    )
+
+    assert response.status_code == 200
+    assert adapter.imported == [(profile_id, [])]
+
+
+@pytest.mark.asyncio
+async def test_owned_cookie_thread_survives_request_cancellation_until_cleanup():
+    from manager_backend.features.portability import routes as portability_routes
+
+    runner = getattr(portability_routes, "_run_owned_sync_cookie_operation", None)
+    assert runner is not None
+    started = threading.Event()
+    release = threading.Event()
+    cleaned = threading.Event()
+
+    def blocking_operation():
+        started.set()
+        try:
+            release.wait(timeout=5)
+        finally:
+            cleaned.set()
+
+    request_task = asyncio.create_task(runner(blocking_operation))
+    assert await asyncio.to_thread(started.wait, 2)
+    request_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await request_task
+
+    assert not cleaned.is_set()
+    release.set()
+    assert await asyncio.to_thread(cleaned.wait, 2)

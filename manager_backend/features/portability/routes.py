@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import unicodedata
-from typing import Annotated, Literal
+from collections.abc import Callable
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import ValidationError
@@ -15,6 +17,8 @@ from ...dependencies import get_session
 from ...errors import ManagerError
 from ...schemas.common import ErrorEnvelope
 from ..profiles.service import get_profile
+from ..proxies.service import resolve_proxy_url
+from .browser_cookies import CookieProfileConfig
 from .cookies import MAX_COOKIE_PAYLOAD_BYTES, parse_cookie_payload, to_netscape
 from .profiles import export_profile, import_profile
 from .schemas import (
@@ -28,6 +32,7 @@ from .schemas import (
 SessionDependency = Annotated[Session, Depends(get_session)]
 router = APIRouter()
 MAX_PROFILE_VALIDATION_ERRORS = 16
+_COOKIE_OPERATION_TASKS: set[asyncio.Task[Any]] = set()
 _SAFE_LOCATION_PARTS = {
     "format",
     "version",
@@ -202,23 +207,20 @@ def _invalid_cookie_document() -> ManagerError:
     )
 
 
-async def _cookie_request_parts(request: Request, body: bytes) -> tuple[str, object]:
-    content_type = request.headers.get("content-type", "").lower()
-    if content_type.startswith("application/json"):
-        try:
-            document = json.loads(body)
-        except (TypeError, ValueError):
-            raise _invalid_cookie_document() from None
-        if not isinstance(document, dict) or set(document) != {"format", "content"}:
-            raise _invalid_cookie_document()
-        format = document.get("format")
-        content = document.get("content")
-        if not isinstance(format, str) or not isinstance(content, str):
-            raise _invalid_cookie_document()
-        return format, content
+async def _cookie_request_parts(
+    request: Request, body: bytes
+) -> tuple[str | None, object]:
+    content_type = request.headers.get("content-type", "")
+    base_media_type = content_type.partition(";")[0].strip().casefold()
+    if base_media_type == "application/json":
+        return None, body
 
-    if content_type.startswith("multipart/form-data"):
+    if base_media_type == "multipart/form-data":
         delivered = False
+        _base, separator, parameters = content_type.partition(";")
+        normalized_content_type = "multipart/form-data"
+        if separator:
+            normalized_content_type += f";{parameters}"
 
         async def receive() -> dict[str, object]:
             nonlocal delivered
@@ -227,7 +229,17 @@ async def _cookie_request_parts(request: Request, body: bytes) -> tuple[str, obj
             delivered = True
             return {"type": "http.request", "body": body, "more_body": False}
 
-        buffered = Request(request.scope, receive=receive)
+        scope = dict(request.scope)
+        scope["headers"] = [
+            (
+                key,
+                normalized_content_type.encode("latin-1")
+                if key.lower() == b"content-type"
+                else value,
+            )
+            for key, value in request.scope["headers"]
+        ]
+        buffered = Request(scope, receive=receive)
         try:
             async with buffered.form(
                 max_files=1,
@@ -247,6 +259,71 @@ async def _cookie_request_parts(request: Request, body: bytes) -> tuple[str, obj
         return format, content
 
     raise _invalid_cookie_document()
+
+
+def _json_cookie_request_parts(body: object) -> tuple[str, str]:
+    try:
+        document = json.loads(body)
+    except (TypeError, ValueError):
+        raise ValueError("invalid_cookie_document") from None
+    if not isinstance(document, dict) or set(document) != {"format", "content"}:
+        raise ValueError("invalid_cookie_document")
+    format = document.get("format")
+    content = document.get("content")
+    if not isinstance(format, str) or not isinstance(content, str):
+        raise ValueError("invalid_cookie_document")
+    return format, content
+
+
+def _prepared_cookie_profile(
+    request: Request, session: Session, profile_id: str
+) -> tuple[object, CookieProfileConfig]:
+    profile = _stopped_profile(session, profile_id)
+    proxy_url = None
+    if profile.proxy_id is not None:
+        proxy_url = resolve_proxy_url(
+            session, request.app.state.credential_store, profile.proxy_id
+        )
+    config = CookieProfileConfig.from_profile(
+        profile,
+        request.app.state.settings,
+        proxy_url=proxy_url,
+    )
+    return profile, config
+
+
+def _parse_and_import_cookies(
+    adapter: object,
+    profile_config: CookieProfileConfig,
+    format: str | None,
+    content: object,
+):
+    if format is None:
+        format, content = _json_cookie_request_parts(content)
+    if format not in {"json", "playwright", "netscape"}:
+        raise ValueError("invalid_cookie_document")
+    parsed = parse_cookie_payload(content, format)
+    adapter.import_cookies(profile_config, parsed.cookies)
+    return (
+        format,
+        len(parsed.cookies),
+        parsed.skipped,
+        parsed.rejected,
+        [warning.model_dump() for warning in parsed.warnings],
+    )
+
+
+def _release_cookie_operation(task: asyncio.Task[Any]) -> None:
+    _COOKIE_OPERATION_TASKS.discard(task)
+    if not task.cancelled():
+        task.exception()
+
+
+async def _run_owned_sync_cookie_operation(operation: Callable[[], Any]) -> Any:
+    task = asyncio.create_task(asyncio.to_thread(operation))
+    _COOKIE_OPERATION_TASKS.add(task)
+    task.add_done_callback(_release_cookie_operation)
+    return await asyncio.shield(task)
 
 
 def _stopped_profile(session: Session, profile_id: str):
@@ -278,15 +355,25 @@ async def upload_cookies(
 ) -> CookieImportResult:
     body = await _bounded_cookie_body(request)
     format, content = await _cookie_request_parts(request, body)
-    if format not in {"json", "playwright", "netscape"}:
-        raise _invalid_cookie_document()
+    _profile, profile_config = _prepared_cookie_profile(request, session, profile_id)
+    adapter = request.app.state.cookie_context_adapter
     try:
-        parsed = parse_cookie_payload(content, format)
+        (
+            format,
+            imported_count,
+            skipped_count,
+            rejected_count,
+            warnings,
+        ) = await _run_owned_sync_cookie_operation(
+            lambda: _parse_and_import_cookies(
+                adapter,
+                profile_config,
+                format,
+                content,
+            )
+        )
     except ValueError:
         raise _invalid_cookie_document() from None
-    profile = _stopped_profile(session, profile_id)
-    try:
-        request.app.state.cookie_context_adapter.import_cookies(profile, parsed.cookies)
     except ManagerError as error:
         if error.code in {"profile_locked", "cookie_operation_failed"}:
             raise
@@ -295,10 +382,10 @@ async def upload_cookies(
         raise _cookie_operation_failed() from None
     return CookieImportResult.model_validate({
         "format": format,
-        "imported_count": len(parsed.cookies),
-        "skipped_count": parsed.skipped,
-        "rejected_count": parsed.rejected,
-        "warnings": [warning.model_dump() for warning in parsed.warnings],
+        "imported_count": imported_count,
+        "skipped_count": skipped_count,
+        "rejected_count": rejected_count,
+        "warnings": warnings,
     })
 
 
@@ -313,9 +400,9 @@ def download_cookies(
     session: SessionDependency,
     format: Literal["playwright", "netscape"] = "playwright",
 ) -> Response:
-    profile = _stopped_profile(session, profile_id)
+    profile, profile_config = _prepared_cookie_profile(request, session, profile_id)
     try:
-        cookies = request.app.state.cookie_context_adapter.export_cookies(profile)
+        cookies = request.app.state.cookie_context_adapter.export_cookies(profile_config)
         if format == "netscape":
             content = to_netscape(cookies).encode("utf-8")
             suffix = "txt"
