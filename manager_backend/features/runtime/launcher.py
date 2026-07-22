@@ -7,6 +7,8 @@ import psutil
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from cloakbrowser.config import get_chromium_version
+
 from ...config import ManagerSettings
 from ...models import Extension, Profile, profile_extensions
 from ..extensions.service import validate_registered_extension_path
@@ -63,8 +65,13 @@ def profile_launch_snapshot(
         "fingerprint_preset": profile.fingerprint_preset,
         "fingerprint_revision": profile.fingerprint_revision,
         "fingerprint_config_hash": profile.fingerprint_config_hash,
+        # Quantum model: "installed" profiles launch the bundled build (uncapped
+        # concurrency). Latest Pro (seat-capped) is an explicit opt-in — pin its
+        # version. Passing None here would resolve to latest Pro and spend a seat.
         "browser_version": (
-            profile.browser_version if profile.browser_version_mode == "pinned" else None
+            profile.browser_version
+            if profile.browser_version_mode == "pinned"
+            else get_chromium_version()
         ),
         "custom_user_agent": (
             profile.custom_user_agent if profile.user_agent_mode == "custom" else None

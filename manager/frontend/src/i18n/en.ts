@@ -325,6 +325,7 @@ export const en = {
   'editor.installed': 'Installed ({version})',
   'editor.pinned': 'Pinned',
   'editor.pinnedVersion': 'Pinned version',
+  'editor.browserVersionHint': 'Installed runs the standard build — unlimited concurrent profiles. Pin the latest version to use Pro (spends a license seat).',
   'editor.userAgent': 'User agent',
   'editor.userAgentHint': 'Automatic is derived from the persona and build.',
   'editor.customAdvanced': 'Custom (advanced)',

@@ -350,6 +350,7 @@ const IdentityStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
         <SelectField
           name="browser_version_mode"
           label={t('editor.browserVersion')}
+          hint={t('editor.browserVersionHint')}
           options={[
             { value: 'installed', label: t('editor.installed', { version: refs.browserVersion }) },
             { value: 'pinned', label: t('editor.pinned') },

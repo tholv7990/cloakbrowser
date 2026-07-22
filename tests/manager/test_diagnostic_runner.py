@@ -31,6 +31,8 @@ from manager_backend.features.diagnostics.runner import (
 from manager_backend.features.runtime.launcher import profile_launch_snapshot
 from manager_backend.models import Profile, RuntimeSession
 
+from cloakbrowser.config import get_chromium_version
+
 
 PNG = b"\x89PNG\r\n\x1a\nlocal-fixture-image"
 
@@ -647,7 +649,7 @@ def test_direct_control_uses_and_removes_a_manager_owned_no_proxy_profile(
     exact_run_root = settings.data_root / "diagnostics" / request.run_id
     assert snapshot["proxy_id"] is None
     assert snapshot["proxy_url"] is None
-    assert snapshot["browser_version"] is None
+    assert snapshot["browser_version"] == get_chromium_version()
     assert temporary_profile.parent.resolve() == exact_run_root.resolve()
     assert not temporary_profile.exists()
     assert browser.sessions[0].closed

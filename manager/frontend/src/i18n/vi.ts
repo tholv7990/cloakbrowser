@@ -329,6 +329,7 @@ export const vi: Record<keyof typeof en, string> = {
   'editor.installed': 'Đã cài ({version})',
   'editor.pinned': 'Ghim',
   'editor.pinnedVersion': 'Phiên bản ghim',
+  'editor.browserVersionHint': 'Bản cài đặt chạy build tiêu chuẩn — mở đồng thời không giới hạn. Ghim phiên bản mới nhất để dùng Pro (tốn một chỗ giấy phép).',
   'editor.userAgent': 'User agent',
   'editor.userAgentHint': 'Tự động được suy ra từ persona và bản dựng.',
   'editor.customAdvanced': 'Tùy chỉnh (nâng cao)',
