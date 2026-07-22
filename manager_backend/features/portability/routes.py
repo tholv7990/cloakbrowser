@@ -1,18 +1,28 @@
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
+from starlette.datastructures import UploadFile
+from starlette.formparsers import MultiPartException
 
 from ...dependencies import get_session
 from ...errors import ManagerError
 from ...schemas.common import ErrorEnvelope
+from ..profiles.service import get_profile
+from .cookies import MAX_COOKIE_PAYLOAD_BYTES, parse_cookie_payload, to_netscape
 from .profiles import export_profile, import_profile
-from .schemas import MAX_PROFILE_DOCUMENT_BYTES, ProfileExportV1, ProfileImportResult
+from .schemas import (
+    MAX_PROFILE_DOCUMENT_BYTES,
+    CookieImportResult,
+    ProfileExportV1,
+    ProfileImportResult,
+)
 
 
 SessionDependency = Annotated[Session, Depends(get_session)]
@@ -59,6 +69,13 @@ def _safe_filename(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", ascii_name.lower()).strip("-")
     slug = slug[:60].rstrip("-") or "profile"
     return f"cloakbrowser-profile-{slug}.json"
+
+
+def _safe_cookie_filename(name: str, suffix: str) -> str:
+    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_name.lower()).strip("-")
+    slug = slug[:60].rstrip("-") or "profile"
+    return f"cloakbrowser-cookies-{slug}.{suffix}"
 
 
 def _validation_fields(error: ValidationError) -> dict[str, str]:
@@ -147,3 +164,181 @@ async def upload_profile(request: Request, session: SessionDependency) -> Profil
             _validation_fields(error),
         ) from None
     return import_profile(session, request.app.state.settings, document)
+
+
+async def _bounded_cookie_body(request: Request) -> bytes:
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared_length = int(content_length)
+        except ValueError:
+            declared_length = 0
+        if declared_length > MAX_COOKIE_PAYLOAD_BYTES:
+            raise ManagerError(
+                "cookie_payload_too_large",
+                "Cookie imports may not exceed 10 MiB.",
+                413,
+                {"document": "too_large"},
+            )
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > MAX_COOKIE_PAYLOAD_BYTES:
+            raise ManagerError(
+                "cookie_payload_too_large",
+                "Cookie imports may not exceed 10 MiB.",
+                413,
+                {"document": "too_large"},
+            )
+        body.extend(chunk)
+    return bytes(body)
+
+
+def _invalid_cookie_document() -> ManagerError:
+    return ManagerError(
+        "invalid_cookie_document",
+        "The cookie import document is invalid or unsupported.",
+        422,
+        {"document": "invalid"},
+    )
+
+
+async def _cookie_request_parts(request: Request, body: bytes) -> tuple[str, object]:
+    content_type = request.headers.get("content-type", "").lower()
+    if content_type.startswith("application/json"):
+        try:
+            document = json.loads(body)
+        except (TypeError, ValueError):
+            raise _invalid_cookie_document() from None
+        if not isinstance(document, dict) or set(document) != {"format", "content"}:
+            raise _invalid_cookie_document()
+        format = document.get("format")
+        content = document.get("content")
+        if not isinstance(format, str) or not isinstance(content, str):
+            raise _invalid_cookie_document()
+        return format, content
+
+    if content_type.startswith("multipart/form-data"):
+        delivered = False
+
+        async def receive() -> dict[str, object]:
+            nonlocal delivered
+            if delivered:
+                return {"type": "http.request", "body": b"", "more_body": False}
+            delivered = True
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        buffered = Request(request.scope, receive=receive)
+        try:
+            async with buffered.form(
+                max_files=1,
+                max_fields=1,
+                max_part_size=MAX_COOKIE_PAYLOAD_BYTES,
+            ) as form:
+                items = list(form.multi_items())
+                if len(items) != 2 or {key for key, _value in items} != {"format", "file"}:
+                    raise _invalid_cookie_document()
+                format = form.get("format")
+                upload = form.get("file")
+                if not isinstance(format, str) or not isinstance(upload, UploadFile):
+                    raise _invalid_cookie_document()
+                content = await upload.read()
+        except MultiPartException:
+            raise _invalid_cookie_document() from None
+        return format, content
+
+    raise _invalid_cookie_document()
+
+
+def _stopped_profile(session: Session, profile_id: str):
+    profile = get_profile(session, profile_id)
+    if profile.runtime_state != "stopped":
+        raise ManagerError(
+            "profile_not_stopped",
+            "The profile must be stopped for cookie operations.",
+            409,
+        )
+    return profile
+
+
+def _cookie_operation_failed() -> ManagerError:
+    return ManagerError(
+        "cookie_operation_failed",
+        "The browser cookie operation could not be completed.",
+        500,
+    )
+
+
+@router.post(
+    "/profiles/{profile_id}/cookies/import",
+    response_model=CookieImportResult,
+    responses={413: {"model": ErrorEnvelope, "description": "Cookie document too large"}},
+)
+async def upload_cookies(
+    profile_id: str, request: Request, session: SessionDependency
+) -> CookieImportResult:
+    body = await _bounded_cookie_body(request)
+    format, content = await _cookie_request_parts(request, body)
+    if format not in {"json", "playwright", "netscape"}:
+        raise _invalid_cookie_document()
+    try:
+        parsed = parse_cookie_payload(content, format)
+    except ValueError:
+        raise _invalid_cookie_document() from None
+    profile = _stopped_profile(session, profile_id)
+    try:
+        request.app.state.cookie_context_adapter.import_cookies(profile, parsed.cookies)
+    except ManagerError as error:
+        if error.code in {"profile_locked", "cookie_operation_failed"}:
+            raise
+        raise _cookie_operation_failed() from None
+    except Exception:
+        raise _cookie_operation_failed() from None
+    return CookieImportResult.model_validate({
+        "format": format,
+        "imported_count": len(parsed.cookies),
+        "skipped_count": parsed.skipped,
+        "rejected_count": parsed.rejected,
+        "warnings": [warning.model_dump() for warning in parsed.warnings],
+    })
+
+
+@router.get(
+    "/profiles/{profile_id}/cookies/export",
+    response_class=Response,
+    responses={404: {"model": ErrorEnvelope, "description": "Profile not found"}},
+)
+def download_cookies(
+    profile_id: str,
+    request: Request,
+    session: SessionDependency,
+    format: Literal["playwright", "netscape"] = "playwright",
+) -> Response:
+    profile = _stopped_profile(session, profile_id)
+    try:
+        cookies = request.app.state.cookie_context_adapter.export_cookies(profile)
+        if format == "netscape":
+            content = to_netscape(cookies).encode("utf-8")
+            suffix = "txt"
+            media_type = "text/plain"
+        else:
+            content = (
+                json.dumps(cookies, ensure_ascii=False, separators=(",", ":")) + "\n"
+            ).encode("utf-8")
+            suffix = "json"
+            media_type = "application/json"
+    except ManagerError as error:
+        if error.code in {"profile_locked", "cookie_operation_failed"}:
+            raise
+        raise _cookie_operation_failed() from None
+    except Exception:
+        raise _cookie_operation_failed() from None
+    filename = _safe_cookie_filename(profile.name, suffix)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

@@ -12,7 +12,7 @@ from ...config import ManagerSettings
 from ...errors import ManagerError
 from ...models import Profile, RuntimeSession
 from ..profiles.service import get_profile
-from .launcher import CloakPersistentLauncher
+from .launcher import CloakPersistentLauncher, profile_launch_snapshot
 from .locks import ProfileFileLock
 from .logs import append_profile_log
 from .service import create_runtime_session
@@ -48,23 +48,7 @@ class RuntimeManager:
         self._lock = threading.Lock()
 
     def _snapshot(self, profile: Profile) -> dict[str, Any]:
-        location = profile.location or {}
-        return {
-            "id": profile.id,
-            "profile_dir": self._settings.profile_root / profile.id,
-            "fingerprint_seed": profile.fingerprint_seed,
-            "fingerprint_preset": profile.fingerprint_preset,
-            "browser_version": (
-                profile.browser_version if profile.browser_version_mode == "pinned" else None
-            ),
-            "custom_user_agent": (
-                profile.custom_user_agent if profile.user_agent_mode == "custom" else None
-            ),
-            "locale": location.get("locale"),
-            "timezone": location.get("timezone"),
-            "startup_urls": list(profile.startup_urls or []),
-            "proxy_id": profile.proxy_id,
-        }
+        return profile_launch_snapshot(profile, self._settings)
 
     def start(self, profile_id: str) -> RuntimeSession:
         with self._lock:

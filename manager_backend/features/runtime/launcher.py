@@ -5,6 +5,9 @@ from datetime import datetime, timezone
 
 import psutil
 
+from ...config import ManagerSettings
+from ...models import Profile
+
 
 class BrowserHandle(Protocol):
     def close(self) -> None: ...
@@ -14,6 +17,45 @@ class BrowserHandle(Protocol):
 
 class BrowserLauncher(Protocol):
     def launch(self, snapshot: dict[str, Any]) -> BrowserHandle: ...
+
+
+def profile_launch_snapshot(profile: Profile, settings: ManagerSettings) -> dict[str, Any]:
+    """Build the one canonical Manager launch snapshot for a profile."""
+
+    location = profile.location or {}
+    return {
+        "id": profile.id,
+        "profile_dir": settings.profile_root / profile.id,
+        "fingerprint_seed": profile.fingerprint_seed,
+        "fingerprint_preset": profile.fingerprint_preset,
+        "browser_version": (
+            profile.browser_version if profile.browser_version_mode == "pinned" else None
+        ),
+        "custom_user_agent": (
+            profile.custom_user_agent if profile.user_agent_mode == "custom" else None
+        ),
+        "locale": location.get("locale"),
+        "timezone": location.get("timezone"),
+        "startup_urls": list(profile.startup_urls or []),
+        "proxy_id": profile.proxy_id,
+    }
+
+
+def persistent_context_kwargs(
+    snapshot: dict[str, Any], *, headless: bool
+) -> dict[str, Any]:
+    """Translate a Manager snapshot into CloakBrowser persistent-context options."""
+
+    return {
+        "headless": headless,
+        "fingerprint_preset": snapshot["fingerprint_preset"],
+        "args": [f"--fingerprint={snapshot['fingerprint_seed']}"],
+        "browser_version": snapshot.get("browser_version"),
+        "user_agent": snapshot.get("custom_user_agent"),
+        "proxy": snapshot.get("proxy_url"),
+        "locale": snapshot.get("locale"),
+        "timezone": snapshot.get("timezone"),
+    }
 
 
 class _PersistentContextHandle:
@@ -56,14 +98,7 @@ class CloakPersistentLauncher:
         user_data_dir = str(profile_dir / "user-data")
         context = cloakbrowser.launch_persistent_context(
             user_data_dir,
-            headless=False,
-            fingerprint_preset=snapshot["fingerprint_preset"],
-            args=[f"--fingerprint={snapshot['fingerprint_seed']}"],
-            browser_version=snapshot.get("browser_version"),
-            user_agent=snapshot.get("custom_user_agent"),
-            proxy=snapshot.get("proxy_url"),
-            locale=snapshot.get("locale"),
-            timezone=snapshot.get("timezone"),
+            **persistent_context_kwargs(snapshot, headless=False),
         )
         for url in snapshot["startup_urls"]:
             context.new_page().goto(url)

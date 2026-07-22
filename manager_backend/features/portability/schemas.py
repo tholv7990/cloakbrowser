@@ -214,3 +214,16 @@ class ProfileImportResult(PortableStrictModel):
     profile_id: str
     profile_name: str
     warnings: list[ProfileImportWarning] = Field(default_factory=list, max_length=102)
+
+
+class CookieImportWarning(PortableStrictModel):
+    index: int = Field(ge=0, le=9_999)
+    code: str = Field(min_length=1, max_length=40, pattern=r"^[a-z0-9_]+$")
+
+
+class CookieImportResult(PortableStrictModel):
+    format: Literal["json", "playwright", "netscape"]
+    imported_count: int = Field(ge=0, le=10_000)
+    skipped_count: int = Field(ge=0, le=10_000)
+    rejected_count: int = Field(ge=0, le=10_000)
+    warnings: list[CookieImportWarning] = Field(default_factory=list, max_length=16)
