@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any, Protocol
 from datetime import datetime, timezone
@@ -129,24 +130,40 @@ def persistent_context_kwargs(
 
 
 class _PersistentContextHandle:
+    _PROBE_INTERVAL = 2.0
+
     def __init__(self, context: Any, user_data_dir: str):
         self._context = context
         self._closed = False
         self._profile_dir = Path(user_data_dir).parent
+        self._owned_path = user_data_dir.casefold()
         self.browser_pid: int | None = None
         self.browser_created_at: datetime | None = None
-        owned_path = user_data_dir.casefold()
-        for process in psutil.Process().children(recursive=True):
+        self._last_probe = 0.0
+        self._locate_browser()
+        context.on("close", self._mark_closed)
+
+    def _locate_browser(self) -> bool:
+        """Find the profile's browser process by its --user-data-dir.
+
+        Scans all processes (not just our children): Playwright launches Chrome
+        behind a node driver, and in the runtime worker the child-tree scan misses
+        it — a full scan finds it regardless of parent, which is also what lets us
+        detect a user-closed window (the process is simply gone).
+        """
+        for process in psutil.process_iter(["name"]):
             try:
-                if owned_path in " ".join(process.cmdline()).casefold():
+                if "chrome" not in (process.info["name"] or "").lower():
+                    continue
+                if self._owned_path in " ".join(process.cmdline()).casefold():
                     self.browser_pid = process.pid
                     self.browser_created_at = datetime.fromtimestamp(
                         process.create_time(), timezone.utc
                     )
-                    break
+                    return True
             except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
                 continue
-        context.on("close", self._mark_closed)
+        return False
 
     def _mark_closed(self, *_args: Any) -> None:
         self._closed = True
@@ -171,11 +188,32 @@ class _PersistentContextHandle:
     def close(self) -> None:
         if not self._closed:
             self._save_session()
-            self._context.close()
+            try:
+                self._context.close()
+            except Exception:
+                pass  # the browser may already be gone (user closed the window)
             self._closed = True
 
     def is_closed(self) -> bool:
-        return self._closed
+        if self._closed:
+            return True
+        # The Playwright "close" event never fires unless the sync event loop is
+        # pumped, which the runtime worker's wait loop doesn't do — so poll the OS
+        # for the browser process instead (throttled).
+        now = time.monotonic()
+        if now - self._last_probe < self._PROBE_INTERVAL:
+            return False
+        self._last_probe = now
+        if self.browser_pid is not None:
+            if psutil.pid_exists(self.browser_pid):
+                return False
+            self._closed = True
+            return True
+        # Never captured a pid — re-scan; if nothing owns the dir, it's gone.
+        if self._locate_browser():
+            return False
+        self._closed = True
+        return True
 
 
 class CloakPersistentLauncher:
@@ -189,7 +227,15 @@ class CloakPersistentLauncher:
             user_data_dir,
             **persistent_context_kwargs(snapshot, headless=False),
         )
-        # Reopen the tabs from the last stop; fall back to startup_urls on first run.
+        # Reopen the tabs from the last stop; fall back to startup_urls on first
+        # run. Each navigation is best-effort: a dead or slow URL (a typo'd host
+        # like http://test/, a hung page) must never crash the launch or block
+        # the other tabs. "commit" also returns as soon as the page starts
+        # loading, so a heavy site doesn't hold up the launch.
         for url in urls_to_open(profile_dir, snapshot["startup_urls"]):
-            context.new_page().goto(url)
+            page = context.new_page()
+            try:
+                page.goto(url, wait_until="commit", timeout=15000)
+            except Exception:
+                continue
         return _PersistentContextHandle(context, user_data_dir)
