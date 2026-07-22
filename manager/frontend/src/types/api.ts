@@ -134,8 +134,12 @@ export interface ProxyQuickTest {
   exit_ip_matches: boolean | null;
   latency_ms: number | null;
   country: string | null;
+  country_name: string | null;
   city: string | null;
   timezone: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  zip_code: string | null;
   asn: string | null;
   organization: string | null;
   checked_at: string;

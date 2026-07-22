@@ -396,9 +396,13 @@ function buildQuickResult(proxy: Proxy): ProxyQuickTest {
       exit_ip: '203.0.113.7',
       exit_ip_matches: true,
       latency_ms: 18,
-      country: 'United States',
+      country: 'US',
+      country_name: 'United States',
       city: 'Local network',
       timezone: 'America/New_York',
+      latitude: 40.71427,
+      longitude: -74.00597,
+      zip_code: '10004',
       asn: 'AS64500',
       organization: 'Direct connection',
       checked_at: now(),
@@ -406,17 +410,23 @@ function buildQuickResult(proxy: Proxy): ProxyQuickTest {
     };
   }
   const reachable = proxy.reputation !== 'malicious';
+  // Simulate a GeoIP lookup on the exit IP: fall back to a realistic profile
+  // when the proxy has no stored geo yet (a freshly added/parsed proxy).
   return {
     ok: reachable,
     connectivity: reachable,
-    exit_ip: proxy.exit_ip ?? '203.0.113.10',
+    exit_ip: proxy.exit_ip ?? '172.96.5.74',
     exit_ip_matches: reachable,
     latency_ms: proxy.latency_ms ?? 180,
-    country: proxy.country,
-    city: proxy.city,
-    timezone: proxy.timezone,
-    asn: proxy.asn,
-    organization: proxy.organization,
+    country: proxy.country ?? 'US',
+    country_name: proxy.country ? proxy.country : 'United States',
+    city: proxy.city ?? 'New York City',
+    timezone: proxy.timezone ?? 'America/New_York',
+    latitude: 40.71427,
+    longitude: -74.00597,
+    zip_code: '10004',
+    asn: proxy.asn ?? 'AS9009',
+    organization: proxy.organization ?? 'M247 Europe SRL',
     checked_at: now(),
     error: reachable ? null : 'Connection refused by upstream proxy.',
   };
@@ -1013,6 +1023,11 @@ export const mockApi: ApiAdapter = {
     const result = buildQuickResult(proxy);
     proxy.latency_ms = result.latency_ms;
     proxy.exit_ip = result.exit_ip;
+    proxy.country = result.country;
+    proxy.city = result.city;
+    proxy.timezone = result.timezone;
+    proxy.asn = result.asn;
+    proxy.organization = result.organization;
     proxy.last_checked_at = result.checked_at;
     mockStore.emit('proxy.updated', { proxy: structuredClone(proxy) });
     mockStore.emit('proxy.test.completed', {

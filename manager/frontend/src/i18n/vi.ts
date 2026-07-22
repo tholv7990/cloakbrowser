@@ -480,6 +480,8 @@ export const vi: Record<keyof typeof en, string> = {
   'pxr.median': 'Trung vị {latency}',
   'pxr.country': 'Quốc gia',
   'pxr.city': 'Thành phố',
+  'pxr.location': 'Vị trí',
+  'pxr.zip': 'Mã ZIP',
   'pxr.asn': 'ASN',
   'pxr.organization': 'Tổ chức',
   'pxr.confidence': '{type} · {pct} độ tin cậy',

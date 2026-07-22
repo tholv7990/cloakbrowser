@@ -479,6 +479,8 @@ export const en = {
   'pxr.median': 'Median {latency}',
   'pxr.country': 'Country',
   'pxr.city': 'City',
+  'pxr.location': 'Location',
+  'pxr.zip': 'ZIP',
   'pxr.asn': 'ASN',
   'pxr.organization': 'Organization',
   'pxr.confidence': '{type} · {pct} confidence',

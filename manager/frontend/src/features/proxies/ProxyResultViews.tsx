@@ -48,8 +48,18 @@ export function ProxyQuickResult({ result }: { result: ProxyQuickTest }) {
       {result.error && <p className="text-2xs text-danger">{result.error}</p>}
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <KeyVal label={t('proxies.col.exitIp')} value={result.exit_ip} mono />
-        <KeyVal label={t('pxr.country')} value={result.country} />
+        <KeyVal
+          label={t('pxr.location')}
+          value={
+            result.latitude != null && result.longitude != null
+              ? `${result.latitude}, ${result.longitude}`
+              : null
+          }
+          mono
+        />
         <KeyVal label={t('pxr.city')} value={result.city} />
+        <KeyVal label={t('pxr.country')} value={result.country_name ?? result.country} />
+        <KeyVal label={t('pxr.zip')} value={result.zip_code} />
         <KeyVal label={t('editor.timezone')} value={result.timezone} mono />
         <KeyVal label={t('pxr.asn')} value={result.asn} mono />
         <KeyVal label={t('pxr.organization')} value={result.organization} />
