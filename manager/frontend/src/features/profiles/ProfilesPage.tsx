@@ -17,6 +17,7 @@ import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/states';
 import { useProxies } from '@/features/proxies/api';
 import { useProfiles, usePinToggle, useBulkAction } from './api';
 import { NewProfileModal } from './NewProfileModal';
+import { BulkAssignProxyModal } from './BulkAssignProxyModal';
 import { ProfilesToolbar } from './ProfilesToolbar';
 import { ProfilesTabs, type ProfileTab } from './ProfilesTabs';
 import { ProfilesTable } from './ProfilesTable';
@@ -49,6 +50,7 @@ export function ProfilesPage() {
   const [dialog, setDialog] = useState<{ type: RowDialog; profile: ProfileView } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  const [bulkProxyOpen, setBulkProxyOpen] = useState(false);
 
   // Any change to the result shape resets to page 1.
   useEffect(() => setPage(1), [search, filters, tab, rowsPerPage]);
@@ -145,7 +147,9 @@ export function ProfilesPage() {
       <BulkActionsBar
         count={selectedIds.length}
         folders={folders}
+        statuses={statuses}
         onAction={handleBulk}
+        onAssignProxies={() => setBulkProxyOpen(true)}
         onClear={() => setRowSelection({})}
       />
 
@@ -228,6 +232,12 @@ export function ProfilesPage() {
       />
 
       <NewProfileModal open={newOpen} onClose={() => setNewOpen(false)} folders={folders} />
+
+      <BulkAssignProxyModal
+        open={bulkProxyOpen}
+        onClose={() => setBulkProxyOpen(false)}
+        profiles={views.filter((v) => rowSelection[v.id])}
+      />
     </div>
   );
 }

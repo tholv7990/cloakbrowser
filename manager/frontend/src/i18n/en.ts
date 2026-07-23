@@ -138,6 +138,12 @@ export const en = {
   'bulk.pin': 'Pin',
   'bulk.unpin': 'Unpin',
   'bulk.moveFolder': 'Move to folder',
+  'bulk.setStatus': 'Set status',
+  'bulk.assignProxies': 'Assign proxies',
+  'bulk.proxyTitle': 'Assign proxies to selected',
+  'bulk.proxyDesc': 'One proxy per line — profile 1 gets line 1, and so on ({count} selected).',
+  'bulk.proxyAssign': 'Assign',
+  'bulk.proxyAssigned': 'Assigned proxies to {count} profile(s)',
   'bulk.trash': 'Move to trash',
   'bulk.clear': 'Clear selection',
 

@@ -140,6 +140,12 @@ export const vi: Record<keyof typeof en, string> = {
   'bulk.pin': 'Ghim',
   'bulk.unpin': 'Bỏ ghim',
   'bulk.moveFolder': 'Chuyển vào thư mục',
+  'bulk.setStatus': 'Đặt trạng thái',
+  'bulk.assignProxies': 'Gán proxy',
+  'bulk.proxyTitle': 'Gán proxy cho các hồ sơ đã chọn',
+  'bulk.proxyDesc': 'Mỗi dòng một proxy — hồ sơ 1 lấy dòng 1, v.v. (đã chọn {count}).',
+  'bulk.proxyAssign': 'Gán',
+  'bulk.proxyAssigned': 'Đã gán proxy cho {count} hồ sơ',
   'bulk.trash': 'Chuyển vào thùng rác',
   'bulk.clear': 'Bỏ chọn',
 

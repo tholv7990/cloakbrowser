@@ -1,5 +1,5 @@
-import { FolderInput, Pin, PinOff, Trash2, X } from 'lucide-react';
-import type { BulkProfileRequest, Folder } from '@/types/api';
+import { CircleDot, FolderInput, Globe, Pin, PinOff, Trash2, X } from 'lucide-react';
+import type { BulkProfileRequest, Folder, WorkflowStatus } from '@/types/api';
 import { Button } from '@/components/ui/Button';
 import { Menu, MenuItem } from '@/components/ui/Menu';
 import { useT } from '@/i18n';
@@ -7,12 +7,16 @@ import { useT } from '@/i18n';
 export function BulkActionsBar({
   count,
   folders,
+  statuses,
   onAction,
+  onAssignProxies,
   onClear,
 }: {
   count: number;
   folders: Folder[];
+  statuses: WorkflowStatus[];
   onAction: (action: Omit<BulkProfileRequest, 'ids'>) => void;
+  onAssignProxies: () => void;
   onClear: () => void;
 }) {
   const t = useT();
@@ -45,6 +49,29 @@ export function BulkActionsBar({
             </MenuItem>
           ))}
         </Menu>
+        {statuses.length > 0 && (
+          <Menu
+            align="start"
+            width={220}
+            trigger={
+              <Button size="sm" variant="secondary">
+                <CircleDot className="h-3.5 w-3.5" /> {t('bulk.setStatus')}
+              </Button>
+            }
+          >
+            {statuses.map((status) => (
+              <MenuItem
+                key={status.id}
+                onSelect={() => onAction({ action: 'set_status', workflow_status_id: status.id })}
+              >
+                {status.name}
+              </MenuItem>
+            ))}
+          </Menu>
+        )}
+        <Button size="sm" variant="secondary" onClick={onAssignProxies}>
+          <Globe className="h-3.5 w-3.5" /> {t('bulk.assignProxies')}
+        </Button>
         <Button size="sm" variant="danger" onClick={() => onAction({ action: 'trash' })}>
           <Trash2 className="h-3.5 w-3.5" /> {t('bulk.trash')}
         </Button>
