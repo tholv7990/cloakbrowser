@@ -31,6 +31,18 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def ensure_aware_utc(value: datetime | None) -> datetime | None:
+    """Return a UTC tz-aware datetime. SQLite (tests) drops the tzinfo on
+    ``DateTime(timezone=True)`` columns, so a value read back is naive; treat naive
+    as UTC. On PostgreSQL the value is already aware, so this is a no-op. Use this
+    before any comparison so aware/naive mixups can't raise in prod."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def database_url() -> str:
     """Resolve the DB URL. Production must set ``PLASMA_CLOUD_DATABASE_URL`` to a
     PostgreSQL DSN; there is no insecure default so a misconfigured deploy fails
