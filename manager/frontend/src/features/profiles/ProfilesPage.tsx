@@ -15,7 +15,8 @@ import { Modal } from '@/components/ui/Modal';
 import { Textarea } from '@/components/ui/Input';
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/states';
 import { useProxies } from '@/features/proxies/api';
-import { useProfiles, usePinToggle, useBulkAction, useQuickCreate } from './api';
+import { useProfiles, usePinToggle, useBulkAction } from './api';
+import { NewProfileModal } from './NewProfileModal';
 import { ProfilesToolbar } from './ProfilesToolbar';
 import { ProfilesTabs, type ProfileTab } from './ProfilesTabs';
 import { ProfilesTable } from './ProfilesTable';
@@ -47,6 +48,7 @@ export function ProfilesPage() {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [dialog, setDialog] = useState<{ type: RowDialog; profile: ProfileView } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
 
   // Any change to the result shape resets to page 1.
   useEffect(() => setPage(1), [search, filters, tab, rowsPerPage]);
@@ -66,7 +68,6 @@ export function ProfilesPage() {
   const query = useProfiles(params);
   const pinToggle = usePinToggle();
   const bulk = useBulkAction();
-  const quickCreate = useQuickCreate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -134,8 +135,7 @@ export function ProfilesPage() {
           folders={folders}
           tags={tags}
           statuses={statuses}
-          onQuickCreate={() => quickCreate.mutate()}
-          quickCreating={quickCreate.isPending}
+          onNew={() => setNewOpen(true)}
           onImport={() => setImportOpen(true)}
           onExport={handleExport}
         />
@@ -184,13 +184,8 @@ export function ProfilesPage() {
               title={t('profiles.empty.title')}
               description={t('profiles.empty.desc')}
               action={
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => quickCreate.mutate()}
-                  loading={quickCreate.isPending}
-                >
-                  Quick create a profile
+                <Button variant="primary" size="sm" onClick={() => setNewOpen(true)}>
+                  {t('common.newProfile')}
                 </Button>
               }
             />
@@ -231,6 +226,8 @@ export function ProfilesPage() {
         loading={importProfile.isPending}
         onImport={(payload) => importProfile.mutate(payload)}
       />
+
+      <NewProfileModal open={newOpen} onClose={() => setNewOpen(false)} folders={folders} />
     </div>
   );
 }

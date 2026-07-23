@@ -1,5 +1,4 @@
-import { useNavigate } from 'react-router-dom';
-import { Download, Plus, Search, Upload, X, Zap } from 'lucide-react';
+import { Download, Plus, Search, Upload, X } from 'lucide-react';
 import type { Folder, Tag, WorkflowStatus } from '@/types/api';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
@@ -16,8 +15,7 @@ export function ProfilesToolbar({
   folders,
   tags,
   statuses,
-  onQuickCreate,
-  quickCreating,
+  onNew,
   onImport,
   onExport,
 }: {
@@ -28,12 +26,10 @@ export function ProfilesToolbar({
   folders: Folder[];
   tags: Tag[];
   statuses: WorkflowStatus[];
-  onQuickCreate: () => void;
-  quickCreating: boolean;
+  onNew: () => void;
   onImport: () => void;
   onExport: () => void;
 }) {
-  const navigate = useNavigate();
   const t = useT();
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -75,11 +71,8 @@ export function ProfilesToolbar({
         <Button variant="secondary" size="sm" onClick={onExport}>
           <Download className="h-3.5 w-3.5" /> {t('common.export')}
         </Button>
-        <Button variant="secondary" size="sm" onClick={onQuickCreate} loading={quickCreating}>
-          <Zap className="h-3.5 w-3.5" /> {t('common.quickCreate')}
-        </Button>
-        <Button variant="primary" size="sm" onClick={() => navigate('/profiles/new')}>
-          <Plus className="h-3.5 w-3.5" /> {t('common.addProfile')}
+        <Button variant="primary" size="sm" onClick={onNew}>
+          <Plus className="h-3.5 w-3.5" /> {t('common.newProfile')}
         </Button>
       </div>
     </div>
