@@ -100,6 +100,33 @@ def test_duplicate_copies_settings_but_gets_new_identity(client, auth_headers):
     assert duplicate["location"] == original["location"]
 
 
+def test_duplicate_clears_the_proxy(client, auth_headers):
+    from manager_backend.features.proxies.credentials import MemoryCredentialStore
+
+    client.app.state.credential_store = MemoryCredentialStore()
+    proxy = client.post(
+        "/api/v1/proxies",
+        headers=auth_headers,
+        json={
+            "label": "Src",
+            "scheme": "socks5",
+            "host": "1.2.3.4",
+            "port": 1080,
+            "username": "u",
+            "password": "p",
+            "test_before_launch": True,
+        },
+    ).json()
+    original = create_profile(client, auth_headers, proxy_id=proxy["id"])
+    assert original["proxy_id"] == proxy["id"]
+
+    duplicate = client.post(
+        f"/api/v1/profiles/{original['id']}/duplicate", headers=auth_headers
+    ).json()
+    # Per-profile proxies: the clone starts direct so it can't share the source IP.
+    assert duplicate["proxy_id"] is None
+
+
 def test_regenerate_fingerprint_changes_only_identity(client, auth_headers):
     original = create_profile(client, auth_headers, notes="keep me")
 

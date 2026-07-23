@@ -439,7 +439,9 @@ def duplicate_profile(session: Session, profile_id: str) -> Profile:
         location=source.location,
         window=source.window,
         behavior=source.behavior,
-        proxy_id=source.proxy_id,
+        # Proxies are per-profile: a clone starts with none so it can't silently
+        # share the source's IP. The user assigns a fresh proxy on the copy.
+        proxy_id=None,
         test_proxy_before_launch=source.test_proxy_before_launch,
     )
     return create_profile(session, payload)
