@@ -177,8 +177,51 @@ def _active_runtime_count(engine: Engine) -> int:
         )
 
 
+def _apply_snapshot(engine: Engine, db_bytes: bytes, scratch_dir: Path) -> None:
+    """Copy a snapshot into the live engine in place via SQLite's online-backup."""
+    scratch = scratch_dir / f".restore-{secrets.token_hex(4)}.db"
+    scratch.write_bytes(db_bytes)
+    try:
+        source = sqlite3.connect(scratch)
+        engine.dispose()  # drop pooled connections before overwriting pages
+        raw = engine.raw_connection()
+        try:
+            source.backup(raw.driver_connection)
+            raw.driver_connection.commit()
+        finally:
+            raw.close()
+            source.close()
+    finally:
+        scratch.unlink(missing_ok=True)
+
+
+def _validate_restored(engine: Engine) -> bool:
+    """A restored DB must pass integrity_check AND carry the full expected schema."""
+    from ...models import Base
+
+    try:
+        with engine.connect() as connection:
+            row = connection.exec_driver_sql("PRAGMA integrity_check").fetchone()
+            if not row or row[0] != "ok":
+                return False
+            present = {
+                name
+                for (name,) in connection.exec_driver_sql(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+    except Exception:
+        return False
+    return set(Base.metadata.tables.keys()).issubset(present)
+
+
 def restore_backup(engine: Engine, data_root: Path, backup_id: str) -> dict:
-    """Restore a verified snapshot in place. Destructive — guarded hard."""
+    """Restore a verified snapshot in place. Destructive — guarded hard.
+
+    A pre-restore safety backup is taken; if the restored DB fails validation
+    (integrity or schema), the safety backup is applied back so the live database
+    is never left half-written or structurally broken.
+    """
     if _active_runtime_count(engine):
         raise ManagerError(
             "backup_restore_blocked",
@@ -196,23 +239,19 @@ def restore_backup(engine: Engine, data_root: Path, backup_id: str) -> dict:
 
     # Safety backup of the current state before overwriting anything.
     safety = create_backup(engine, data_root, automatic=True)
-
     with zipfile.ZipFile(archive) as zf:
         db_bytes = zf.read(_DB_ENTRY)
-    scratch = backups / f".restore-{secrets.token_hex(4)}.db"
-    scratch.write_bytes(db_bytes)
-    try:
-        source = sqlite3.connect(scratch)
-        engine.dispose()  # drop pooled connections before overwriting pages
-        raw = engine.raw_connection()
-        try:
-            source.backup(raw.driver_connection)
-            raw.driver_connection.commit()
-        finally:
-            raw.close()
-            source.close()
-    finally:
-        scratch.unlink(missing_ok=True)
+
+    _apply_snapshot(engine, db_bytes, backups)
+    if not _validate_restored(engine):
+        # Roll back to the safety snapshot so we never leave a broken DB live.
+        with zipfile.ZipFile(_archive_path(data_root, safety["id"])) as zf:
+            _apply_snapshot(engine, zf.read(_DB_ENTRY), backups)
+        raise ManagerError(
+            "backup_restore_failed",
+            "The backup could not be restored and the previous state was kept.",
+            500,
+        )
     return safety
 
 

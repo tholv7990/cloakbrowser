@@ -86,8 +86,10 @@ def diagnostics(
 
 
 def _create(request: Request, kind: DiagnosticKind, profile_id: str | None):
-    run = request.app.state.diagnostic_manager.create(kind, profile_id)
-    return _serialize(request, run)
+    # Rejected with a safe 409 while a backup restore holds the maintenance gate.
+    with request.app.state.maintenance_gate.operation():
+        run = request.app.state.diagnostic_manager.create(kind, profile_id)
+        return _serialize(request, run)
 
 
 @router.post(

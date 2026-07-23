@@ -113,6 +113,54 @@ def test_restore_of_a_missing_backup_is_not_found(client, auth_headers):
     assert response.json()["error"]["code"] == "backup_not_found"
 
 
+def test_worker_start_rejected_during_maintenance(client, auth_headers):
+    # While a restore holds the maintenance gate, worker-spawning starts must be
+    # rejected with a safe 409 rather than racing the DB rewrite.
+    profile = client.post(
+        "/api/v1/profiles", headers=auth_headers, json={"name": "Racer"}
+    ).json()
+    with client.app.state.maintenance_gate.exclusive():
+        blocked = client.post(
+            f"/api/v1/profiles/{profile['id']}/start", headers=auth_headers
+        )
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == "maintenance_in_progress"
+    # Once maintenance ends, starts are accepted again.
+    assert (
+        client.post(f"/api/v1/profiles/{profile['id']}/start", headers=auth_headers).status_code
+        != 409
+    )
+
+
+def test_automation_run_start_rejected_during_maintenance(client, auth_headers):
+    with client.app.state.maintenance_gate.exclusive():
+        blocked = client.post(
+            "/api/v1/automations/templates/any/runs",
+            headers=auth_headers,
+            json={"assignments": [{"profile_id": "p1", "variables": {}}], "max_parallel": 1},
+        )
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == "maintenance_in_progress"
+
+
+def test_restore_rolls_back_to_safety_on_validation_failure(client, auth_headers, monkeypatch):
+    from manager_backend.features.backups import service as bsvc
+
+    client.post("/api/v1/profiles", headers=auth_headers, json={"name": "KeepMe"})
+    created = client.post("/api/v1/backups", headers=auth_headers).json()
+    # Mutate state after the snapshot; a rolled-back restore must preserve this.
+    client.post("/api/v1/profiles", headers=auth_headers, json={"name": "Later"})
+
+    # Force the post-restore validation to fail -> restore must auto-roll back.
+    monkeypatch.setattr(bsvc, "_validate_restored", lambda engine: False)
+    response = client.post(f"/api/v1/backups/{created['id']}/restore", headers=auth_headers)
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "backup_restore_failed"
+
+    names = {p["name"] for p in client.get("/api/v1/profiles", headers=auth_headers).json()["items"]}
+    assert names == {"KeepMe", "Later"}  # pre-restore state intact (rolled back)
+
+
 def test_auto_backup_creates_then_skips_within_the_interval(client):
     from manager_backend.features.backups.service import maybe_auto_backup
 

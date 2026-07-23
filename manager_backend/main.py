@@ -15,6 +15,7 @@ from .auth.routes import router as auth_router
 from .config import ManagerSettings
 from .db import create_engine_for, create_session_factory
 from .errors import install_error_handlers
+from .maintenance import MaintenanceGate
 from .models import Base
 from .dependencies import require_authenticated_session
 from .features.runtime.manager import RuntimeManager
@@ -123,6 +124,10 @@ def create_app(
     app.state.engine = create_engine_for(resolved)
     Base.metadata.create_all(app.state.engine)
     app.state.session_factory = create_session_factory(app.state.engine)
+    # Serializes a destructive backup-restore against every worker-spawning /
+    # state-changing endpoint (they take a gate operation; restore takes it
+    # exclusively).
+    app.state.maintenance_gate = MaintenanceGate()
     app.state.diagnostic_manager = DiagnosticManager(
         app.state.session_factory, data_root=resolved.data_root
     )

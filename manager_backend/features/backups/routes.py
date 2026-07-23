@@ -32,7 +32,12 @@ def create_route(request: Request):
     operation_id="backups_restore",
 )
 def restore_route(backup_id: str, request: Request) -> Response:
-    restore_backup(request.app.state.engine, request.app.state.settings.data_root, backup_id)
+    # Exclusive: rejects concurrent worker-spawning / state-changing operations and
+    # drains any in-flight ones before rewriting the database in place.
+    with request.app.state.maintenance_gate.exclusive():
+        restore_backup(
+            request.app.state.engine, request.app.state.settings.data_root, backup_id
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

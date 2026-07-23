@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
 from ...dependencies import get_session
+from ...maintenance import guard_maintenance
 from .schemas import (
     AutomationRecordingRead,
     AutomationRunRead,
@@ -82,7 +83,7 @@ def cancel_recording(recording_id: str, request: Request, session: SessionDepend
 
 
 # --- runs -------------------------------------------------------------------
-@router.post("/templates/{template_id}/runs", response_model=AutomationRunRead, status_code=_ACCEPTED, operation_id="automation_runs_start")
+@router.post("/templates/{template_id}/runs", response_model=AutomationRunRead, status_code=_ACCEPTED, operation_id="automation_runs_start", dependencies=[Depends(guard_maintenance)])
 def start_run(template_id: str, payload: StartRunPayload, request: Request, session: SessionDependency):
     template = service.get_template(session, template_id)
     return request.app.state.automation_runs.start(
@@ -132,7 +133,7 @@ def list_factory_jobs(request: Request, session: SessionDependency):
     return request.app.state.automation_factory.list_jobs(session)
 
 
-@router.post("/factory/jobs", response_model=ProfileFactoryJobRead, status_code=_ACCEPTED, operation_id="automation_factory_start")
+@router.post("/factory/jobs", response_model=ProfileFactoryJobRead, status_code=_ACCEPTED, operation_id="automation_factory_start", dependencies=[Depends(guard_maintenance)])
 def start_factory_job(payload: StartFactoryPayload, request: Request, session: SessionDependency):
     return request.app.state.automation_factory.start(
         session,
