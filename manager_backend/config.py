@@ -7,11 +7,42 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 
-def default_data_root() -> Path:
+def _local_app_data() -> Path:
     local_app_data = os.environ.get("LOCALAPPDATA")
     if not local_app_data:
         local_app_data = str(Path.home() / "AppData" / "Local")
-    return Path(local_app_data) / "CloakBrowser" / "Manager"
+    return Path(local_app_data)
+
+
+def default_data_root() -> Path:
+    """Resolve the on-disk data root.
+
+    Priority: ``CLOAK_MANAGER_DATA_ROOT`` (explicit override) → ``PLASMA_DATA_ROOT_MODE``
+    (``legacy``|``plasma``) → ``auto`` (default). In auto, prefer
+    ``%LOCALAPPDATA%\\Plasma`` but ADOPT an existing legacy
+    ``%LOCALAPPDATA%\\CloakBrowser\\Manager`` in place (no move) when the Plasma root
+    doesn't exist yet — so an upgrading user's profiles are never orphaned. A fresh
+    machine gets the new Plasma root.
+    """
+    override = os.environ.get("CLOAK_MANAGER_DATA_ROOT")
+    if override:
+        return Path(override)
+
+    base = _local_app_data()
+    plasma = base / "Plasma"
+    legacy = base / "CloakBrowser" / "Manager"
+
+    mode = os.environ.get("PLASMA_DATA_ROOT_MODE", "auto").strip().lower()
+    if mode == "legacy":
+        return legacy
+    if mode == "plasma":
+        return plasma
+    # auto: prefer Plasma; adopt an existing legacy dir in place if Plasma is absent.
+    if plasma.exists():
+        return plasma
+    if legacy.exists():
+        return legacy
+    return plasma
 
 
 def _env_flag(name: str) -> bool:
