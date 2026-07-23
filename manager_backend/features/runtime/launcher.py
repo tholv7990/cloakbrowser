@@ -456,21 +456,44 @@ class _PersistentContextHandle:
                 pass  # the browser may already be gone (user closed the window)
             self._closed = True
 
+    def _throttled_refresh(self) -> None:
+        """Keep the tab list + taskbar icon fresh, but only on the probe cadence.
+        The cheap liveness check in is_closed() runs far more often than this."""
+        now = time.monotonic()
+        if now - self._last_probe < self._PROBE_INTERVAL:
+            return
+        self._last_probe = now
+        self._snapshot_session()
+        self._apply_icon()
+
     def is_closed(self) -> bool:
         if self._closed:
             return True
         # The Playwright "close" event never fires unless the sync event loop is
-        # pumped, which the runtime worker's wait loop doesn't do — so poll the OS
-        # for the browser process instead (throttled).
+        # pumped, which the runtime worker's wait loop doesn't do — so poll the OS.
+        # The cheap pid liveness check runs on EVERY call so a user-closed window
+        # (the X button) is detected within ~0.1s; only the expensive full scan +
+        # tab snapshot + icon refresh are throttled to _PROBE_INTERVAL. Previously
+        # the whole check was throttled, so the list took up to 2s to update.
+        if self.browser_pid is not None:
+            if self._process_alive():
+                self._throttled_refresh()
+                return False
+            # Our exact process is gone. One confirming full scan (the pid could
+            # have been a transient during startup) before declaring it closed.
+            if self._locate_browser():
+                self._throttled_refresh()
+                return False
+            self._closed = True
+            return True
+        # No pid captured yet: fall back to the throttled full scan to find it.
         now = time.monotonic()
         if now - self._last_probe < self._PROBE_INTERVAL:
             return False
         self._last_probe = now
-        # Alive if our exact process (pid + create_time) still runs; otherwise
-        # re-scan by exact --user-data-dir in case the pid was never captured.
-        if self._process_alive() or self._locate_browser():
-            self._snapshot_session()  # alive: keep the tab list fresh on disk
-            self._apply_icon()  # per-profile plasma taskbar icon (best-effort)
+        if self._locate_browser():
+            self._snapshot_session()
+            self._apply_icon()
             return False
         self._closed = True
         return True

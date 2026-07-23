@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 from manager_backend.features.runtime import launcher
 from manager_backend.features.runtime.launcher import (
@@ -215,7 +216,19 @@ def test_direct_window_close_still_restores_tabs(tmp_path, monkeypatch):
     assert saved["urls"] == ["https://a.example/", "https://b.example/"]
 
 
-def test_snapshot_never_wipes_session_with_empty(tmp_path, monkeypatch):
+def test_is_closed_detects_closed_window_immediately_not_after_the_probe_throttle(
+    tmp_path, monkeypatch
+):
+    udd = tmp_path / "user-data"  # dead-path is_closed() touches no files
+    monkeypatch.setattr(launcher._PersistentContextHandle, "_locate_browser", lambda self: False)
+    handle = launcher._PersistentContextHandle(_FakeContext([]), str(udd))
+    handle.browser_pid = 4242
+    # A probe JUST happened, so the throttle window is fully open. Under the old
+    # code is_closed() would blindly return False for ~2s; now the cheap pid check
+    # still runs, so a window closed right after is caught immediately.
+    handle._last_probe = time.monotonic()
+    handle._process_alive = lambda: False
+    assert handle.is_closed() is True
     # A snapshot that sees only internal tabs must never overwrite a good session
     # (guards a close-race from blanking the restore list).
     udd = tmp_path / "user-data"
