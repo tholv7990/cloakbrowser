@@ -3,7 +3,6 @@ import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppLayout } from '@/layouts/AppLayout';
 import { ProfilesPage } from '@/features/profiles/ProfilesPage';
 import { ProfileWizardPage } from '@/features/profile-editor/ProfileWizardPage';
-import { ProxiesPage } from '@/features/proxies/ProxiesPage';
 import { FoldersPage } from '@/features/folders/FoldersPage';
 import { DiagnosticsPage } from '@/features/diagnostics/DiagnosticsPage';
 import { ExtensionsPage } from '@/features/extensions/ExtensionsPage';
@@ -54,14 +53,6 @@ export const router = createBrowserRouter([
         element: (
           <RequireCapability cap="catalogs">
             <FoldersPage />
-          </RequireCapability>
-        ),
-      },
-      {
-        path: 'proxies',
-        element: (
-          <RequireCapability cap="proxy_management">
-            <ProxiesPage />
           </RequireCapability>
         ),
       },

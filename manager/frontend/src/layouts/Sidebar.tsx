@@ -3,7 +3,6 @@ import {
   Activity,
   FolderClosed,
   Gauge,
-  Globe,
   Clapperboard,
   PanelLeftClose,
   PanelLeftOpen,
@@ -25,7 +24,6 @@ const NAV: { to: string; key: TranslationKey; icon: typeof Users; cap?: keyof Ap
   [
     { to: '/profiles', key: 'nav.profiles', icon: Users },
     { to: '/folders', key: 'nav.folders', icon: FolderClosed, cap: 'catalogs' },
-    { to: '/proxies', key: 'nav.proxies', icon: Globe, cap: 'proxy_management' },
     { to: '/extensions', key: 'nav.extensions', icon: Puzzle, cap: 'profiles' },
     { to: '/automation', key: 'nav.automation', icon: Workflow, cap: 'automation' },
     { to: '/shopify', key: 'nav.shopify', icon: ShoppingBag, cap: 'shopify_builder' },

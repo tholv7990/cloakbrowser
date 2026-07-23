@@ -279,23 +279,17 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
           </Button>
         </div>
       </Field>
-      <SelectField
-        name="proxy_id"
-        label={t('editor.proxy')}
-        hint={t('editor.proxyHint')}
-        options={[
-          { value: '', label: t('editor.directNoProxy') },
-          ...refs.proxies.map((p) => ({ value: p.id, label: `${p.label} · ${p.masked_endpoint}` })),
-        ]}
-      />
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={() => setProxyEditorOpen(true)}
-      >
-        <Plus className="h-3.5 w-3.5" /> {t('editor.advancedProxy')}
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setProxyEditorOpen(true)}
+        >
+          <Plus className="h-3.5 w-3.5" /> {t('editor.advancedProxy')}
+        </Button>
+        {!selected && <span className="text-2xs text-ink-faint">{t('editor.directNoProxy')}</span>}
+      </div>
       <ProxyEditorDrawer
         open={proxyEditorOpen}
         proxy={null}
@@ -328,11 +322,16 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
               >
                 <Zap className="h-3.5 w-3.5" /> {t('editor.checkProxy')}
               </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setValue('proxy_id', '', { shouldValidate: true })}
+              >
+                {t('common.remove')}
+              </Button>
             </div>
           </div>
-          {selected.assigned_profile_count > (refs.isEdit ? 1 : 0) && (
-            <Warning>{t('editor.proxyShared', { count: selected.assigned_profile_count })}</Warning>
-          )}
           {checkResult && <ProxyQuickResult result={checkResult} />}
         </div>
       )}

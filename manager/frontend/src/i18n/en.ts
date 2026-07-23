@@ -47,6 +47,7 @@ export const en = {
   'common.searchProfiles': 'Search name, notes, tags, proxy, or ID',
   'common.add': 'Add',
   'common.delete': 'Delete',
+  'common.remove': 'Remove',
   'common.edit': 'Edit',
   'common.rename': 'Rename',
   'common.back': 'Back',

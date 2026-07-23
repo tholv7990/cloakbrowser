@@ -49,6 +49,7 @@ export const vi: Record<keyof typeof en, string> = {
   'common.searchProfiles': 'Tìm theo tên, ghi chú, thẻ, proxy hoặc ID',
   'common.add': 'Thêm',
   'common.delete': 'Xóa',
+  'common.remove': 'Gỡ',
   'common.edit': 'Sửa',
   'common.rename': 'Đổi tên',
   'common.back': 'Quay lại',
