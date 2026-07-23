@@ -252,24 +252,43 @@ class RunCoordinator:
             session.close()
 
     def _gate(self, run_id: str, item_id: str, reason: str) -> bool:
+        event = self._gate_event(run_id, item_id)
+        cancel = self._cancel_event(run_id)
+        # Arm the gate BEFORE publishing attention, so a continue that lands right
+        # after we publish can't be clear()'d away into a lost wakeup.
+        event.clear()
         with self._session_factory() as session:
             item = session.get(AutomationRunItem, item_id)
             item.status = "attention"
             item.attention_reason = reason
             session.commit()
         self._recompute(run_id)
-        event = self._gate_event(run_id, item_id)
-        event.clear()
-        cancel = self._cancel_event(run_id)
+
+        # Wait on the event, but the persisted status is the source of truth: a
+        # continue flips it to "running", so we resume even if the wakeup is missed.
         while not event.wait(0.1):
             if cancel.is_set():
                 return False
+            with self._session_factory() as session:
+                status = session.scalar(
+                    select(AutomationRunItem.status).where(AutomationRunItem.id == item_id)
+                )
+            if status is None:
+                return False
+            if status != "attention":
+                break
         if cancel.is_set():
             return False
+        # Atomic, idempotent attention -> running (a no-op if continue already did it).
         with self._session_factory() as session:
-            item = session.get(AutomationRunItem, item_id)
-            item.status = "running"
-            item.attention_reason = None
+            session.execute(
+                update(AutomationRunItem)
+                .where(
+                    AutomationRunItem.id == item_id,
+                    AutomationRunItem.status == "attention",
+                )
+                .values(status="running", attention_reason=None)
+            )
             session.commit()
         self._recompute(run_id)
         return True
@@ -314,6 +333,15 @@ class RunCoordinator:
     def continue_profile(self, session: Session, run_id: str, profile_id: str) -> dict:
         self._require_run(session, run_id)
         item = self._require_item(session, run_id, profile_id)
+        # Persist the resume first (idempotent guard on status), then wake the
+        # worker. The worker keys off this persisted status, so the continue is
+        # honored even if the wakeup event is missed.
+        session.execute(
+            update(AutomationRunItem)
+            .where(AutomationRunItem.id == item.id, AutomationRunItem.status == "attention")
+            .values(status="running", attention_reason=None)
+        )
+        session.commit()
         self._gate_event(run_id, item.id).set()
         return self.get_run(session, run_id)
 

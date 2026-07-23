@@ -242,6 +242,40 @@ def test_human_gate_blocks_then_continue_resumes(client, auth_headers):
     assert run["status"] == "completed"
 
 
+def test_human_gate_resumes_from_persisted_state_if_wakeup_is_lost(client, auth_headers):
+    # A continue that lands between publishing attention and the gate's wait must
+    # not be lost. The worker keys off the persisted item status, so even a
+    # wakeup event that never arrives still resumes it.
+    from sqlalchemy import update
+
+    from manager_backend.models import AutomationRunItem
+
+    fake, _ = _setup(client)
+    profile = _profile(client, auth_headers, "Gated")
+    fake.behaviors[profile["id"]] = lambda ctx: ctx.request_attention("captcha detected")
+    _save_template(client, auth_headers, "t-lost", SIMPLE_STEPS)
+    run_id = client.post(
+        "/api/v1/automations/templates/t-lost/runs",
+        headers=auth_headers,
+        json={"assignments": [{"profile_id": profile["id"], "variables": {}}], "max_parallel": 1},
+    ).json()["id"]
+    run = _poll_run(client, run_id, lambda r: r["attention_count"] == 1)
+    assert run["items"][0]["status"] == "attention"
+
+    # Simulate a continue whose wakeup event was lost: flip the persisted status to
+    # running WITHOUT setting the gate event.
+    with client.app.state.session_factory() as session:
+        session.execute(
+            update(AutomationRunItem)
+            .where(AutomationRunItem.run_id == run_id)
+            .values(status="running", attention_reason=None)
+        )
+        session.commit()
+
+    run = _poll_run(client, run_id, lambda r: r["status"] == "completed", timeout=5)
+    assert run["status"] == "completed"
+
+
 def test_retry_resumes_from_last_completed_step(client, auth_headers):
     fake, _ = _setup(client)
     profile = _profile(client, auth_headers, "Flaky")
