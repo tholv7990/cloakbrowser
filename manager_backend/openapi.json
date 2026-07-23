@@ -10789,7 +10789,7 @@
               "system"
             ],
             "title": "Geo Mode",
-            "default": "system"
+            "default": "proxy"
           },
           "locale": {
             "anyOf": [
@@ -12787,7 +12787,14 @@
             "title": "Port"
           },
           "username": {
-            "type": "null",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Username"
           },
           "has_password": {

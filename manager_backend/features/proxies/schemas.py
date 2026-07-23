@@ -46,7 +46,9 @@ class ProxyRead(StrictModel):
     scheme: ProxyScheme
     host: str
     port: int | None
-    username: None = None
+    # The username is a login identifier, returned so the edit form can prefill
+    # it. The password stays strictly write-only (only `has_password` is exposed).
+    username: str | None = None
     has_password: bool
     masked_endpoint: str
     test_before_launch: bool

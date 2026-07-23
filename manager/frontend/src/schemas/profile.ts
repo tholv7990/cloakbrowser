@@ -139,7 +139,7 @@ export function defaultWizardValues(overrides?: Partial<ProfileWizardValues>): P
     startup_urls_text: '',
     proxy_id: '',
     test_proxy_before_launch: true,
-    geo_mode: 'system',
+    geo_mode: 'proxy',
     locale: 'en-US',
     timezone: 'America/New_York',
     webrtc_mode: 'direct',

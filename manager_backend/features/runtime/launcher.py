@@ -83,8 +83,12 @@ def profile_launch_snapshot(
         "custom_user_agent": (
             profile.custom_user_agent if profile.user_agent_mode == "custom" else None
         ),
-        "locale": location.get("locale"),
-        "timezone": location.get("timezone"),
+        # Only a "manual" geo profile pins locale/timezone here. "proxy" is filled
+        # from the exit IP during proxy preflight; "system" (or "proxy" with no
+        # proxy) leaves them unset so the browser follows the host — either way a
+        # stale stored value must not leak and cause a timezone/IP mismatch.
+        "locale": location.get("locale") if location.get("geo_mode") == "manual" else None,
+        "timezone": location.get("timezone") if location.get("geo_mode") == "manual" else None,
         "location": location,
         "window": dict(profile.window or {}),
         "behavior": dict(profile.behavior or {}),

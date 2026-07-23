@@ -28,15 +28,18 @@ def _install_store(client):
     return store
 
 
-def test_create_list_and_read_proxy_never_return_credentials(client, auth_headers):
+def test_create_list_and_read_proxy_returns_username_but_never_password(client, auth_headers):
     _install_store(client)
     created = client.post("/api/v1/proxies", headers=auth_headers, json=_proxy_payload())
     assert created.status_code == 201
     body = created.json()
-    assert body["username"] is None
+    # Username is a login identifier and is returned so the edit form can prefill
+    # it; the password stays write-only (only has_password is exposed).
+    assert body["username"] == "fixture-user"
     assert body["has_password"] is True
     assert body["masked_endpoint"] == "socks5://198.51.100.25:50101"
     assert "password" not in body
+    assert "fixture-pass" not in created.text
 
     listing = client.get("/api/v1/proxies")
     assert listing.status_code == 200

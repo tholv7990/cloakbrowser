@@ -40,14 +40,15 @@ SessionDependency = Annotated[Session, Depends(get_session)]
 
 
 @router.get("/proxies", response_model=list[ProxyRead])
-def proxies(session: SessionDependency):
-    return list_proxies(session)
+def proxies(request: Request, session: SessionDependency):
+    return list_proxies(session, request.app.state.credential_store)
 
 
 @router.post("/proxies", response_model=ProxyRead, status_code=status.HTTP_201_CREATED)
 def create(payload: ProxyWrite, request: Request, session: SessionDependency):
-    proxy = create_proxy(session, request.app.state.credential_store, payload)
-    return proxy_to_dict(session, proxy)
+    store = request.app.state.credential_store
+    proxy = create_proxy(session, store, payload)
+    return proxy_to_dict(session, proxy, store)
 
 
 @router.post("/proxies/parse", response_model=ParsedProxyRead)
@@ -63,14 +64,16 @@ def parse(payload: ProxyParseRequest):
 
 
 @router.get("/proxies/{proxy_id}", response_model=ProxyRead)
-def get(proxy_id: str, session: SessionDependency):
-    return proxy_to_dict(session, get_proxy(session, proxy_id))
+def get(proxy_id: str, request: Request, session: SessionDependency):
+    store = request.app.state.credential_store
+    return proxy_to_dict(session, get_proxy(session, proxy_id), store)
 
 
 @router.patch("/proxies/{proxy_id}", response_model=ProxyRead)
 def patch(proxy_id: str, payload: ProxyWrite, request: Request, session: SessionDependency):
-    proxy = update_proxy(session, request.app.state.credential_store, proxy_id, payload)
-    return proxy_to_dict(session, proxy)
+    store = request.app.state.credential_store
+    proxy = update_proxy(session, store, proxy_id, payload)
+    return proxy_to_dict(session, proxy, store)
 
 
 @router.delete("/proxies/{proxy_id}", status_code=status.HTTP_204_NO_CONTENT)

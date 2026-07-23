@@ -154,6 +154,42 @@ def test_adhoc_quick_test_uses_typed_values_without_persisting(client, auth_head
     assert len(after) == len(before)
 
 
+def test_apply_proxy_geo_stamps_timezone_only_for_geo_mode_proxy():
+    from manager_backend.features.proxies.service import _apply_proxy_geo
+
+    result = QuickTestResult(
+        exit_ip="172.120.41.88",
+        exit_ip_matches=True,
+        latency_ms=120,
+        country="US",
+        country_name="United States",
+        city="Las Vegas",
+        zip_code="89101",
+        timezone="America/Los_Angeles",
+        latitude=36.17,
+        longitude=-115.14,
+        asn="AS62240",
+        organization="IWIHOST",
+        checked_at=datetime(2026, 7, 23, tzinfo=timezone.utc),
+    )
+
+    # geo_mode="proxy": the exit-IP timezone + a matching locale are stamped on.
+    proxy_snap = {"location": {"geo_mode": "proxy"}, "timezone": None, "locale": None}
+    _apply_proxy_geo(proxy_snap, result)
+    assert proxy_snap["timezone"] == "America/Los_Angeles"
+    assert proxy_snap["locale"] == "en-US"
+
+    # geo_mode="system": left alone (browser follows the host).
+    system_snap = {"location": {"geo_mode": "system"}, "timezone": None, "locale": None}
+    _apply_proxy_geo(system_snap, result)
+    assert system_snap["timezone"] is None and system_snap["locale"] is None
+
+    # An explicit locale is preserved; timezone still tracks the proxy.
+    kept = {"location": {"geo_mode": "proxy"}, "timezone": None, "locale": "fr-FR"}
+    _apply_proxy_geo(kept, result)
+    assert kept["locale"] == "fr-FR" and kept["timezone"] == "America/Los_Angeles"
+
+
 def test_adhoc_quick_test_rejects_direct(client, auth_headers):
     response = client.post(
         "/api/v1/proxies/test",

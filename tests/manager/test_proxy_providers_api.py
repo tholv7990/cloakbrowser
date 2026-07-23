@@ -149,7 +149,7 @@ def test_generate_seveneleven_builds_unique_local_routes_into_the_pool(client, a
         assert row["proxy_type"] == "residential"
         assert row["country"] == "US"
         assert row["has_password"] is True
-        assert row["username"] is None
+        assert row["username"] is not None  # username now returned (password still write-only)
 
 
 def test_generate_iproyal_uses_injected_client_and_inserts_rows(client, auth_headers):

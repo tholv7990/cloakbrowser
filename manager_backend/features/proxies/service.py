@@ -30,15 +30,19 @@ def _assigned_count(session: Session, proxy_id: str) -> int:
     return int(session.scalar(select(func.count(Profile.id)).where(Profile.proxy_id == proxy_id)) or 0)
 
 
-def proxy_to_dict(session: Session, proxy: Proxy) -> dict:
+def proxy_to_dict(session: Session, proxy: Proxy, store: CredentialStore | None = None) -> dict:
     endpoint = "direct" if proxy.scheme == "direct" else f"{proxy.scheme}://{proxy.host}:{proxy.port}"
+    username = None
+    if store is not None and proxy.credential_ref:
+        credential = store.get(proxy.credential_ref)
+        username = credential.username if credential is not None else None
     return {
         "id": proxy.id,
         "label": proxy.label,
         "scheme": proxy.scheme,
         "host": proxy.host or "",
         "port": proxy.port,
-        "username": None,
+        "username": username,
         "has_password": proxy.credential_ref is not None,
         "masked_endpoint": endpoint,
         "test_before_launch": proxy.test_before_launch,
@@ -59,13 +63,13 @@ def proxy_to_dict(session: Session, proxy: Proxy) -> dict:
     }
 
 
-def list_proxies(session: Session) -> list[dict]:
+def list_proxies(session: Session, store: CredentialStore | None = None) -> list[dict]:
     proxies = list(
         session.scalars(
             select(Proxy).where(Proxy.deleted_at.is_(None)).order_by(Proxy.label, Proxy.id)
         )
     )
-    return [proxy_to_dict(session, proxy) for proxy in proxies]
+    return [proxy_to_dict(session, proxy, store) for proxy in proxies]
 
 
 def create_proxy(session: Session, store: CredentialStore, payload: ProxyWrite) -> Proxy:
@@ -212,6 +216,34 @@ def cache_quick_test(session: Session, proxy: Proxy, result: QuickTestResult) ->
     session.commit()
 
 
+# Country -> BCP-47 locale for profiles that derive their locale from the proxy.
+# Coarse (one language per country) but enough to keep navigator.language aligned
+# with the exit IP; anything unmapped falls back to en-US.
+_LOCALE_BY_COUNTRY = {
+    "US": "en-US", "GB": "en-GB", "CA": "en-CA", "AU": "en-AU", "IE": "en-IE",
+    "NZ": "en-NZ", "SG": "en-SG", "IN": "en-IN", "DE": "de-DE", "AT": "de-AT",
+    "FR": "fr-FR", "ES": "es-ES", "MX": "es-MX", "IT": "it-IT", "NL": "nl-NL",
+    "BE": "nl-BE", "PT": "pt-PT", "BR": "pt-BR", "JP": "ja-JP", "KR": "ko-KR",
+    "VN": "vi-VN", "TH": "th-TH", "RU": "ru-RU", "UA": "uk-UA", "PL": "pl-PL",
+    "TR": "tr-TR", "SE": "sv-SE", "NO": "nb-NO", "DK": "da-DK", "FI": "fi-FI",
+}
+
+
+def _apply_proxy_geo(snapshot: dict, result) -> None:
+    """When a profile derives geo from its proxy, stamp the freshly measured
+    exit-IP timezone (and a matching locale) onto the launch snapshot so the
+    browser clock/language agree with the IP. Without this, geo_mode="proxy" is
+    a no-op and the browser reports the host timezone -> detection sites flag a
+    timezone/IP mismatch ("timezone spoofed")."""
+    location = snapshot.get("location") or {}
+    if location.get("geo_mode") != "proxy":
+        return
+    if getattr(result, "timezone", None):
+        snapshot["timezone"] = result.timezone
+    if not snapshot.get("locale") and getattr(result, "country", None):
+        snapshot["locale"] = _LOCALE_BY_COUNTRY.get(result.country, "en-US")
+
+
 def build_proxy_preflight(session_factory, store: CredentialStore, tester):
     def preflight(snapshot: dict) -> str | None:
         proxy_id = snapshot.get("proxy_id")
@@ -231,6 +263,7 @@ def build_proxy_preflight(session_factory, store: CredentialStore, tester):
                     409,
                 ) from None
             cache_quick_test(session, proxy, result)
+            _apply_proxy_geo(snapshot, result)
             return proxy_url
 
     return preflight

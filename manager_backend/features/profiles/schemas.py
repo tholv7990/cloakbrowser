@@ -31,7 +31,10 @@ _MANAGER_ARG_KEYS = {
 
 
 class LocationSettings(StrictModel):
-    geo_mode: Literal["proxy", "manual", "system"] = "system"
+    # Default to deriving geo from the proxy: with no proxy this falls back to the
+    # host timezone at launch, but a proxied profile then matches its exit IP
+    # instead of leaking the host timezone (the "timezone spoofed" flag).
+    geo_mode: Literal["proxy", "manual", "system"] = "proxy"
     locale: str | None = None
     timezone: str | None = None
     webrtc_mode: Literal["proxy", "direct", "disabled"] = "direct"
