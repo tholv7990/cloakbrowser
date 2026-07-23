@@ -21,6 +21,80 @@ _WM_SETICON = 0x0080
 _ICON_SMALL, _ICON_BIG = 0, 1
 _ICON_DIR = Path(tempfile.gettempdir()) / "cloakbrowser-profile-icons"
 _hicon_cache: dict[tuple[str, int], int] = {}
+_aumid_done: set[int] = set()  # hwnds whose taskbar identity is already set
+
+
+# --- taskbar identity (AppUserModelID) via the window property store -----------
+class _GUID(ctypes.Structure):
+    _fields_ = [("Data1", ctypes.c_uint32), ("Data2", ctypes.c_uint16),
+                ("Data3", ctypes.c_uint16), ("Data4", ctypes.c_ubyte * 8)]
+
+
+class _PROPERTYKEY(ctypes.Structure):
+    _fields_ = [("fmtid", _GUID), ("pid", ctypes.c_uint32)]
+
+
+class _PROPVARIANT(ctypes.Structure):
+    _fields_ = [("vt", ctypes.c_ushort), ("r1", ctypes.c_ushort), ("r2", ctypes.c_ushort),
+                ("r3", ctypes.c_ushort), ("p1", ctypes.c_void_p), ("p2", ctypes.c_void_p)]
+
+
+def _guid(text: str) -> "_GUID":
+    g = _GUID()
+    ctypes.windll.ole32.CLSIDFromString(ctypes.c_wchar_p(text), ctypes.byref(g))
+    return g
+
+
+def _pkey(pid: int) -> "_PROPERTYKEY":
+    # All AppUserModel_* keys share this format id.
+    key = _PROPERTYKEY()
+    key.fmtid = _guid("{9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}")
+    key.pid = pid
+    return key
+
+
+def _string_propvariant(text: str) -> "_PROPVARIANT | None":
+    """A VT_LPWSTR PROPVARIANT (InitPropVariantFromString isn't an exported symbol,
+    so allocate the string with SHStrDupW; PropVariantClear frees it)."""
+    ptr = ctypes.c_void_p()
+    if ctypes.windll.shlwapi.SHStrDupW(ctypes.c_wchar_p(text), ctypes.byref(ptr)) != 0:
+        return None
+    pv = _PROPVARIANT()
+    pv.vt = 31  # VT_LPWSTR
+    pv.p1 = ptr
+    return pv
+
+
+def _set_taskbar_identity(hwnd: int, aumid: str, ico_path: str) -> bool:
+    """Give the window a distinct AppUserModelID (so two profiles don't group into
+    one taskbar button) and point its relaunch icon at the plasma .ico."""
+    ole32, shell32 = ctypes.windll.ole32, ctypes.windll.shell32
+    ole32.CoInitialize(None)  # idempotent per thread
+    store = ctypes.c_void_p()
+    iid = _guid("{886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99}")  # IID_IPropertyStore
+    if shell32.SHGetPropertyStoreForWindow(
+        ctypes.wintypes.HWND(hwnd), ctypes.byref(iid), ctypes.byref(store)
+    ) != 0 or not store:
+        return False
+    vtbl = ctypes.cast(ctypes.cast(store, ctypes.POINTER(ctypes.c_void_p))[0],
+                       ctypes.POINTER(ctypes.c_void_p))
+    set_value = ctypes.WINFUNCTYPE(
+        ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(_PROPERTYKEY), ctypes.POINTER(_PROPVARIANT)
+    )(vtbl[6])
+    commit = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)(vtbl[7])
+    release = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)(vtbl[2])
+    try:
+        ok = False
+        for key, text in ((_pkey(5), aumid), (_pkey(3), f"{ico_path},0")):
+            pv = _string_propvariant(text)
+            if pv is not None and set_value(store, ctypes.byref(key), ctypes.byref(pv)) == 0:
+                ok = True
+            if pv is not None:
+                ole32.PropVariantClear(ctypes.byref(pv))
+        commit(store)
+        return ok
+    finally:
+        release(store)
 
 
 def _color_for(seed: str) -> tuple[int, int, int]:
@@ -128,11 +202,20 @@ def apply_profile_window_icon(user_data_dir, seed: str) -> int:
             return True
 
         user32.EnumWindows(_collect, 0)
+        aumid = f"CloakBrowser.Profile.{seed}"
         for hwnd in hwnds:
             if big:
                 user32.SendMessageW(hwnd, _WM_SETICON, _ICON_BIG, big)
             if small:
                 user32.SendMessageW(hwnd, _WM_SETICON, _ICON_SMALL, small)
+            # A distinct AUMID gives each profile its OWN taskbar button (no
+            # grouping) — set once per window.
+            if hwnd not in _aumid_done:
+                try:
+                    if _set_taskbar_identity(hwnd, aumid, str(ico)):
+                        _aumid_done.add(hwnd)
+                except Exception:
+                    pass
         return len(hwnds)
     except Exception:
         return 0
