@@ -332,6 +332,125 @@ def test_launcher_failure_transitions_to_crashed(db_session_factory, settings):
         stored = session.get(RuntimeSession, runtime.id)
         assert stored.last_message == "browser_launch_failed"
         assert "secret" not in stored.last_message
+
+
+# --- P3: immediate browser-close (process-exit watcher) -----------------------
+
+
+class WatchableHandle:
+    """A handle whose OS-poll is.closed() NEVER fires on its own — only an
+    explicit close() or the process-exit watcher (wait_until_closed) can finalize
+    it. This isolates the immediate-close path from the polling fallback."""
+
+    def __init__(self):
+        self._exit = threading.Event()  # "the browser process has exited"
+        self._closed = threading.Event()  # explicit close() was called
+        self.close_calls = 0
+
+    def wait_until_closed(self) -> None:
+        self._exit.wait()
+
+    def is_closed(self) -> bool:
+        # The poll only reports closed after an explicit close(); it never detects
+        # the process exit on its own, so a passing test proves the watcher works.
+        return self._closed.is_set()
+
+    def close(self) -> None:
+        self.close_calls += 1
+        self._closed.set()
+        self._exit.set()  # a real close() ends the process, unblocking the watcher
+
+    def signal_process_exit(self) -> None:
+        self._exit.set()
+
+
+class WatchableLauncher(FakeLauncher):
+    def launch(self, snapshot):
+        handle = WatchableHandle()
+        self.handles[snapshot["id"]] = handle
+        return handle
+
+
+class CountingLock:
+    """Wraps the real file lock to count release() calls (must be exactly 1)."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.releases = 0
+
+    def acquire(self) -> None:
+        self._inner.acquire()
+
+    def release(self) -> None:
+        self.releases += 1
+        self._inner.release()
+
+
+def test_process_exit_watcher_finalizes_without_poll(db_session_factory, settings):
+    # is_closed() never reports closed on its own here, so the ONLY way this run
+    # can reach "stopped" is the immediate process-exit watcher. Fails (times out)
+    # until the watcher exists.
+    launcher = WatchableLauncher()
+    manager = RuntimeManager(
+        db_session_factory, settings, launcher=launcher, proxy_preflight=lambda _s: None
+    )
+    profile_id = _profile(db_session_factory, "watched")
+    runtime = manager.start(profile_id)
+    _wait_state(db_session_factory, runtime.id, "running")
+
+    launcher.handles[profile_id].signal_process_exit()
+
+    _wait_state(db_session_factory, runtime.id, "stopped", timeout=3)
+    manager.shutdown()
+
+
+def test_stop_during_process_exit_finalizes_once_and_frees_lock(
+    db_session_factory, settings
+):
+    # Race: the browser exits at the same moment an explicit stop arrives. The run
+    # must finalize exactly once (one lock release) and leave the profile
+    # relaunchable (lock freed, no stuck state).
+    from manager_backend.features.runtime.locks import ProfileFileLock
+
+    locks: list[CountingLock] = []
+
+    def lock_factory(profile_id: str) -> CountingLock:
+        lock = CountingLock(
+            ProfileFileLock(
+                settings.profile_root / profile_id / ".runtime.lock", profile_id
+            )
+        )
+        locks.append(lock)
+        return lock
+
+    launcher = WatchableLauncher()
+    manager = RuntimeManager(
+        db_session_factory,
+        settings,
+        launcher=launcher,
+        lock_factory=lock_factory,
+        proxy_preflight=lambda _s: None,
+    )
+    profile_id = _profile(db_session_factory, "race")
+    runtime = manager.start(profile_id)
+    _wait_state(db_session_factory, runtime.id, "running")
+
+    # Fire both signals as close together as possible.
+    launcher.handles[profile_id].signal_process_exit()
+    manager.stop(profile_id)
+
+    _wait_state(db_session_factory, runtime.id, "stopped", timeout=3)
+    # The lock release runs in the worker's finally, just after the stopped
+    # transition — wait for it, then assert it happened exactly once (idempotent,
+    # no double release from the stop+exit race).
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and locks[0].releases == 0:
+        time.sleep(0.01)
+    assert locks[0].releases == 1
+    # Lock is free — the profile can be started again immediately.
+    second = manager.start(profile_id)
+    _wait_state(db_session_factory, second.id, "running")
+    manager.shutdown()
     manager.shutdown()
 
 
@@ -458,3 +577,72 @@ def test_launch_snapshot_carries_profile_proxy_check_toggle(
         snapshot = profile_launch_snapshot(profile, settings)
 
     assert snapshot["test_proxy_before_launch"] is False
+
+
+def test_start_emits_structured_stage_timing(db_session_factory, settings):
+    # The start path emits one non-secret runtime.start_timing line breaking the
+    # wall-clock into stages so we can see where a slow start (e.g. proxy
+    # preflight) actually spends its time. Capture via a handler attached DIRECTLY
+    # to the timing logger (not caplog's root propagation, which other tests in the
+    # full suite can disturb) and force it enabled for the duration.
+    import logging
+
+    captured: list[str] = []
+
+    class _Sink(logging.Handler):
+        def emit(self, record):
+            captured.append(record.getMessage())
+
+    logger = logging.getLogger("manager.runtime.timing")
+    sink = _Sink()
+    prev_level, prev_disabled = logger.level, logger.disabled
+    prev_global_disable = logging.root.manager.disable
+    logging.disable(logging.NOTSET)  # undo any leaked global logging.disable()
+    logger.addHandler(sink)
+    logger.setLevel(logging.INFO)
+    logger.disabled = False
+    try:
+        launcher = FakeLauncher()
+        manager = RuntimeManager(
+            db_session_factory,
+            settings,
+            launcher=launcher,
+            proxy_preflight=lambda _snapshot: None,
+        )
+        profile_id = _profile(db_session_factory, "timed-start")
+        runtime = manager.start(profile_id)
+        _wait_state(db_session_factory, runtime.id, "running")
+        # The emit fires just after the running transition, on the worker thread.
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and not any(
+            "runtime.start_timing" in message for message in captured
+        ):
+            time.sleep(0.01)
+        manager.shutdown()
+    finally:
+        logger.removeHandler(sink)
+        logger.setLevel(prev_level)
+        logger.disabled = prev_disabled
+        logging.disable(prev_global_disable)
+
+    timings = [
+        json.loads(message) for message in captured if "runtime.start_timing" in message
+    ]
+    assert timings, "no runtime.start_timing line was emitted"
+    payload = timings[-1]
+    assert payload["event"] == "runtime.start_timing"
+    assert payload["profile_id"] == profile_id
+    stages = payload["stages_ms"]
+    for stage in (
+        "lock_acquire",
+        "profile_load",
+        "session_create",
+        "proxy_preflight",
+        "launch_gate_wait",
+        "browser_launch",
+    ):
+        assert stage in stages, f"missing timing stage: {stage}"
+        assert isinstance(stages[stage], int) and stages[stage] >= 0
+    assert isinstance(payload["total_ms"], int) and payload["total_ms"] >= 0
+    # profile_id must be the canonical id and nothing secret should appear.
+    assert set(payload) == {"event", "profile_id", "stages_ms", "total_ms"}

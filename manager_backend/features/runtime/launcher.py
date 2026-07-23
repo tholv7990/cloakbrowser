@@ -21,6 +21,7 @@ from cloakbrowser.config import get_chromium_version
 from ...config import ManagerSettings
 from ...models import Extension, Profile, profile_extensions
 from ..extensions.service import validate_registered_extension_path
+from .timing import StartTimer
 
 
 class BrowserHandle(Protocol):
@@ -519,41 +520,110 @@ class _PersistentContextHandle:
         self._closed = True
         return True
 
+    def wait_until_closed(self) -> None:
+        """Block until the browser PROCESS exits, then return — the immediate-close
+        signal the worker's watcher thread waits on. Uses OS process-wait
+        primitives only (Windows WaitForSingleObject, else psutil), NEVER Playwright,
+        so it is safe to call off the worker thread (no cross-thread driver access).
+        Returns promptly if the pid was never captured (the is_closed() poll then
+        owns finalization) or the handle is already closed. is_closed() runs
+        concurrently and sets _closed on a create_time-verified exit, so a reused
+        pid can never keep this blocked."""
+        deadline = time.monotonic() + 5.0
+        while (
+            self.browser_pid is None
+            and not self._closed
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.05)
+        pid = self.browser_pid
+        if pid is None or self._closed:
+            return
+        if sys.platform == "win32" and self._wait_process_exit_windows(pid):
+            self._closed = True
+            return
+        try:
+            proc = psutil.Process(pid)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            self._closed = True
+            return
+        while not self._closed:
+            try:
+                proc.wait(timeout=1.0)
+            except psutil.TimeoutExpired:
+                if not self._process_alive():
+                    break
+                continue
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                break
+            break
+        self._closed = True
+
+    def _wait_process_exit_windows(self, pid: int) -> bool:
+        """Block on the process handle for true 0-latency exit detection of a
+        non-child process. Returns True if the exit (or an explicit close) was
+        observed, False if the process couldn't be opened (caller falls back)."""
+        import ctypes
+
+        SYNCHRONIZE = 0x00100000
+        WAIT_OBJECT_0 = 0x0
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+        if not handle:
+            return False
+        try:
+            while not self._closed:
+                # 1s slices so an explicit close() (which sets _closed) unblocks us.
+                if kernel32.WaitForSingleObject(handle, 1000) == WAIT_OBJECT_0:
+                    return True
+            return True
+        finally:
+            kernel32.CloseHandle(handle)
+
 
 class CloakPersistentLauncher:
     def launch(self, snapshot: dict[str, Any]) -> BrowserHandle:
         import cloakbrowser
 
+        # Own throwaway timer: splits the launch black box into seed vs context
+        # creation vs tab restore and logs one runtime.launch_breakdown line. Kept
+        # internal so launch()'s signature is unchanged (injectable fakes intact).
+        breakdown = StartTimer()
         profile_dir = snapshot["profile_dir"]
         profile_dir.mkdir(parents=True, exist_ok=True)
         user_data_path = profile_dir / "user-data"
         # One-time seed so the omnibox searches Google instead of treating typed
         # text as a hostname. Best-effort; must never block a launch.
-        ensure_google_search(user_data_path)
+        with breakdown.stage("google_seed"):
+            ensure_google_search(user_data_path)
         user_data_dir = str(user_data_path)
-        context = cloakbrowser.launch_persistent_context(
-            user_data_dir,
-            **persistent_context_kwargs(snapshot, headless=False),
-        )
+        with breakdown.stage("context_creation"):
+            context = cloakbrowser.launch_persistent_context(
+                user_data_dir,
+                **persistent_context_kwargs(snapshot, headless=False),
+            )
         # Create the handle first so its icon burst starts stamping the plasma
         # taskbar icon immediately — concurrently with (not after) tab restore,
         # which otherwise let Chrome's default icon show for the whole restore.
-        handle = _PersistentContextHandle(context, user_data_dir, icon_seed=snapshot["id"])
+        with breakdown.stage("handle_locate"):
+            handle = _PersistentContextHandle(context, user_data_dir, icon_seed=snapshot["id"])
         # Reopen the tabs from the last stop; fall back to startup_urls on first
         # run. Each navigation is best-effort: a dead or slow URL (a typo'd host
         # like http://test/, a hung page) must never crash the launch or block the
         # other tabs. "commit" returns as soon as the page starts loading, and a
         # total time budget caps how long a run of dead hosts can hold up a launch.
-        deadline = time.monotonic() + _RESTORE_TIME_BUDGET_SECONDS
-        for url in urls_to_open(profile_dir, snapshot["startup_urls"]):
-            if time.monotonic() >= deadline:
-                break  # bounded total restoration time
-            page = context.new_page()
-            try:
-                page.goto(url, wait_until="commit", timeout=15000)
-            except Exception:
+        with breakdown.stage("tab_restore"):
+            deadline = time.monotonic() + _RESTORE_TIME_BUDGET_SECONDS
+            for url in urls_to_open(profile_dir, snapshot["startup_urls"]):
+                if time.monotonic() >= deadline:
+                    break  # bounded total restoration time
+                page = context.new_page()
                 try:
-                    page.close()  # don't leave a dangling failed/blank tab
+                    page.goto(url, wait_until="commit", timeout=15000)
                 except Exception:
-                    pass
+                    try:
+                        page.close()  # don't leave a dangling failed/blank tab
+                    except Exception:
+                        pass
+        breakdown.emit(snapshot["id"], event="runtime.launch_breakdown")
         return handle

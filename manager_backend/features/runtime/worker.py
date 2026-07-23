@@ -10,6 +10,7 @@ from ...config import ManagerSettings
 from ...errors import ManagerError
 from .logs import append_profile_log
 from .service import transition_runtime
+from .timing import StartTimer
 
 
 class ProfileWorker(threading.Thread):
@@ -25,6 +26,7 @@ class ProfileWorker(threading.Thread):
         proxy_preflight: Callable[[dict[str, Any]], str | None],
         on_finished: Callable[[str, "ProfileWorker"], None],
         settings: ManagerSettings,
+        timer: StartTimer | None = None,
     ):
         super().__init__(name=f"profile-{snapshot['id']}", daemon=True)
         self.runtime_id = runtime_id
@@ -36,6 +38,7 @@ class ProfileWorker(threading.Thread):
         self._proxy_preflight = proxy_preflight
         self._on_finished = on_finished
         self._settings = settings
+        self._timer = timer or StartTimer()
         self._commands: queue.SimpleQueue[str] = queue.SimpleQueue()
 
     def request_stop(self) -> None:
@@ -46,6 +49,33 @@ class ProfileWorker(threading.Thread):
             runtime = session.get(RuntimeSession, self.runtime_id)
             if runtime is not None:
                 transition_runtime(session, runtime, state, message=message)
+
+    def _start_close_watcher(self, handle: Any) -> None:
+        """Immediate finalization: a watcher thread blocks until the browser
+        process exits, then wakes the run loop through its command queue — instead
+        of waiting up to one poll interval. The OS-poll in is_closed() stays as the
+        fallback (used when a handle has no waiter). The waiter uses OS process
+        primitives only (never Playwright), so calling it off the worker thread is
+        safe — no cross-thread driver access. Best-effort; the poll still finalizes
+        if the watcher can't run.
+        """
+        waiter = getattr(handle, "wait_until_closed", None)
+        if waiter is None:
+            return
+
+        def _watch() -> None:
+            try:
+                waiter()
+            except Exception:
+                return
+            try:
+                self._commands.put("closed")
+            except Exception:
+                pass
+
+        threading.Thread(
+            target=_watch, name=f"close-watch-{self.snapshot['id']}", daemon=True
+        ).start()
 
     def _record_browser_ownership(self, handle: Any) -> None:
         browser_pid = getattr(handle, "browser_pid", None)
@@ -79,24 +109,37 @@ class ProfileWorker(threading.Thread):
     def run(self) -> None:
         handle = None
         try:
-            self.snapshot["proxy_url"] = self._proxy_preflight(self.snapshot)
-            with self._launch_semaphore:
+            with self._timer.stage("proxy_preflight"):
+                self.snapshot["proxy_url"] = self._proxy_preflight(self.snapshot)
+            # Time spent parked on the launch semaphore (other launches ahead) is
+            # start latency the user feels but no single stage owns. Acquire/release
+            # manually so the wait is timed while the semaphore still wraps ONLY the
+            # launch phase (released before the probe loop, unchanged behavior).
+            with self._timer.stage("launch_gate_wait"):
+                self._launch_semaphore.acquire()
+            try:
                 self._transition("starting")
-                handle = self._launcher.launch(self.snapshot)
+                with self._timer.stage("browser_launch"):
+                    handle = self._launcher.launch(self.snapshot)
                 self._record_browser_ownership(handle)
+                self._start_close_watcher(handle)
                 self._append_log(
                     "runtime.process_started",
                     fields={"profile_path": str(self.snapshot["profile_dir"])},
                 )
                 self._transition("running")
                 self._append_log("runtime.ready")
+                # One structured, non-secret line: where the start wall-clock went.
+                self._timer.emit(self.snapshot["id"])
+            finally:
+                self._launch_semaphore.release()
 
             while True:
                 try:
                     command = self._commands.get(timeout=0.1)
                 except queue.Empty:
                     command = None
-                if command == "stop" or handle.is_closed():
+                if command in ("stop", "closed") or handle.is_closed():
                     self._transition("stopping")
                     handle.close()
                     self._transition("stopped")

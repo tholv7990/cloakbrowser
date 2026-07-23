@@ -20,6 +20,7 @@ from .launcher import (
 from .locks import ProfileFileLock
 from .logs import append_profile_log
 from .service import create_runtime_session
+from .timing import StartTimer
 from .worker import ProfileWorker
 
 
@@ -60,6 +61,9 @@ class RuntimeManager:
         )
 
     def start(self, profile_id: str) -> RuntimeSession:
+        # One timer spans the whole start; stage() calls below and in the worker
+        # record where the wall-clock goes (logged as runtime.start_timing).
+        timer = StartTimer()
         with self._lock:
             existing = self._workers.get(profile_id)
             if existing is not None and existing.is_alive():
@@ -67,25 +71,28 @@ class RuntimeManager:
                     "profile_already_running", "This profile is already active.", 409
                 )
             profile_lock = self._lock_factory(profile_id)
-            profile_lock.acquire()
+            with timer.stage("lock_acquire"):
+                profile_lock.acquire()
             try:
                 with self._session_factory() as session:
-                    profile = get_profile(session, profile_id)
-                    snapshot = self._snapshot(session, profile)
-                    runtime = create_runtime_session(session, profile)
-                    runtime.manager_instance_id = self._instance_id
-                    runtime.manager_pid = self._process_id
-                    runtime.manager_created_at = self._process_created_at
-                    session.commit()
-                    session.refresh(runtime)
-                    append_profile_log(
-                        session,
-                        profile.id,
-                        "info",
-                        "runtime.start_requested",
-                        settings=self._settings,
-                    )
-                    runtime_id = runtime.id
+                    with timer.stage("profile_load"):
+                        profile = get_profile(session, profile_id)
+                        snapshot = self._snapshot(session, profile)
+                    with timer.stage("session_create"):
+                        runtime = create_runtime_session(session, profile)
+                        runtime.manager_instance_id = self._instance_id
+                        runtime.manager_pid = self._process_id
+                        runtime.manager_created_at = self._process_created_at
+                        session.commit()
+                        session.refresh(runtime)
+                        append_profile_log(
+                            session,
+                            profile.id,
+                            "info",
+                            "runtime.start_requested",
+                            settings=self._settings,
+                        )
+                        runtime_id = runtime.id
             except Exception:
                 profile_lock.release()
                 raise
@@ -99,6 +106,7 @@ class RuntimeManager:
                 proxy_preflight=self._proxy_preflight,
                 on_finished=self._worker_finished,
                 settings=self._settings,
+                timer=timer,
             )
             self._workers[profile_id] = worker
             worker.start()
