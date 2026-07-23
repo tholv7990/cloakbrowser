@@ -12,6 +12,7 @@ import base64
 import hashlib
 import secrets
 from datetime import datetime
+from urllib.parse import urlsplit
 
 from sqlalchemy import select
 
@@ -25,6 +26,17 @@ from ..auth.service import AuthError
 def _s256(verifier: str) -> str:
     digest = hashlib.sha256(verifier.encode("ascii")).digest()
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def is_loopback_redirect_uri(uri: str) -> bool:
+    """RFC 8252 native-app redirect: http on a loopback host only. Rejecting anything
+    else stops a hostile redirect_uri from exfiltrating a victim's auth code (PKCE
+    alone doesn't help when the attacker also chose the code_challenge)."""
+    parts = urlsplit(uri)
+    return parts.scheme == "http" and (parts.hostname or "").lower() in _LOOPBACK_HOSTS
 
 
 def create_authorization_code(

@@ -9,6 +9,7 @@ here it returns the code as JSON for the page to redirect with).
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from ... import throttle
@@ -24,12 +25,19 @@ from ...schemas import (
     TokenResponse,
 )
 from . import service as oauth
+from .login_page import LOGIN_CSP, LOGIN_HTML
 
 router = APIRouter(prefix="/oauth", tags=["oauth"])
 
 
 def _device_challenge(public_key_b64: str) -> str:
     return f"plasma-device:{public_key_b64}"
+
+
+@router.get("/login", response_class=HTMLResponse, include_in_schema=False)
+def login_page() -> HTMLResponse:
+    # Static page; it reads redirect_uri/code_challenge/state from the URL client-side.
+    return HTMLResponse(content=LOGIN_HTML, headers={"Content-Security-Policy": LOGIN_CSP})
 
 
 @router.post("/authorize", response_model=AuthorizeResponse)
@@ -40,6 +48,8 @@ def authorize(
     settings: CloudSettings = Depends(get_settings),
 ) -> AuthorizeResponse:
     factory = request.app.state.session_factory
+    if not oauth.is_loopback_redirect_uri(body.redirect_uri):
+        raise CloudError("invalid_request")
     identifier = str(body.email)
     try:
         throttle.enforce_on(session, scope="login", identifier=identifier)

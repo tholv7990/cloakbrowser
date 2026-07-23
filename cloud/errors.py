@@ -19,6 +19,7 @@ STATUS: dict[str, int] = {
     "refresh_expired": 401,
     "device_mismatch": 403,
     "invalid_grant": 400,
+    "invalid_request": 400,
     # devices
     "bad_signature": 401,
     "device_revoked": 403,

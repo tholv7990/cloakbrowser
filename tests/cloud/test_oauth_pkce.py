@@ -133,3 +133,67 @@ def test_wrong_password_at_authorize_is_401(env):
     )
     assert resp.status_code == 401
     assert resp.json()["error"] == "invalid_credentials"
+
+
+def test_login_page_renders_and_reflects_nothing(env):
+    client, _settings = env
+    # A hostile query string must NOT appear anywhere in the served HTML (no XSS).
+    resp = client.get(
+        "/oauth/login",
+        params={"redirect_uri": "http://127.0.0.1:9/cb", "state": "<script>evil()</script>"},
+    )
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "Content-Security-Policy" in resp.headers
+    body = resp.text
+    assert 'id="form"' in body and 'id="password"' in body
+    assert "<script>evil()" not in body  # query params are read client-side, never echoed
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "http://127.0.0.1:53123/callback",
+        "http://localhost:8080/cb",
+        "http://[::1]:5000/cb",
+    ],
+)
+def test_loopback_redirect_uris_are_accepted(env, uri):
+    client, _settings = env
+    _verifier, challenge = _pkce()
+    resp = client.post(
+        "/oauth/authorize",
+        json={
+            "email": EMAIL,
+            "password": PASSWORD,
+            "code_challenge": challenge,
+            "redirect_uri": uri,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["redirect_uri"] == uri
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "https://evil.example.com/cb",
+        "http://evil.example.com/cb",
+        "http://127.0.0.1.evil.com/cb",
+        "app://callback",
+    ],
+)
+def test_non_loopback_redirect_uri_is_rejected(env, uri):
+    client, _settings = env
+    _verifier, challenge = _pkce()
+    resp = client.post(
+        "/oauth/authorize",
+        json={
+            "email": EMAIL,
+            "password": PASSWORD,
+            "code_challenge": challenge,
+            "redirect_uri": uri,
+        },
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"] == "invalid_request"

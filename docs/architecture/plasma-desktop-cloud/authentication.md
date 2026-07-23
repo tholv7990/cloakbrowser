@@ -48,6 +48,16 @@ Requirements enforced: **PKCE S256** (no plain); **state** (CSRF for the redirec
 token replay); exact loopback `redirect_uri`; **TLS validated normally** (no cert-error bypass);
 tokens **never** in a URL we log or persist in plaintext.
 
+**Implemented (concrete endpoints).** The desktop opens `GET /oauth/login?redirect_uri&code_challenge&state`.
+That page (`cloud/features/oauth/login_page.py`) is fully static — it reads those params
+client-side (nothing is reflected into the HTML, so no XSS) and POSTs credentials to
+`POST /oauth/authorize`, which authenticates, mints a single-use code, and returns it; the
+page then redirects to `redirect_uri?code&state`. The desktop exchanges at `POST /oauth/token`.
+`/oauth/authorize` **rejects any non-loopback `redirect_uri`** (`is_loopback_redirect_uri`,
+RFC 8252: `http` on `127.0.0.1` / `localhost` / `[::1]`) → `invalid_request`, so a hostile
+redirect can't exfiltrate a victim's code. The page ships a strict CSP (`default-src 'none'`,
+inline style/script only, `connect-src 'self'`).
+
 ## Token lifecycle
 
 - **Access token:** EdDSA-signed JWT, **short (~10 min)**. Sent as `Authorization: Bearer` to cloud
