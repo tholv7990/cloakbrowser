@@ -74,13 +74,13 @@ describe('quick-add proxy from the profile form', () => {
     expect(await screen.findByText(/proxy unreachable/i)).toBeInTheDocument();
   });
 
-  it('shows an error for an unparseable proxy without creating one', async () => {
+  it('cannot add an unparseable proxy (button disabled, nothing created)', async () => {
     const user = userEvent.setup();
     renderWithProviders(<Harness />);
+    // Unparseable text never fills host/port, so Add & use stays disabled and no
+    // proxy is created — the invalid value simply can't be attached.
     await user.type(screen.getByPlaceholderText(/host:port:user:pass/i), 'not-a-proxy');
-    await user.click(screen.getByRole('button', { name: /add & use/i }));
-
-    expect(await screen.findByText(/could not read that proxy/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /add & use/i })).toBeDisabled();
     expect(screen.getByTestId('proxy-id')).toHaveTextContent('');
   });
 });

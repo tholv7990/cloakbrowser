@@ -10,10 +10,9 @@ import { Button } from '@/components/ui/Button';
 import { Badge, TagChip } from '@/components/ui/Badge';
 import { ProxyHealthDot } from '@/components/domain/StatusBadges';
 import { FingerprintGlyph } from '@/components/FingerprintGlyph';
-import { ProxyEditorDrawer } from '@/features/proxies/ProxyEditorDrawer';
+import { ProxyInlineForm, emptyOneProxy, type OneProxy } from '@/features/proxies/ProxyInlineForm';
 import { ProxyQuickResult } from '@/features/proxies/ProxyResultViews';
 import { useCreateProxy, useQuickTest } from '@/features/proxies/api';
-import { parseProxyText } from '@/schemas/proxy';
 import type { ProfileWizardValues } from '@/schemas/profile';
 import { useT, type TranslationKey } from '@/i18n';
 
@@ -201,8 +200,7 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
   const geoMode = useWatch<ProfileWizardValues>({ name: 'geolocation_mode' }) as string;
   const profileName = useWatch<ProfileWizardValues>({ name: 'name' }) as string;
   const selected = refs.proxies.find((p) => p.id === proxyId) ?? null;
-  const [proxyEditorOpen, setProxyEditorOpen] = useState(false);
-  const [pasteProxy, setPasteProxy] = useState('');
+  const [draft, setDraft] = useState<OneProxy>(emptyOneProxy);
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [checkResult, setCheckResult] = useState<ProxyQuickTest | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
@@ -229,24 +227,27 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
     if (proxyId) runCheck(proxyId);
   };
 
-  const quickAddProxy = async () => {
-    const parsed = parseProxyText(pasteProxy);
-    if (!parsed || !parsed.host || !parsed.port) {
+  // Persist the inline-form proxy and assign it to the profile (the wizard needs
+  // a real proxy id), then auto-check it. The chosen scheme is saved as-is.
+  const addAndUse = async () => {
+    const host = draft.host.trim();
+    const port = Number(draft.port);
+    if (!host || !port) {
       setPasteError(t('editor.quickProxyInvalid'));
       return;
     }
     try {
       const created = await createProxy.mutateAsync({
-        label: profileName?.trim() || parsed.host,
-        scheme: parsed.scheme ?? 'http',
-        host: parsed.host,
-        port: Number(parsed.port),
-        username: parsed.username || null,
-        password: parsed.password || undefined,
+        label: profileName?.trim() || host,
+        scheme: draft.scheme,
+        host,
+        port,
+        username: draft.username.trim() || null,
+        password: draft.password || undefined,
         test_before_launch: true,
       });
       setValue('proxy_id', created.id, { shouldValidate: true });
-      setPasteProxy('');
+      setDraft(emptyOneProxy);
       setPasteError(null);
       runCheck(created.id); // add + check in one step; result shows below
     } catch {
@@ -256,57 +257,24 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
 
   return (
     <div className="space-y-4">
-      <Field
-        label={t('editor.quickProxy')}
-        hint={t('editor.quickProxyHint')}
-        error={pasteError ?? undefined}
-      >
-        <div className="flex gap-2">
-          <Input
-            value={pasteProxy}
-            onChange={(e) => {
-              setPasteProxy(e.target.value);
-              setPasteError(null);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                quickAddProxy();
-              }
-            }}
-            placeholder="socks5h://user:pass@host:1080  ·  host:port:user:pass"
-            className="font-mono text-[12px]"
-          />
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={quickAddProxy}
-            loading={createProxy.isPending}
-            disabled={!pasteProxy.trim()}
-          >
-            <Plus className="h-3.5 w-3.5" /> {t('editor.quickProxyAdd')}
-          </Button>
-        </div>
-      </Field>
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => setProxyEditorOpen(true)}
-        >
-          <Plus className="h-3.5 w-3.5" /> {t('editor.advancedProxy')}
-        </Button>
-        {!selected && <span className="text-2xs text-ink-faint">{t('editor.directNoProxy')}</span>}
-      </div>
-      <ProxyEditorDrawer
-        open={proxyEditorOpen}
-        proxy={null}
-        defaultLabel={profileName}
-        onClose={() => setProxyEditorOpen(false)}
-        onSaved={(saved) => setValue('proxy_id', saved.id, { shouldValidate: true })}
-      />
+      {!selected && (
+        <Field label={t('editor.quickProxy')} hint={t('editor.quickProxyHint')} error={pasteError ?? undefined}>
+          <ProxyInlineForm value={draft} onChange={setDraft} />
+          <div className="mt-2 flex items-center gap-2">
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              onClick={addAndUse}
+              loading={createProxy.isPending}
+              disabled={!draft.host.trim() || !draft.port.trim()}
+            >
+              <Plus className="h-3.5 w-3.5" /> {t('editor.quickProxyAdd')}
+            </Button>
+            <span className="text-2xs text-ink-faint">{t('editor.directNoProxy')}</span>
+          </div>
+        </Field>
+      )}
       {selected && (
         <div className="space-y-2 rounded-md border border-line bg-surface-sunken p-3 text-[13px]">
           <div className="flex items-center justify-between gap-2">

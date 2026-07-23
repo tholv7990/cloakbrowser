@@ -357,8 +357,8 @@ export const vi: Record<keyof typeof en, string> = {
   'editor.proxy': 'Proxy',
   'editor.proxyHint': 'Bản ghi proxy dùng lại được quản lý ở màn hình Proxy.',
   'editor.directNoProxy': 'Kết nối trực tiếp (không proxy)',
-  'editor.quickProxy': 'Thêm proxy — dán & dùng',
-  'editor.quickProxyHint': 'Dán proxy rồi nhấn Enter; nó được tạo và chọn ngay.',
+  'editor.quickProxy': 'Thêm proxy',
+  'editor.quickProxyHint': 'Điền hoặc dán proxy, Kiểm tra, rồi Thêm & dùng để gắn vào hồ sơ này.',
   'editor.quickProxyAdd': 'Thêm & dùng',
   'editor.quickProxyInvalid':
     'Không đọc được proxy. Dùng host:port:user:pass hoặc scheme://user:pass@host:port.',

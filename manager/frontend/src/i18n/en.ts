@@ -353,8 +353,8 @@ export const en = {
   'editor.proxy': 'Proxy',
   'editor.proxyHint': 'Reusable proxy records are managed on the Proxies screen.',
   'editor.directNoProxy': 'Direct connection (no proxy)',
-  'editor.quickProxy': 'Add a proxy — paste & go',
-  'editor.quickProxyHint': 'Paste a proxy and press Enter; it is created and selected instantly.',
+  'editor.quickProxy': 'Add a proxy',
+  'editor.quickProxyHint': 'Fill or paste the proxy, Check it, then Add & use to attach it to this profile.',
   'editor.quickProxyAdd': 'Add & use',
   'editor.quickProxyInvalid':
     'Could not read that proxy. Use host:port:user:pass or scheme://user:pass@host:port.',
