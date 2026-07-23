@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any, Protocol
@@ -91,7 +92,6 @@ def profile_launch_snapshot(
 
 
 _SESSION_FILE = "last-session.json"
-_INTERNAL_URL_PREFIXES = ("about:", "chrome:", "chrome-extension:", "devtools:", "edge:")
 
 # The stealth binary ships with NO prepopulated search engines, so the omnibox
 # has no search fallback and types plain text as a hostname ("test" -> http://test/).
@@ -169,13 +169,34 @@ def seed_default_search_engine(user_data_dir: Path) -> None:
         pass  # a bad seed must never block a launch
 
 
+# Tab-session restoration reads an on-disk file, so treat it as untrusted: only a
+# bounded number of real web URLs (http/https, sane length) may be reopened, and
+# restoring them is capped by a total time budget so a run of dead hosts can't
+# stall a launch.
+_MAX_RESTORE_TABS = 25
+_RESTORE_SCHEMES = ("http://", "https://")
+_MAX_URL_LENGTH = 2048
+_RESTORE_TIME_BUDGET_SECONDS = 30.0
+
+
+def _valid_restore_url(url: object) -> bool:
+    return (
+        isinstance(url, str)
+        and 0 < len(url) <= _MAX_URL_LENGTH
+        and url.startswith(_RESTORE_SCHEMES)
+    )
+
+
 def _read_last_session(profile_dir: Path) -> list[str]:
-    """Return the tab URLs saved when the profile was last stopped (may be empty)."""
+    """Return the saved tab URLs (validated + bounded); [] if none or malformed."""
     try:
         data = json.loads((profile_dir / _SESSION_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
-    return [url for url in data.get("urls", []) if isinstance(url, str) and url]
+    if not isinstance(data, dict) or not isinstance(data.get("urls"), list):
+        return []
+    valid = [url for url in data["urls"] if _valid_restore_url(url)]
+    return valid[:_MAX_RESTORE_TABS]
 
 
 def urls_to_open(profile_dir: Path, startup_urls: list[str]) -> list[str]:
@@ -221,6 +242,25 @@ def persistent_context_kwargs(
     return kwargs
 
 
+def _normalize_udd(path: str) -> str:
+    """Canonicalize a user-data-dir for exact, case/separator-insensitive compare."""
+    try:
+        resolved = os.path.realpath(path)
+    except (OSError, ValueError):
+        resolved = path
+    return os.path.normcase(os.path.normpath(resolved))
+
+
+def _cmdline_user_data_dir(cmdline: list[str]) -> str | None:
+    """Extract the exact --user-data-dir value from a process cmdline (or None)."""
+    for index, arg in enumerate(cmdline):
+        if arg.startswith("--user-data-dir="):
+            return arg.split("=", 1)[1]
+        if arg == "--user-data-dir" and index + 1 < len(cmdline):
+            return cmdline[index + 1]
+    return None
+
+
 class _PersistentContextHandle:
     _PROBE_INTERVAL = 2.0
 
@@ -228,7 +268,7 @@ class _PersistentContextHandle:
         self._context = context
         self._closed = False
         self._profile_dir = Path(user_data_dir).parent
-        self._owned_path = user_data_dir.casefold()
+        self._owned_path = _normalize_udd(user_data_dir)
         self.browser_pid: int | None = None
         self.browser_created_at: datetime | None = None
         self._last_probe = 0.0
@@ -249,7 +289,8 @@ class _PersistentContextHandle:
             try:
                 if "chrome" not in (process.info["name"] or "").lower():
                     continue
-                if self._owned_path in " ".join(process.cmdline()).casefold():
+                udd = _cmdline_user_data_dir(process.cmdline())
+                if udd is not None and _normalize_udd(udd) == self._owned_path:
                     self.browser_pid = process.pid
                     self.browser_created_at = datetime.fromtimestamp(
                         process.create_time(), timezone.utc
@@ -258,6 +299,19 @@ class _PersistentContextHandle:
             except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
                 continue
         return False
+
+    def _process_alive(self) -> bool:
+        """True only if OUR exact browser process still runs — verifying the pid's
+        create_time matches, so a reused pid is never mistaken for a live browser."""
+        if self.browser_pid is None or self.browser_created_at is None:
+            return False
+        try:
+            created = datetime.fromtimestamp(
+                psutil.Process(self.browser_pid).create_time(), timezone.utc
+            )
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            return False
+        return created == self.browser_created_at
 
     def _mark_closed(self, *_args: Any) -> None:
         self._closed = True
@@ -294,11 +348,8 @@ class _PersistentContextHandle:
         urls = [
             info["url"]
             for info in infos
-            if info.get("type") == "page"
-            and isinstance(info.get("url"), str)
-            and info["url"]
-            and not info["url"].startswith(_INTERNAL_URL_PREFIXES)
-        ]
+            if info.get("type") == "page" and _valid_restore_url(info.get("url"))
+        ][:_MAX_RESTORE_TABS]
         if urls and urls != self._last_saved_urls:
             try:
                 (self._profile_dir / _SESSION_FILE).write_text(
@@ -327,15 +378,10 @@ class _PersistentContextHandle:
         if now - self._last_probe < self._PROBE_INTERVAL:
             return False
         self._last_probe = now
-        if self.browser_pid is not None:
-            if psutil.pid_exists(self.browser_pid):
-                self._snapshot_session()  # alive: keep the tab list fresh on disk
-                return False
-            self._closed = True
-            return True
-        # Never captured a pid — re-scan; if nothing owns the dir, it's gone.
-        if self._locate_browser():
-            self._snapshot_session()
+        # Alive if our exact process (pid + create_time) still runs; otherwise
+        # re-scan by exact --user-data-dir in case the pid was never captured.
+        if self._process_alive() or self._locate_browser():
+            self._snapshot_session()  # alive: keep the tab list fresh on disk
             return False
         self._closed = True
         return True
@@ -363,13 +409,19 @@ class CloakPersistentLauncher:
         )
         # Reopen the tabs from the last stop; fall back to startup_urls on first
         # run. Each navigation is best-effort: a dead or slow URL (a typo'd host
-        # like http://test/, a hung page) must never crash the launch or block
-        # the other tabs. "commit" also returns as soon as the page starts
-        # loading, so a heavy site doesn't hold up the launch.
+        # like http://test/, a hung page) must never crash the launch or block the
+        # other tabs. "commit" returns as soon as the page starts loading, and a
+        # total time budget caps how long a run of dead hosts can hold up a launch.
+        deadline = time.monotonic() + _RESTORE_TIME_BUDGET_SECONDS
         for url in urls_to_open(profile_dir, snapshot["startup_urls"]):
+            if time.monotonic() >= deadline:
+                break  # bounded total restoration time
             page = context.new_page()
             try:
                 page.goto(url, wait_until="commit", timeout=15000)
             except Exception:
-                continue
+                try:
+                    page.close()  # don't leave a dangling failed/blank tab
+                except Exception:
+                    pass
         return _PersistentContextHandle(context, user_data_dir)

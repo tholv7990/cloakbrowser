@@ -4,11 +4,89 @@ import json
 
 from manager_backend.features.runtime import launcher
 from manager_backend.features.runtime.launcher import (
+    _read_last_session,
     ensure_initial_preferences,
     persistent_context_kwargs,
     seed_default_search_engine,
     urls_to_open,
 )
+
+
+def test_read_last_session_bounds_count_and_validates_schemes(tmp_path):
+    urls = [f"https://ok.example/{i}" for i in range(60)]
+    urls += [
+        "javascript:alert(1)",
+        "file:///etc/passwd",
+        "chrome://settings/",
+        "data:text/html,x",
+        "ftp://host/file",
+        "",
+        123,
+        None,
+        "https://" + "a" * 5000,  # over length cap
+    ]
+    (tmp_path / "last-session.json").write_text(
+        json.dumps({"urls": urls}), encoding="utf-8"
+    )
+    result = _read_last_session(tmp_path)
+    assert len(result) <= 25  # small max tabs
+    assert all(isinstance(u, str) and u.startswith(("http://", "https://")) for u in result)
+    assert all(len(u) <= 2048 for u in result)
+    assert "javascript:alert(1)" not in result and "file:///etc/passwd" not in result
+
+
+class _FakeProc:
+    def __init__(self, pid, udd, created=1000.0):
+        self.pid = pid
+        self.info = {"name": "chrome.exe"}
+        self._udd = udd
+        self._created = created
+
+    def cmdline(self):
+        return ["chrome.exe", f"--user-data-dir={self._udd}", "about:blank"]
+
+    def create_time(self):
+        return self._created
+
+
+def test_locate_browser_requires_exact_user_data_dir_not_substring(tmp_path, monkeypatch):
+    owned = str(tmp_path / "prof1" / "user-data")
+    # Another chrome whose udd merely CONTAINS ours as a prefix must not match.
+    other = str(tmp_path / "prof1" / "user-data-backup")
+    monkeypatch.setattr(
+        launcher.psutil, "process_iter", lambda attrs=None: [_FakeProc(111, other)]
+    )
+    handle = launcher._PersistentContextHandle(_FakeContext([]), owned)
+    assert handle.browser_pid is None  # did not false-match the "-backup" profile
+
+
+def test_is_closed_detects_pid_reuse_via_create_time(tmp_path, monkeypatch):
+    owned = str(tmp_path / "prof2" / "user-data")
+    monkeypatch.setattr(
+        launcher.psutil, "process_iter", lambda attrs=None: [_FakeProc(222, owned, created=1000.0)]
+    )
+    handle = launcher._PersistentContextHandle(_FakeContext([]), owned)
+    assert handle.browser_pid == 222  # located exactly
+
+    # The browser is gone, but its pid is reused by an unrelated process.
+    monkeypatch.setattr(launcher.psutil, "process_iter", lambda attrs=None: [])
+    monkeypatch.setattr(launcher.psutil, "pid_exists", lambda pid: True)
+
+    class _Reused:
+        def create_time(self):
+            return 9999.0  # different -> not our original process
+
+    monkeypatch.setattr(launcher.psutil, "Process", lambda pid: _Reused())
+    handle._last_probe = -1e9
+    assert handle.is_closed() is True  # not fooled by the reused pid
+
+
+def test_read_last_session_rejects_malformed_files(tmp_path):
+    session = tmp_path / "last-session.json"
+    session.write_text(json.dumps(["raw", "list"]), encoding="utf-8")  # not a dict
+    assert _read_last_session(tmp_path) == []
+    session.write_text(json.dumps({"urls": "not-a-list"}), encoding="utf-8")
+    assert _read_last_session(tmp_path) == []
 
 
 def test_ensure_initial_preferences_seeds_google_search(tmp_path):
@@ -71,7 +149,7 @@ class _FakeContext:
 
 
 def _handle(monkeypatch, context, udd):
-    # Skip the real psutil process scan; we drive liveness via pid_exists below.
+    # Skip the real psutil scan; tests drive liveness by overriding _process_alive.
     monkeypatch.setattr(
         launcher._PersistentContextHandle, "_locate_browser", lambda self: False
     )
@@ -93,13 +171,13 @@ def test_direct_window_close_still_restores_tabs(tmp_path, monkeypatch):
     )
     handle = _handle(monkeypatch, context, udd)
 
-    monkeypatch.setattr(launcher.psutil, "pid_exists", lambda pid: True)
+    handle._process_alive = lambda: True
     assert handle.is_closed() is False  # alive -> snapshots the live tabs
     saved = json.loads((tmp_path / "last-session.json").read_text())
     assert saved["urls"] == ["https://a.example/", "https://b.example/"]
 
     # User closes the window directly: the process is gone.
-    monkeypatch.setattr(launcher.psutil, "pid_exists", lambda pid: False)
+    handle._process_alive = lambda: False
     handle._last_probe = -1e9
     assert handle.is_closed() is True
     handle.close()  # no-op (already closed), must not wipe the snapshot
@@ -117,7 +195,7 @@ def test_snapshot_never_wipes_session_with_empty(tmp_path, monkeypatch):
     )
     context = _FakeContext([], extra_infos=[{"type": "page", "url": "chrome://newtab/"}])
     handle = _handle(monkeypatch, context, udd)
-    monkeypatch.setattr(launcher.psutil, "pid_exists", lambda pid: True)
+    handle._process_alive = lambda: True
     handle.is_closed()
     saved = json.loads((tmp_path / "last-session.json").read_text())
     assert saved["urls"] == ["https://keep.example/"]

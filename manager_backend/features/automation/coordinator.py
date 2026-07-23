@@ -9,7 +9,8 @@ credential release, aggregate counts, and the per-item gate Events.
 from __future__ import annotations
 
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import wait as futures_wait
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -56,6 +57,7 @@ class RunCoordinator:
         self._executors: dict[str, ThreadPoolExecutor] = {}
         self._gates: dict[str, dict[str, threading.Event]] = {}
         self._cancel: dict[str, threading.Event] = {}
+        self._futures: set[Future] = set()  # in-flight workers, awaited on shutdown
 
     # --- registries ---------------------------------------------------------
     def _cancel_event(self, run_id: str) -> threading.Event:
@@ -80,9 +82,24 @@ class RunCoordinator:
                 self._executors[run_id] = executor
             return executor
 
-    def shutdown(self) -> None:
+    def _submit(self, executor: ThreadPoolExecutor, run_id: str, item_id: str, start_step: int) -> Future:
+        """Submit a worker and track its future so shutdown can await it."""
+        future = executor.submit(self._run_item, run_id, item_id, start_step)
         with self._lock:
-            # Release any gate-blocked worker so its thread can exit.
+            self._futures.add(future)
+        future.add_done_callback(self._forget_future)
+        return future
+
+    def _forget_future(self, future: Future) -> None:
+        with self._lock:
+            self._futures.discard(future)
+
+    def shutdown(self, timeout: float = 10.0) -> bool:
+        """Signal all workers, then AWAIT them (bounded) so the engine is never
+        disposed while a worker still owns a DB session or credential. Returns True
+        only if every worker actually finished — never falsely reports clean."""
+        with self._lock:
+            # Cancel + release any gate-blocked worker so its thread can exit.
             for event in self._cancel.values():
                 event.set()
             for gates in self._gates.values():
@@ -90,8 +107,13 @@ class RunCoordinator:
                     event.set()
             executors = list(self._executors.values())
             self._executors.clear()
+            pending = set(self._futures)
         for executor in executors:
             executor.shutdown(wait=False, cancel_futures=True)
+        if not pending:
+            return True
+        _, not_done = futures_wait(pending, timeout=timeout)
+        return not not_done
 
     # --- start --------------------------------------------------------------
     def start(self, session: Session, template: AutomationTemplate, assignments, max_parallel: int) -> dict:
@@ -143,11 +165,12 @@ class RunCoordinator:
                 run_id=run.id,
                 profile_id=assignment.profile_id,
                 status="pending",
-                # Never persist email/password literals — those come from the pool.
+                # Persist only the template's DECLARED public variables — never a
+                # credential (pool-resolved) and never a stray/secret request key.
                 variables_json={
-                    key: value
-                    for key, value in assignment.variables.items()
-                    if key not in CREDENTIAL_VARIABLES
+                    v: assignment.variables[v]
+                    for v in custom_vars
+                    if v in assignment.variables
                 },
             )
             if needs_credential:
@@ -173,7 +196,7 @@ class RunCoordinator:
 
         executor = self._executor(run_id, max_parallel)
         for item_id in item_ids:
-            executor.submit(self._run_item, run_id, item_id, 0)
+            self._submit(executor, run_id, item_id, 0)
         return self.get_run(session, run_id)
 
     # --- per-item worker ----------------------------------------------------
@@ -186,6 +209,9 @@ class RunCoordinator:
             if self._is_cancelled(run_id):
                 item.status = "cancelled"
                 session.commit()
+                # This worker owns the reservation until it terminates — release here
+                # (the sole releaser), since cancel() never touches worker-owned creds.
+                release_credential(session, run_id=run_id, profile_id=item.profile_id)
                 self._recompute(run_id)
                 return
             run = session.get(AutomationRun, run_id)
@@ -219,6 +245,7 @@ class RunCoordinator:
                 start_step=start_step,
                 set_progress=set_progress,
                 request_attention=request_attention,
+                is_cancelled=lambda: self._is_cancelled(run_id),
             )
             try:
                 self._controller.run_item(ctx)
@@ -247,24 +274,43 @@ class RunCoordinator:
             session.close()
 
     def _gate(self, run_id: str, item_id: str, reason: str) -> bool:
+        event = self._gate_event(run_id, item_id)
+        cancel = self._cancel_event(run_id)
+        # Arm the gate BEFORE publishing attention, so a continue that lands right
+        # after we publish can't be clear()'d away into a lost wakeup.
+        event.clear()
         with self._session_factory() as session:
             item = session.get(AutomationRunItem, item_id)
             item.status = "attention"
             item.attention_reason = reason
             session.commit()
         self._recompute(run_id)
-        event = self._gate_event(run_id, item_id)
-        event.clear()
-        cancel = self._cancel_event(run_id)
+
+        # Wait on the event, but the persisted status is the source of truth: a
+        # continue flips it to "running", so we resume even if the wakeup is missed.
         while not event.wait(0.1):
             if cancel.is_set():
                 return False
+            with self._session_factory() as session:
+                status = session.scalar(
+                    select(AutomationRunItem.status).where(AutomationRunItem.id == item_id)
+                )
+            if status is None:
+                return False
+            if status != "attention":
+                break
         if cancel.is_set():
             return False
+        # Atomic, idempotent attention -> running (a no-op if continue already did it).
         with self._session_factory() as session:
-            item = session.get(AutomationRunItem, item_id)
-            item.status = "running"
-            item.attention_reason = None
+            session.execute(
+                update(AutomationRunItem)
+                .where(
+                    AutomationRunItem.id == item_id,
+                    AutomationRunItem.status == "attention",
+                )
+                .values(status="running", attention_reason=None)
+            )
             session.commit()
         self._recompute(run_id)
         return True
@@ -309,25 +355,31 @@ class RunCoordinator:
     def continue_profile(self, session: Session, run_id: str, profile_id: str) -> dict:
         self._require_run(session, run_id)
         item = self._require_item(session, run_id, profile_id)
+        # Persist the resume first (idempotent guard on status), then wake the
+        # worker. The worker keys off this persisted status, so the continue is
+        # honored even if the wakeup event is missed.
+        session.execute(
+            update(AutomationRunItem)
+            .where(AutomationRunItem.id == item.id, AutomationRunItem.status == "attention")
+            .values(status="running", attention_reason=None)
+        )
+        session.commit()
         self._gate_event(run_id, item.id).set()
         return self.get_run(session, run_id)
 
     def cancel(self, session: Session, run_id: str) -> dict:
         run = self._require_run(session, run_id)
+        # Signal cancellation: wake any gated workers and flip the cancel token so
+        # in-flight replays abort promptly. Credentials are NOT released here — each
+        # item's worker owns its reservation and releases it when it terminates
+        # (the sole releaser), so a cancel can never hand a live credential to
+        # another run. Every item has a worker (submitted at start/retry), so no
+        # reservation is orphaned by leaving it to the worker.
         self._cancel_event(run_id).set()
         for event in self._gates.get(run_id, {}).values():
             event.set()
-        items = session.scalars(
-            select(AutomationRunItem).where(AutomationRunItem.run_id == run_id)
-        ).all()
-        for item in items:
-            if item.status == "pending":
-                item.status = "cancelled"
         run.status = "cancelled"
         session.commit()
-        for item in items:
-            if item.status != "completed":
-                release_credential(session, run_id=run_id, profile_id=item.profile_id)
         self._recompute(run_id)
         return self.get_run(session, run_id)
 
@@ -356,9 +408,7 @@ class RunCoordinator:
         run.finished_at = None
         self._cancel_event(run_id).clear()
         session.commit()
-        self._executor(run_id, run.max_parallel).submit(
-            self._run_item, run_id, item.id, start_step
-        )
+        self._submit(self._executor(run_id, run.max_parallel), run_id, item.id, start_step)
         return self.get_run(session, run_id)
 
     def mark_completed(self, session: Session, run_id: str, profile_id: str) -> dict:

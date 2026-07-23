@@ -25,6 +25,9 @@ class FakeShopify:
         self.scopes = list(_FULL_SCOPES)
         self.page_errors: list[str] = []
         self.reject_file: str | None = None
+        self.new_theme_id = "gid://shopify/Theme/99"
+        self.dup_role = "unpublished"  # role the duplicate is created with
+        self.live_role = "unpublished"  # role get_theme_role reports before a write
 
     def exchange_token(self, domain, client_id, client_secret):
         self.calls.append(("exchange_token", domain))
@@ -55,7 +58,11 @@ class FakeShopify:
 
     def duplicate_theme(self, ctx, source_theme_id, name):
         self.calls.append(("duplicate_theme", source_theme_id, name))
-        return "gid://shopify/Theme/99"
+        return {"id": self.new_theme_id, "role": self.dup_role}
+
+    def get_theme_role(self, ctx, theme_id):
+        self.calls.append(("get_theme_role", theme_id))
+        return self.live_role
 
     def upsert_theme_file_batch(self, ctx, theme_id, files):
         keys = [f["key"] for f in files]
@@ -220,6 +227,129 @@ def test_user_errors_fail_a_step_without_raising_and_reexecute_skips_completed(c
     assert any(c[0] == "upsert_pages" for c in shopify.calls)  # content retried
     assert {s["key"]: s["status"] for s in second["steps"]}["content"] == "completed"
     assert second["status"] == "completed"
+
+
+def test_step_failure_never_leaks_secrets_in_the_error(client, auth_headers):
+    # An unexpected exception must never put raw text (which could carry the store
+    # token, a proxy URL, or an HTTP body) into the persisted/returned step error.
+    shopify, _ = _setup(client)
+
+    def leaky(ctx, products):
+        raise RuntimeError(
+            f"POST https://user:{ctx.token}@proxy.example:8080 failed; token={ctx.token} SECRET_ABC123"
+        )
+
+    shopify.upsert_products = leaky
+    store_id = _connect(client, auth_headers).json()["id"]
+    plan_id = _stage(client, auth_headers, store_id).json()["id"]
+    response = client.post(
+        f"{_BASE}/stores/{store_id}/plans/{plan_id}/execute",
+        headers=auth_headers,
+        json={"confirm": True},
+    )
+    assert response.status_code == 200, response.text
+    steps = {s["key"]: s for s in response.json()["steps"]}
+    error = steps["product_csv"]["error"] or ""
+    assert steps["product_csv"]["status"] == "failed"
+    assert error  # a stable, safe message is present
+    assert "SECRET_ABC123" not in error
+    assert "tok-" not in error  # the fake store token is "tok-<domain>"
+    assert "proxy" not in error.lower()
+
+
+def test_execute_rejects_a_concurrent_execution_of_the_same_plan(client, auth_headers):
+    # Two executions must not both run steps (double themes/products); the second
+    # to arrive is rejected because the plan is already claimed.
+    from manager_backend.models import ShopifyBuildPlan
+
+    shopify, _ = _setup(client)
+    store_id = _connect(client, auth_headers).json()["id"]
+    plan_id = _stage(client, auth_headers, store_id).json()["id"]
+    with client.app.state.session_factory() as session:
+        plan = session.get(ShopifyBuildPlan, plan_id)
+        plan.status = "running"  # another execution already owns it
+        session.commit()
+
+    shopify.calls.clear()  # ignore connect-time calls; watch only execution
+    response = client.post(
+        f"{_BASE}/stores/{store_id}/plans/{plan_id}/execute",
+        headers=auth_headers,
+        json={"confirm": True},
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "plan_execution_in_progress"
+    assert not shopify.calls  # execution ran nothing remotely
+
+
+def _theme_step(body):
+    return {s["key"]: s for s in body["steps"]}["theme"]
+
+
+def test_theme_step_refuses_a_non_draft_duplicate_and_writes_nothing(client, auth_headers):
+    shopify, _ = _setup(client)
+    shopify.dup_role = "main"  # the "duplicate" came back as the live/main theme
+    store_id = _connect(client, auth_headers).json()["id"]
+    plan_id = _stage(client, auth_headers, store_id).json()["id"]
+    body = client.post(
+        f"{_BASE}/stores/{store_id}/plans/{plan_id}/execute",
+        headers=auth_headers,
+        json={"confirm": True},
+    ).json()
+    assert _theme_step(body)["status"] == "failed"
+    # Zero theme-file writes to a non-draft theme.
+    assert not any(c[0] == "upsert_theme_file_batch" for c in shopify.calls)
+
+
+def test_theme_step_refuses_when_duplicate_returns_the_source_id(client, auth_headers):
+    shopify, _ = _setup(client)
+    shopify.new_theme_id = "gid://shopify/Theme/1"  # same as the source theme
+    store_id = _connect(client, auth_headers).json()["id"]
+    plan_id = _stage(client, auth_headers, store_id).json()["id"]
+    body = client.post(
+        f"{_BASE}/stores/{store_id}/plans/{plan_id}/execute",
+        headers=auth_headers,
+        json={"confirm": True},
+    ).json()
+    assert _theme_step(body)["status"] == "failed"
+    assert not any(c[0] == "upsert_theme_file_batch" for c in shopify.calls)
+
+
+def test_theme_step_refuses_if_role_is_not_draft_before_a_write(client, auth_headers):
+    shopify, _ = _setup(client)
+    shopify.dup_role = "unpublished"  # duplicated fine...
+    shopify.live_role = "main"  # ...but re-validation before a write says it's live
+    store_id = _connect(client, auth_headers).json()["id"]
+    plan_id = _stage(client, auth_headers, store_id).json()["id"]
+    body = client.post(
+        f"{_BASE}/stores/{store_id}/plans/{plan_id}/execute",
+        headers=auth_headers,
+        json={"confirm": True},
+    ).json()
+    assert _theme_step(body)["status"] == "failed"
+    assert not any(c[0] == "upsert_theme_file_batch" for c in shopify.calls)
+
+
+def test_startup_recovery_resets_stuck_running_plans(client, auth_headers):
+    from manager_backend.features.shopify.pipeline import recover_interrupted_plans
+    from manager_backend.models import ShopifyBuildPlan
+
+    _setup(client)
+    store_id = _connect(client, auth_headers).json()["id"]
+    plan_id = _stage(client, auth_headers, store_id).json()["id"]
+    with client.app.state.session_factory() as session:
+        session.get(ShopifyBuildPlan, plan_id).status = "running"  # interrupted
+        session.commit()
+
+    assert recover_interrupted_plans(client.app.state.session_factory) == 1
+    with client.app.state.session_factory() as session:
+        assert session.get(ShopifyBuildPlan, plan_id).status == "failed"
+    # A recovered plan can be executed again.
+    again = client.post(
+        f"{_BASE}/stores/{store_id}/plans/{plan_id}/execute",
+        headers=auth_headers,
+        json={"confirm": True},
+    )
+    assert again.status_code == 200
 
 
 def test_theme_file_upsert_bisects_to_isolate_a_bad_file(client, auth_headers):

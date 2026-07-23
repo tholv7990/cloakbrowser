@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -15,6 +16,7 @@ from .auth.routes import router as auth_router
 from .config import ManagerSettings
 from .db import create_engine_for, create_session_factory
 from .errors import install_error_handlers
+from .maintenance import MaintenanceGate
 from .models import Base
 from .dependencies import require_authenticated_session
 from .features.runtime.manager import RuntimeManager
@@ -34,6 +36,7 @@ from .features.automation.controller import StubAutomationController
 from .features.automation.coordinator import RunCoordinator, recover_interrupted_runs
 from .features.automation.factory import FactoryCoordinator
 from .features.shopify.clients import HttpOpenAIImageClient, HttpShopifyClient
+from .features.shopify.pipeline import recover_interrupted_plans
 from .features.portability.browser_cookies import CookieContextAdapter
 from .features.settings.store import SettingsStore
 from .features.diagnostics.service import DiagnosticManager
@@ -86,6 +89,9 @@ def create_app(
             application.state.automation_recovered = recover_interrupted_runs(
                 application.state.session_factory
             )
+            application.state.shopify_plans_recovered = recover_interrupted_plans(
+                application.state.session_factory
+            )
             application.state.diagnostic_recovered = (
                 application.state.diagnostic_manager.recover_orphans()
             )
@@ -108,8 +114,19 @@ def create_app(
                     diagnostic_shutdown_error = error
             application.state.runtime_manager.shutdown()
             application.state.proxy_quality_manager.shutdown()
-            application.state.automation_runs.shutdown()
-            application.state.automation_factory.shutdown()
+            # Await workers before disposing the engine — a worker still holding a
+            # DB session must not have the engine pulled out from under it. Drain the
+            # factory first: a factory build can spawn run workers, so runs must be
+            # drained only after the factory can no longer create new ones.
+            factory_clean = application.state.automation_factory.shutdown()
+            runs_clean = application.state.automation_runs.shutdown()
+            if not (runs_clean and factory_clean):
+                logging.getLogger("manager").warning(
+                    "automation workers did not all finish before engine dispose "
+                    "(runs_clean=%s, factory_clean=%s)",
+                    runs_clean,
+                    factory_clean,
+                )
             application.state.engine.dispose()
             if diagnostic_shutdown_error is not None:
                 raise diagnostic_shutdown_error
@@ -123,6 +140,10 @@ def create_app(
     app.state.engine = create_engine_for(resolved)
     Base.metadata.create_all(app.state.engine)
     app.state.session_factory = create_session_factory(app.state.engine)
+    # Serializes a destructive backup-restore against every worker-spawning /
+    # state-changing endpoint (they take a gate operation; restore takes it
+    # exclusively).
+    app.state.maintenance_gate = MaintenanceGate()
     app.state.diagnostic_manager = DiagnosticManager(
         app.state.session_factory, data_root=resolved.data_root
     )

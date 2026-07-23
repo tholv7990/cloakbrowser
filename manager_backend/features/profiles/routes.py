@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from ...dependencies import get_session
 from ...errors import ManagerError
+from ...maintenance import guard_maintenance
 from ...schemas.common import ErrorEnvelope
 from ..runtime.logs import (
     MAX_PROFILE_LOG_PAGE_SIZE,
@@ -181,7 +182,11 @@ def restore(profile_id: str, request: Request, session: SessionDependency):
     return profile_to_dict(set_trash_state(session, profile_id, False), settings=request.app.state.settings)
 
 
-@router.post("/profiles/{profile_id}/start", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/profiles/{profile_id}/start",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(guard_maintenance)],
+)
 def start(profile_id: str, request: Request):
     return runtime_to_dict(request.app.state.runtime_manager.start(profile_id))
 

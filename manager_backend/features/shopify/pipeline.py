@@ -10,7 +10,9 @@ files with recursive bisection to isolate a bad file — it never publishes.
 
 from __future__ import annotations
 
-from sqlalchemy import select
+import logging
+
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ...errors import ManagerError
@@ -18,6 +20,18 @@ from ...models import ShopifyBuildPlan, ShopifyPlanStep, ShopifyStore
 from ..proxies.credentials import CredentialStore
 from .clients import OpenAIImageClient, ShopifyClient, StoreContext
 from .service import CATALOGS, get_ai_settings, store_context
+
+
+_LOG = logging.getLogger("manager.shopify")
+
+
+def _redact(text: str, ctx: StoreContext) -> str:
+    """Strip the store token and proxy URL from any text before it is surfaced."""
+    out = str(text)
+    for secret in (ctx.token, ctx.proxy_url):
+        if secret:
+            out = out.replace(secret, "***")
+    return out
 
 
 STEP_ORDER = [
@@ -199,6 +213,22 @@ def _theme_files(config: dict) -> list[dict]:
 
 
 # --- execution ---------------------------------------------------------------
+def recover_interrupted_plans(session_factory) -> int:
+    """Reset plans left 'running' by an interrupted process so they can be re-run.
+
+    Completed steps persist, so a re-execution safely resumes and skips them. Runs
+    at startup, mirroring the automation run recovery.
+    """
+    with session_factory() as session:
+        result = session.execute(
+            update(ShopifyBuildPlan)
+            .where(ShopifyBuildPlan.status == "running")
+            .values(status="failed")
+        )
+        session.commit()
+        return result.rowcount
+
+
 def execute_build_plan(
     session: Session,
     cred_store: CredentialStore,
@@ -212,10 +242,21 @@ def execute_build_plan(
         raise ManagerError("confirm_required", "Execution must be confirmed.", 422)
     store = _store(session, store_id)
     plan = _plan(session, store_id, plan_id)
+    # Atomically claim execution — only one runner may own a plan at a time, so a
+    # concurrent execute can't double-run steps (duplicate themes/products).
+    claimed = session.execute(
+        update(ShopifyBuildPlan)
+        .where(ShopifyBuildPlan.id == plan_id, ShopifyBuildPlan.status != "running")
+        .values(status="running")
+    ).rowcount
+    session.commit()
+    if claimed != 1:
+        raise ManagerError(
+            "plan_execution_in_progress", "This plan is already being executed.", 409
+        )
+    session.refresh(plan)
     ctx = store_context(session, cred_store, store, shopify)
     config = dict(plan.config_json or {})
-    plan.status = "running"
-    session.commit()
 
     steps = session.scalars(
         select(ShopifyPlanStep)
@@ -255,20 +296,23 @@ def _run_plan_step(session, step, ctx, shopify, openai, config) -> dict:
     step.error = None
     session.commit()
     try:
-        result, user_errors = _execute_step(step.key, ctx, shopify, openai, config)
+        result, user_errors = _execute_step(session, step, ctx, shopify, openai, config)
     except ManagerError as error:
         step.status = "failed"
-        step.error = error.message[:1000]
+        step.error = error.message[:1000]  # our own fixed, safe message
         session.commit()
         return {}
     except Exception as error:  # network / unexpected — a step failure, never a 500
+        # Never persist raw exception text: it can carry the token, a proxy URL, or
+        # an HTTP body. Log a redacted detail; surface only a stable safe message.
+        _LOG.warning("shopify step %s failed: %s", step.key, _redact(repr(error), ctx))
         step.status = "failed"
-        step.error = str(error)[:1000]
+        step.error = f"The {step.key} step failed unexpectedly."
         session.commit()
         return {}
     if user_errors:
         step.status = "failed"
-        step.error = "; ".join(str(e) for e in user_errors)[:1000]
+        step.error = _redact("; ".join(str(e) for e in user_errors), ctx)[:1000]
     else:
         step.status = "completed"
         step.result_json = result
@@ -276,7 +320,8 @@ def _run_plan_step(session, step, ctx, shopify, openai, config) -> dict:
     return result
 
 
-def _execute_step(key, ctx: StoreContext, shopify: ShopifyClient, openai, config) -> tuple[dict, list]:
+def _execute_step(session, step, ctx: StoreContext, shopify: ShopifyClient, openai, config) -> tuple[dict, list]:
+    key = step.key
     if key == "product_csv":
         products = _product_inputs(config)
         if not products:
@@ -301,12 +346,47 @@ def _execute_step(key, ctx: StoreContext, shopify: ShopifyClient, openai, config
     if key == "design":
         return {"files": len(_theme_files(config))}, []
     if key == "theme":
-        new_theme_id = shopify.duplicate_theme(ctx, config["theme_id"], config["theme_name"])
-        rejected = upsert_theme_files(
-            _theme_files(config),
-            lambda batch: shopify.upsert_theme_file_batch(ctx, new_theme_id, batch),
-        )
-        admin_url, preview_url = shopify.theme_urls(ctx, new_theme_id)
-        errors = [f"theme file rejected: {key}" for key in rejected]
-        return {"theme_id": new_theme_id, "admin_url": admin_url, "preview_url": preview_url}, errors
+        return _run_theme_step(session, step, ctx, shopify, config)
     return {}, []
+
+
+def _draft_only(role: str) -> bool:
+    return str(role or "").lower() == "unpublished"
+
+
+def _run_theme_step(session, step, ctx: StoreContext, shopify: ShopifyClient, config) -> tuple[dict, list]:
+    """Build onto a private draft ONLY, enforced structurally.
+
+    The duplicate must be a NEW, UNPUBLISHED theme (id != source, role == unpublished),
+    and the role is re-fetched and re-checked before EVERY file batch — so we never
+    write to the live/main theme even if it flips mid-build. The new theme id is
+    persisted before any write, so a retry reuses it instead of duplicating again.
+    """
+    source_id = config["theme_id"]
+    new_id = (step.result_json or {}).get("theme_id")
+    if not new_id:  # first run — duplicate into a fresh draft and validate it
+        dup = shopify.duplicate_theme(ctx, source_id, config["theme_name"])
+        new_id = (dup or {}).get("id")
+        if not new_id or new_id == source_id or not _draft_only((dup or {}).get("role")):
+            raise ManagerError(
+                "shopify_theme_not_draft",
+                "Refused to build: the duplicated theme is not a new private draft.",
+                502,
+            )
+        step.result_json = {"theme_id": new_id}  # persist the external id before any write
+        session.commit()
+
+    def guarded_batch(batch: list[dict]) -> list[str]:
+        # Re-validate the live role before every write; refuse anything not a draft.
+        if not _draft_only(shopify.get_theme_role(ctx, new_id)):
+            raise ManagerError(
+                "shopify_theme_not_draft",
+                "Refused to write: the theme is no longer a private draft.",
+                502,
+            )
+        return shopify.upsert_theme_file_batch(ctx, new_id, batch)
+
+    rejected = upsert_theme_files(_theme_files(config), guarded_batch)
+    admin_url, preview_url = shopify.theme_urls(ctx, new_id)
+    errors = [f"theme file rejected: {rejected_key}" for rejected_key in rejected]
+    return {"theme_id": new_id, "admin_url": admin_url, "preview_url": preview_url}, errors

@@ -82,13 +82,18 @@ def create_proxy(session: Session, store: CredentialStore, payload: ProxyWrite) 
         test_before_launch=payload.test_before_launch,
     )
     session.add(proxy)
+    committed = False
     try:
         session.commit()
+        committed = True
     except IntegrityError:
         session.rollback()
-        if reference is not None:
-            store.delete(reference)
         raise ManagerError("proxy_label_conflict", "A proxy with this label already exists.", 409) from None
+    finally:
+        # Compensate on ANY failure (IntegrityError or otherwise), not just one kind,
+        # so a stored secret is never orphaned by an uncommitted row.
+        if not committed and reference is not None:
+            store.delete(reference)
     session.refresh(proxy)
     return proxy
 
@@ -110,13 +115,18 @@ def update_proxy(
     proxy.host = payload.host or None
     proxy.port = payload.port
     proxy.test_before_launch = payload.test_before_launch
+    committed = False
     try:
         session.commit()
+        committed = True
     except IntegrityError:
         session.rollback()
-        if new_reference is not None:
-            store.delete(new_reference)
         raise ManagerError("proxy_label_conflict", "A proxy with this label already exists.", 409) from None
+    finally:
+        # Compensate on ANY failure: clean the NEW secret so it isn't orphaned. The
+        # OLD secret is retained here and only deleted once the new ref is committed.
+        if not committed and new_reference is not None:
+            store.delete(new_reference)
     if old_reference is not None and old_reference != proxy.credential_ref:
         store.delete(old_reference)
     session.refresh(proxy)

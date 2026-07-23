@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 
 from manager_backend.features.proxies.credentials import MemoryCredentialStore
@@ -241,6 +242,40 @@ def test_human_gate_blocks_then_continue_resumes(client, auth_headers):
     assert run["status"] == "completed"
 
 
+def test_human_gate_resumes_from_persisted_state_if_wakeup_is_lost(client, auth_headers):
+    # A continue that lands between publishing attention and the gate's wait must
+    # not be lost. The worker keys off the persisted item status, so even a
+    # wakeup event that never arrives still resumes it.
+    from sqlalchemy import update
+
+    from manager_backend.models import AutomationRunItem
+
+    fake, _ = _setup(client)
+    profile = _profile(client, auth_headers, "Gated")
+    fake.behaviors[profile["id"]] = lambda ctx: ctx.request_attention("captcha detected")
+    _save_template(client, auth_headers, "t-lost", SIMPLE_STEPS)
+    run_id = client.post(
+        "/api/v1/automations/templates/t-lost/runs",
+        headers=auth_headers,
+        json={"assignments": [{"profile_id": profile["id"], "variables": {}}], "max_parallel": 1},
+    ).json()["id"]
+    run = _poll_run(client, run_id, lambda r: r["attention_count"] == 1)
+    assert run["items"][0]["status"] == "attention"
+
+    # Simulate a continue whose wakeup event was lost: flip the persisted status to
+    # running WITHOUT setting the gate event.
+    with client.app.state.session_factory() as session:
+        session.execute(
+            update(AutomationRunItem)
+            .where(AutomationRunItem.run_id == run_id)
+            .values(status="running", attention_reason=None)
+        )
+        session.commit()
+
+    run = _poll_run(client, run_id, lambda r: r["status"] == "completed", timeout=5)
+    assert run["status"] == "completed"
+
+
 def test_retry_resumes_from_last_completed_step(client, auth_headers):
     fake, _ = _setup(client)
     profile = _profile(client, auth_headers, "Flaky")
@@ -271,6 +306,125 @@ def test_retry_resumes_from_last_completed_step(client, auth_headers):
     )
     run = _poll_run(client, run_id, lambda r: r["status"] == "completed")
     assert run["status"] == "completed"
+
+
+def test_cancel_holds_credential_until_worker_releases_it(client, auth_headers):
+    # A credential must never be returned to the pool while a worker still owns it
+    # (mid-replay), or a concurrent run could reserve and use the same login.
+    import threading
+
+    fake, _ = _setup(client)
+    profile = _profile(client, auth_headers, "Holder")
+    _save_template(client, auth_headers, "t-hold", CRED_STEPS)
+    client.post(
+        "/api/v1/automations/credentials/import",
+        headers=auth_headers,
+        json={"text": "victim@x.com:s3cr3tPW"},
+    )
+
+    entered, release = threading.Event(), threading.Event()
+
+    def hold(ctx):
+        entered.set()
+        release.wait(5)  # worker keeps ownership of the credential until released
+
+    fake.behaviors[profile["id"]] = hold
+
+    run_id = client.post(
+        "/api/v1/automations/templates/t-hold/runs",
+        headers=auth_headers,
+        json={"assignments": [{"profile_id": profile["id"], "variables": {}}], "max_parallel": 1},
+    ).json()["id"]
+    assert entered.wait(3)  # worker is inside run_item, owns the credential
+    assert client.get("/api/v1/automations/credentials").json()["reserved"] == 1
+
+    # Cancel while the worker still owns the credential.
+    client.post(f"/api/v1/automations/runs/{run_id}/cancel", headers=auth_headers)
+    time.sleep(0.3)
+    summary = client.get("/api/v1/automations/credentials").json()
+    assert summary["available"] == 0  # NOT released while a worker holds it
+    assert summary["reserved"] == 1
+
+    # Once the worker terminates, it releases the credential exactly once.
+    release.set()
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        if client.get("/api/v1/automations/credentials").json()["available"] == 1:
+            break
+        time.sleep(0.05)
+    final = client.get("/api/v1/automations/credentials").json()
+    assert final["available"] == 1 and final["reserved"] == 0
+
+
+def test_cancel_token_lets_a_worker_abort_promptly(client, auth_headers):
+    # The controller gets a cancellation token so a long replay can stop itself
+    # rather than running to completion after a cancel.
+    import threading
+
+    fake, _ = _setup(client)
+    profile = _profile(client, auth_headers, "Abortable")
+    _save_template(client, auth_headers, "t-token", SIMPLE_STEPS)
+
+    entered = threading.Event()
+
+    def wait_for_cancel(ctx):
+        entered.set()
+        for _ in range(200):  # ~10s ceiling; should break far sooner via the token
+            if ctx.is_cancelled():
+                return
+            time.sleep(0.05)
+        raise AssertionError("cancel token never signalled")
+
+    fake.behaviors[profile["id"]] = wait_for_cancel
+    run_id = client.post(
+        "/api/v1/automations/templates/t-token/runs",
+        headers=auth_headers,
+        json={"assignments": [{"profile_id": profile["id"], "variables": {}}], "max_parallel": 1},
+    ).json()["id"]
+    assert entered.wait(3)
+    client.post(f"/api/v1/automations/runs/{run_id}/cancel", headers=auth_headers)
+    # The worker aborts via the token (no release event set) and cancels its item.
+    run = _poll_run(client, run_id, lambda r: r["items"][0]["status"] == "cancelled")
+    assert run["items"][0]["status"] == "cancelled"
+
+
+def test_shutdown_awaits_running_workers_before_reporting_clean(client, auth_headers):
+    # Shutdown must not report done (and let the engine be disposed) while a worker
+    # still owns a DB session / credential — it has to await the worker first.
+    import threading
+
+    fake, _ = _setup(client)
+    profile = _profile(client, auth_headers, "Slow")
+    _save_template(client, auth_headers, "t-sd", SIMPLE_STEPS)
+
+    entered, release = threading.Event(), threading.Event()
+
+    def slow(ctx):
+        entered.set()
+        release.wait(3)  # worker owns its resources until released
+
+    fake.behaviors[profile["id"]] = slow
+    client.post(
+        "/api/v1/automations/templates/t-sd/runs",
+        headers=auth_headers,
+        json={"assignments": [{"profile_id": profile["id"], "variables": {}}], "max_parallel": 1},
+    )
+    assert entered.wait(3)
+
+    coord = client.app.state.automation_runs
+    done, result = threading.Event(), {}
+
+    def do_shutdown():
+        result["clean"] = coord.shutdown(timeout=5)
+        done.set()
+
+    t = threading.Thread(target=do_shutdown)
+    t.start()
+    assert not done.wait(0.5)  # blocked: still awaiting the running worker
+    release.set()
+    assert done.wait(5)  # returns once the worker finishes
+    assert result["clean"] is True
+    t.join()
 
 
 # --- startup recovery -------------------------------------------------------
@@ -332,3 +486,82 @@ def test_factory_creates_profiles(client, auth_headers):
     assert all(item["profile_id"] for item in job["items"])
     # The profiles really exist.
     assert client.get("/api/v1/profiles", headers=auth_headers).json()["total"] == 2
+
+
+# --- F1: no plaintext fill values / secret variables ------------------------
+def _put_template(client, auth_headers, tid, steps, name="T"):
+    return client.put(
+        f"/api/v1/automations/templates/{tid}",
+        headers=auth_headers,
+        json={"name": name, "description": "", "steps": steps},
+    )
+
+
+def test_fill_step_rejects_literal_value(client, auth_headers):
+    r = _put_template(client, auth_headers, "t-literal", [
+        {"type": "fill", "selectors": [{"css": "#u"}], "value": "hunter2"}
+    ])
+    assert r.status_code == 422
+    assert "hunter2" not in r.text  # never echo the secret back
+
+
+def test_fill_step_requires_a_variable(client, auth_headers):
+    r = _put_template(client, auth_headers, "t-novar", [
+        {"type": "fill", "selectors": [{"css": "#u"}]}
+    ])
+    assert r.status_code == 422
+
+
+def test_template_rejects_secret_carrying_variable_names(client, auth_headers):
+    for bad in ["pass", "token", "api_key", "client_secret", "access_token", "cookie",
+                "authorization", "csrf_token", "user_password", "sessionCookie"]:
+        r = _put_template(client, auth_headers, f"t-{abs(hash(bad))}", [
+            {"type": "fill", "selectors": [{"css": "#x"}], "variable": bad}
+        ])
+        assert r.status_code == 422, bad
+
+
+def test_email_password_credential_and_public_vars_allowed(client, auth_headers):
+    r = _put_template(client, auth_headers, "t-ok", [
+        {"type": "fill", "selectors": [{"css": "#e"}], "variable": "email"},
+        {"type": "fill", "selectors": [{"css": "#p"}], "variable": "password"},
+        {"type": "fill", "selectors": [{"css": "#promo"}], "variable": "promo_code"},
+    ])
+    assert r.status_code == 200, r.text
+    assert r.json()["variables"] == ["email", "password", "promo_code"]
+
+
+def test_run_never_persists_credentials_or_stray_secrets(client, auth_headers):
+    _setup(client)
+    profile = _profile(client, auth_headers, "SecVars")
+    _put_template(client, auth_headers, "t-sec", [
+        {"type": "fill", "selectors": [{"css": "#e"}], "variable": "email"},
+        {"type": "fill", "selectors": [{"css": "#p"}], "variable": "password"},
+        {"type": "fill", "selectors": [{"css": "#promo"}], "variable": "promo_code"},
+    ])
+    client.post("/api/v1/automations/credentials/import", headers=auth_headers,
+                json={"text": "victim@x.com:s3cr3tPW"})
+
+    # A stray secret-carrying key in the assignment is rejected outright.
+    bad = client.post("/api/v1/automations/templates/t-sec/runs", headers=auth_headers, json={
+        "assignments": [{"profile_id": profile["id"], "variables": {"promo_code": "SAVE10", "token": "leak"}}],
+        "max_parallel": 1})
+    assert bad.status_code in (400, 422)
+    assert "leak" not in bad.text
+
+    run = client.post("/api/v1/automations/templates/t-sec/runs", headers=auth_headers, json={
+        "assignments": [{"profile_id": profile["id"], "variables": {"promo_code": "SAVE10"}}],
+        "max_parallel": 1}).json()
+    _poll_run(client, run["id"], lambda r: r["status"] in ("completed", "failed"))
+
+    # Adversarial DB dump: no credential value, no stray secret, only the public var.
+    from manager_backend.models import AutomationRunItem, AutomationTemplate
+    with client.app.state.session_factory() as s:
+        for item in s.query(AutomationRunItem).all():
+            dumped = json.dumps(item.variables_json or {})
+            assert "s3cr3tPW" not in dumped and "victim@x.com" not in dumped
+            assert "email" not in (item.variables_json or {})
+            assert "password" not in (item.variables_json or {})
+            assert (item.variables_json or {}).get("promo_code") == "SAVE10"
+        for t in s.query(AutomationTemplate).all():
+            assert "hunter2" not in json.dumps(t.steps_json or [])

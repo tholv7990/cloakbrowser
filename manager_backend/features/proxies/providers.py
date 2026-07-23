@@ -306,17 +306,22 @@ def generate_and_store(
         )
         session.add(proxy)
         proxies.append(proxy)
+    committed = False
     try:
         session.commit()
+        committed = True
     except IntegrityError:
         session.rollback()
-        for ref in refs:
-            store.delete(ref)
         raise ManagerError(
             "proxy_provider_conflict",
             "Generated proxies collided with existing ones. Try again.",
             409,
         ) from None
+    finally:
+        # Compensate on ANY failure so freshly-stored secrets aren't orphaned.
+        if not committed:
+            for ref in refs:
+                store.delete(ref)
     for proxy in proxies:
         session.refresh(proxy)
     return {"created": len(proxies), "proxy_ids": [proxy.id for proxy in proxies]}
