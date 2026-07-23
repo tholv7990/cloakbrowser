@@ -90,3 +90,6 @@ proxy-credentials*
 
 # Isolated local feature worktrees
 .worktrees/
+
+# Plasma cloud secrets
+cloud/.env

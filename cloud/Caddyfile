@@ -1,0 +1,6 @@
+# Auto-TLS reverse proxy for the Plasma cloud API. {$CLOUD_DOMAIN} comes from the
+# environment; Caddy fetches + renews a Let's Encrypt certificate automatically.
+{$CLOUD_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8000
+}

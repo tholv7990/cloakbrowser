@@ -1,0 +1,53 @@
+# Plasma cloud — single small VPS, modular monolith. Run from the repo root:
+#   docker compose -f cloud/docker-compose.yml up -d --build
+# Provide secrets via a .env next to this file (see cloud/README.md). Never commit .env.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: plasma
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: plasma
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plasma"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: ..
+      dockerfile: cloud/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PLASMA_CLOUD_DATABASE_URL: postgresql+psycopg://plasma:${POSTGRES_PASSWORD}@postgres:5432/plasma
+      PLASMA_ACTIVATION_PEPPER: ${PLASMA_ACTIVATION_PEPPER:?set PLASMA_ACTIVATION_PEPPER}
+      PLASMA_SIGNING_PRIVATE_KEY_PEM: ${PLASMA_SIGNING_PRIVATE_KEY_PEM:?set PLASMA_SIGNING_PRIVATE_KEY_PEM}
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CLOUD_DOMAIN: ${CLOUD_DOMAIN:?set CLOUD_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
