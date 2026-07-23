@@ -345,14 +345,15 @@ class _PersistentContextHandle:
         self._last_saved_urls: list[str] | None = None
         self._icon_seed = icon_seed  # per-profile taskbar icon
         self._icon_applies_left = 6  # slow-path re-apply on probes, long-term safety net
-        self._locate_browser()
-        context.on("close", self._mark_closed)
-        # Front-load the icon: a short, fast burst in the background so the plasma
-        # icon replaces Chrome's default within a frame or two of the window
-        # appearing — and keeps winning while Chrome re-sets its own icon during
-        # startup (the source of the visible flicker). Best-effort, never blocks.
+        # Front-load the icon: start the burst BEFORE the (blocking) _locate_browser
+        # scan so it begins stamping the instant the window appears — the window is
+        # born with Chrome's default icon and every millisecond before our override
+        # lands is a visible frame of it. The burst keeps winning while Chrome
+        # re-sets its own icon during startup. Best-effort, never blocks.
         if icon_seed:
             threading.Thread(target=self._icon_burst, name="profile-icon", daemon=True).start()
+        self._locate_browser()
+        context.on("close", self._mark_closed)
 
     def _icon_burst(self) -> None:
         # Scan for the profile's Chrome pids ONCE (the browser process is stable
@@ -363,7 +364,11 @@ class _PersistentContextHandle:
         from .window_icon import _profile_chrome_pids, apply_profile_window_icon
 
         pids: set[int] | None = None
-        deadline = time.monotonic() + 3.0
+        # ~15ms cadence for 5s: tight enough that a re-set by Chrome is overwritten
+        # within a frame, and long enough to cover the whole tab-restore window
+        # (each restored tab can make Chrome re-touch the icon). EnumWindows +
+        # SendMessage is cheap; the costly whole-OS scan runs at most once.
+        deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline and not self._closed:
             try:
                 if not pids:
@@ -371,7 +376,7 @@ class _PersistentContextHandle:
                 apply_profile_window_icon(self._user_data_dir, self._icon_seed, pids=pids)
             except Exception:
                 pass
-            time.sleep(0.03)
+            time.sleep(0.015)
 
     def _apply_icon(self) -> None:
         if self._icon_seed is None or self._icon_applies_left <= 0:
