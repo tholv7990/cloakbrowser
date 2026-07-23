@@ -11,6 +11,8 @@ import { Badge, TagChip } from '@/components/ui/Badge';
 import { ProxyHealthDot } from '@/components/domain/StatusBadges';
 import { FingerprintGlyph } from '@/components/FingerprintGlyph';
 import { ProxyEditorDrawer } from '@/features/proxies/ProxyEditorDrawer';
+import { useCreateProxy } from '@/features/proxies/api';
+import { parseProxyText } from '@/schemas/proxy';
 import type { ProfileWizardValues } from '@/schemas/profile';
 import { useT, type TranslationKey } from '@/i18n';
 
@@ -198,8 +200,69 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
   const profileName = useWatch<ProfileWizardValues>({ name: 'name' }) as string;
   const selected = refs.proxies.find((p) => p.id === proxyId) ?? null;
   const [proxyEditorOpen, setProxyEditorOpen] = useState(false);
+  const [pasteProxy, setPasteProxy] = useState('');
+  const [pasteError, setPasteError] = useState<string | null>(null);
+  const createProxy = useCreateProxy();
+
+  const quickAddProxy = async () => {
+    const parsed = parseProxyText(pasteProxy);
+    if (!parsed || !parsed.host || !parsed.port) {
+      setPasteError(t('editor.quickProxyInvalid'));
+      return;
+    }
+    try {
+      const created = await createProxy.mutateAsync({
+        label: profileName?.trim() || parsed.host,
+        scheme: parsed.scheme ?? 'http',
+        host: parsed.host,
+        port: Number(parsed.port),
+        username: parsed.username || null,
+        password: parsed.password || undefined,
+        test_before_launch: true,
+      });
+      setValue('proxy_id', created.id, { shouldValidate: true });
+      setPasteProxy('');
+      setPasteError(null);
+    } catch {
+      setPasteError(t('editor.quickProxyFailed'));
+    }
+  };
+
   return (
     <div className="space-y-4">
+      <Field
+        label={t('editor.quickProxy')}
+        hint={t('editor.quickProxyHint')}
+        error={pasteError ?? undefined}
+      >
+        <div className="flex gap-2">
+          <Input
+            value={pasteProxy}
+            onChange={(e) => {
+              setPasteProxy(e.target.value);
+              setPasteError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                quickAddProxy();
+              }
+            }}
+            placeholder="socks5h://user:pass@host:1080  ·  host:port:user:pass"
+            className="font-mono text-[12px]"
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={quickAddProxy}
+            loading={createProxy.isPending}
+            disabled={!pasteProxy.trim()}
+          >
+            <Plus className="h-3.5 w-3.5" /> {t('editor.quickProxyAdd')}
+          </Button>
+        </div>
+      </Field>
       <SelectField
         name="proxy_id"
         label={t('editor.proxy')}
@@ -215,7 +278,7 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
         size="sm"
         onClick={() => setProxyEditorOpen(true)}
       >
-        <Plus className="h-3.5 w-3.5" /> {t('dlg.addNewProxy')}
+        <Plus className="h-3.5 w-3.5" /> {t('editor.advancedProxy')}
       </Button>
       <ProxyEditorDrawer
         open={proxyEditorOpen}

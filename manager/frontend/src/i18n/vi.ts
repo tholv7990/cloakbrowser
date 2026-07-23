@@ -311,6 +311,13 @@ export const vi: Record<keyof typeof en, string> = {
   'editor.proxy': 'Proxy',
   'editor.proxyHint': 'Bản ghi proxy dùng lại được quản lý ở màn hình Proxy.',
   'editor.directNoProxy': 'Kết nối trực tiếp (không proxy)',
+  'editor.quickProxy': 'Thêm proxy — dán & dùng',
+  'editor.quickProxyHint': 'Dán proxy rồi nhấn Enter; nó được tạo và chọn ngay.',
+  'editor.quickProxyAdd': 'Thêm & dùng',
+  'editor.quickProxyInvalid':
+    'Không đọc được proxy. Dùng host:port:user:pass hoặc scheme://user:pass@host:port.',
+  'editor.quickProxyFailed': 'Không thể thêm proxy.',
+  'editor.advancedProxy': 'Nâng cao (biểu mẫu + kiểm tra)',
   'editor.proxyShared':
     'Proxy này đã được gán cho {count} hồ sơ. Dùng chung một điểm thoát giữa các danh tính có thể liên kết chúng.',
   'editor.testProxy': 'Kiểm tra proxy trước mỗi lần chạy',

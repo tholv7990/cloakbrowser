@@ -307,6 +307,13 @@ export const en = {
   'editor.proxy': 'Proxy',
   'editor.proxyHint': 'Reusable proxy records are managed on the Proxies screen.',
   'editor.directNoProxy': 'Direct connection (no proxy)',
+  'editor.quickProxy': 'Add a proxy — paste & go',
+  'editor.quickProxyHint': 'Paste a proxy and press Enter; it is created and selected instantly.',
+  'editor.quickProxyAdd': 'Add & use',
+  'editor.quickProxyInvalid':
+    'Could not read that proxy. Use host:port:user:pass or scheme://user:pass@host:port.',
+  'editor.quickProxyFailed': 'Could not add the proxy.',
+  'editor.advancedProxy': 'Advanced (form + test)',
   'editor.proxyShared':
     'This proxy is already assigned to {count} profile(s). Sharing one exit across identities can link them.',
   'editor.testProxy': 'Test proxy before every launch',
