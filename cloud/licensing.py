@@ -234,3 +234,71 @@ def redeem_key(
         raise RedeemError("redeem_conflict") from error
 
     return RedeemResult(token=token, entitlement=entitlement, claims=claims, reused=False)
+
+
+# --- entitlement refresh ------------------------------------------------------
+
+REFRESH_ERRORS = frozenset(
+    {"device_revoked", "not_entitled", "key_revoked", "key_expired", "plan_missing"}
+)
+
+
+class RefreshError(Exception):
+    def __init__(self, code: str):
+        if code not in REFRESH_ERRORS:
+            raise ValueError(f"unknown refresh error code: {code}")
+        self.code = code
+        super().__init__(code)
+
+
+def refresh_entitlement(
+    session,
+    *,
+    device_id: str,
+    private_key: Ed25519PrivateKey,
+    now: datetime | None = None,
+    ttl: timedelta = DEFAULT_ENTITLEMENT_TTL,
+    grace: timedelta = DEFAULT_OFFLINE_GRACE,
+) -> RedeemResult:
+    """Re-issue a fresh signed entitlement for a device that already redeemed a key.
+    This is the periodic-refresh path: revocation bites here — a revoked device or a
+    revoked/suspended/expired key stops issuing, so a stale cached entitlement can
+    only survive until its offline-grace deadline."""
+    now = now or utc_now()
+    device = session.get(models.Device, device_id)
+    if device is None or device.revoked_at is not None:
+        raise RefreshError("device_revoked")
+
+    # The device's most recent redemption is its current entitlement source.
+    redemption = session.scalars(
+        select(models.Redemption)
+        .where(models.Redemption.device_id == device_id)
+        .order_by(models.Redemption.redeemed_at.desc())
+    ).first()
+    if redemption is None:
+        raise RefreshError("not_entitled")
+
+    key = session.get(models.ActivationKey, redemption.key_id)
+    if key is None or key.status in ("revoked", "suspended"):
+        raise RefreshError("key_revoked")
+    key_expires_at = ensure_aware_utc(key.expires_at)
+    if key_expires_at is not None and key_expires_at <= now:
+        raise RefreshError("key_expired")
+
+    plan = session.get(models.Plan, key.plan_id)
+    if plan is None:
+        raise RefreshError("plan_missing")
+
+    token, entitlement, claims = _issue_entitlement(
+        session,
+        key=key,
+        user_id=redemption.user_id,
+        device_id=device_id,
+        plan=plan,
+        private_key=private_key,
+        now=now,
+        ttl=ttl,
+        grace=grace,
+    )
+    session.flush()
+    return RedeemResult(token=token, entitlement=entitlement, claims=claims, reused=True)

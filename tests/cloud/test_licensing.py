@@ -9,7 +9,12 @@ from cloud.db import create_engine_for, create_session_factory, utc_now
 from cloud.db import Base
 from cloud.entitlements import generate_signing_keypair, verify_entitlement
 from cloud.keys import generate_activation_key, key_verifier
-from cloud.licensing import RedeemError, redeem_key
+from cloud.licensing import (
+    RedeemError,
+    RefreshError,
+    redeem_key,
+    refresh_entitlement,
+)
 
 PEPPER = b"test-pepper"
 PRIVATE_KEY, PUBLIC_KEY = generate_signing_keypair()
@@ -163,3 +168,65 @@ def test_bad_key_states_are_rejected(session_factory, status, expired, expected)
     with pytest.raises(RedeemError) as error:
         _redeem(session_factory, ctx, ctx["device_a"])
     assert error.value.code == expected
+
+
+def _refresh(session_factory, device_id):
+    with session_factory() as session:
+        result = refresh_entitlement(
+            session, device_id=device_id, private_key=PRIVATE_KEY
+        )
+        session.commit()
+        return result
+
+
+def _set_key(session_factory, key_id, **values):
+    with session_factory() as session:
+        key = session.get(models.ActivationKey, key_id)
+        for name, value in values.items():
+            setattr(key, name, value)
+        session.commit()
+
+
+def test_refresh_reissues_a_fresh_entitlement_for_a_redeemed_device(session_factory):
+    ctx = _setup(session_factory, max_uses=1)
+    _redeem(session_factory, ctx, ctx["device_a"])
+    result = _refresh(session_factory, ctx["device_a"])
+    claims = verify_entitlement(result.token, PUBLIC_KEY)
+    assert claims["device_id"] == ctx["device_a"]
+    assert claims["plan"] == "pro"
+
+
+def test_refresh_without_a_redemption_is_not_entitled(session_factory):
+    ctx = _setup(session_factory, max_uses=1)  # device_b never redeemed
+    with pytest.raises(RefreshError) as error:
+        _refresh(session_factory, ctx["device_b"])
+    assert error.value.code == "not_entitled"
+
+
+def test_refresh_stops_when_the_device_is_revoked(session_factory):
+    ctx = _setup(session_factory, max_uses=1)
+    _redeem(session_factory, ctx, ctx["device_a"])
+    with session_factory() as session:
+        session.get(models.Device, ctx["device_a"]).revoked_at = utc_now()
+        session.commit()
+    with pytest.raises(RefreshError) as error:
+        _refresh(session_factory, ctx["device_a"])
+    assert error.value.code == "device_revoked"
+
+
+def test_refresh_stops_when_the_key_is_revoked(session_factory):
+    ctx = _setup(session_factory, max_uses=1)
+    _redeem(session_factory, ctx, ctx["device_a"])
+    _set_key(session_factory, ctx["key_id"], status="revoked")
+    with pytest.raises(RefreshError) as error:
+        _refresh(session_factory, ctx["device_a"])
+    assert error.value.code == "key_revoked"
+
+
+def test_refresh_stops_when_the_key_is_expired(session_factory):
+    ctx = _setup(session_factory, max_uses=1)
+    _redeem(session_factory, ctx, ctx["device_a"])
+    _set_key(session_factory, ctx["key_id"], expires_at=utc_now() - timedelta(days=1))
+    with pytest.raises(RefreshError) as error:
+        _refresh(session_factory, ctx["device_a"])
+    assert error.value.code == "key_expired"
