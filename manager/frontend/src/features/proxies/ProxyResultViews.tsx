@@ -1,7 +1,7 @@
 import { Check, CircleAlert, TriangleAlert, X } from 'lucide-react';
 import type { AlignmentFinding, ProxyQualityReport, ProxyQuickTest } from '@/types/api';
 import { Badge, type Tone } from '@/components/ui/Badge';
-import { formatLatency, formatPercent } from '@/lib/format';
+import { countryFlag, formatLatency, formatPercent } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { useT, type TranslationKey } from '@/i18n';
 
@@ -58,7 +58,14 @@ export function ProxyQuickResult({ result }: { result: ProxyQuickTest }) {
           mono
         />
         <KeyVal label={t('pxr.city')} value={result.city} />
-        <KeyVal label={t('pxr.country')} value={result.country_name ?? result.country} />
+        <KeyVal
+          label={t('pxr.country')}
+          value={
+            countryFlag(result.country)
+              ? `${countryFlag(result.country)} ${result.country_name ?? result.country}`
+              : (result.country_name ?? result.country)
+          }
+        />
         <KeyVal label={t('pxr.zip')} value={result.zip_code} />
         <KeyVal label={t('editor.timezone')} value={result.timezone} mono />
         <KeyVal label={t('pxr.asn')} value={result.asn} mono />
@@ -168,7 +175,14 @@ export function ProxyQualityReportView({ report }: { report: ProxyQualityReport 
 
       <dl className="grid grid-cols-2 gap-3 rounded-lg border border-line bg-surface-sunken p-3 sm:grid-cols-3">
         <KeyVal label={t('proxies.col.exitIp')} value={report.exit_ip} mono />
-        <KeyVal label={t('pxr.country')} value={report.country} />
+        <KeyVal
+          label={t('pxr.country')}
+          value={
+            countryFlag(report.country)
+              ? `${countryFlag(report.country)} ${report.country}`
+              : report.country
+          }
+        />
         <KeyVal label={t('pxr.city')} value={report.city} />
         <KeyVal label={t('editor.timezone')} value={report.timezone} mono />
         <KeyVal label={t('pxr.asn')} value={report.asn} mono />
