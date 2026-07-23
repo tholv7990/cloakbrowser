@@ -331,6 +331,43 @@ def test_preflight_skips_tester_when_proxy_check_is_disabled(db_session_factory)
     assert preflight(snapshot) == "socks5://proxy.example:1080"
 
 
+def test_preflight_applies_cached_geo_even_when_check_is_disabled(db_session_factory):
+    # Even with the pre-launch test off, a geo_mode="proxy" profile must still get
+    # the proxy timezone from the last-known geo (any age) — not the host clock.
+    proxy = Proxy(
+        label="Cached geo, no launch test",
+        scheme="socks5",
+        host="proxy.example",
+        port=1080,
+        test_before_launch=False,
+        exit_ip="203.0.113.9",
+        timezone="America/Los_Angeles",
+        country="US",
+        last_checked_at=datetime.now(timezone.utc) - timedelta(days=3),  # stale on purpose
+    )
+    with db_session_factory() as session:
+        session.add(proxy)
+        session.commit()
+        proxy_id = proxy.id
+
+    class UnexpectedTester:
+        def run_fast(self, *_args, **_kwargs):
+            raise AssertionError("disabled check must not call the tester")
+
+    snapshot = {
+        "proxy_id": proxy_id,
+        "test_proxy_before_launch": True,
+        "location": {"geo_mode": "proxy"},
+    }
+    preflight = build_proxy_preflight(
+        db_session_factory, MemoryCredentialStore(), UnexpectedTester()
+    )
+
+    assert preflight(snapshot) == "socks5://proxy.example:1080"
+    assert snapshot["timezone"] == "America/Los_Angeles"
+    assert snapshot["proxy_exit_ip"] == "203.0.113.9"
+
+
 def test_preflight_reuses_recent_successful_proxy_result(db_session_factory):
     checked_at = datetime.now(timezone.utc) - timedelta(seconds=10)
     proxy = Proxy(

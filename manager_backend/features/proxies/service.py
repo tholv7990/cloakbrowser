@@ -288,13 +288,13 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def _cached_quick_test(proxy: Proxy, *, now: datetime) -> QuickTestResult | None:
+def _cached_quick_test(
+    proxy: Proxy, *, now: datetime, max_age: timedelta | None = _PREFLIGHT_CACHE_MAX_AGE
+) -> QuickTestResult | None:
     checked_at = proxy.last_checked_at
-    if (
-        checked_at is None
-        or not proxy.exit_ip
-        or _as_utc(now) - _as_utc(checked_at) > _PREFLIGHT_CACHE_MAX_AGE
-    ):
+    if checked_at is None or not proxy.exit_ip:
+        return None
+    if max_age is not None and _as_utc(now) - _as_utc(checked_at) > max_age:
         return None
     return QuickTestResult(
         exit_ip=proxy.exit_ip,
@@ -323,6 +323,15 @@ def build_proxy_preflight(session_factory, store: CredentialStore, tester):
                 not snapshot.get("test_proxy_before_launch", True)
                 or not proxy.test_before_launch
             ):
+                # Connectivity test skipped by config — but a geo_mode="proxy"
+                # profile still needs the proxy's timezone/exit IP, or it leaks the
+                # host timezone. Apply the last-known geo (any age) without a test.
+                cached = _cached_quick_test(
+                    proxy, now=datetime.now(timezone.utc), max_age=None
+                )
+                if cached is not None:
+                    _apply_proxy_geo(snapshot, cached)
+                    snapshot["proxy_exit_ip"] = cached.exit_ip
                 return proxy_url
             result = _cached_quick_test(proxy, now=datetime.now(timezone.utc))
             used_cached_result = result is not None
