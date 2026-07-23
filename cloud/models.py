@@ -43,6 +43,9 @@ class User(Base):
     # argon2id hash only — never the password.
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="unverified")
+    # Real identity for the audit trail (audit_events.actor references a user id or
+    # the literal "system"); admins issue/revoke keys and devices.
+    role: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -53,14 +56,15 @@ class User(Base):
     devices: Mapped[list["Device"]] = relationship(back_populates="user")
 
     __table_args__ = (
-        # Email is normalized (trim + lowercase) by the app before insert, so a
-        # plain unique constraint gives case-insensitive uniqueness portably
-        # (SQLite tests + Postgres prod) without a functional index. See keys/auth
-        # layer for the normalization helper.
+        # Email is normalized (NFC + casefold) by the app before insert, so a plain
+        # unique gives case-insensitive uniqueness on SQLite (tests). The Alembic
+        # migration ADDS a Postgres functional unique index on lower(email) as
+        # DB-level defense-in-depth against an un-normalized insert path.
         UniqueConstraint("email", name="uq_users_email"),
         CheckConstraint(
             "status in ('unverified','active','suspended')", name="ck_users_status"
         ),
+        CheckConstraint("role in ('user','admin')", name="ck_users_role"),
     )
 
 
@@ -79,7 +83,10 @@ class EmailVerification(Base):
         DateTime(timezone=True), default=utc_now, nullable=False
     )
 
-    __table_args__ = (UniqueConstraint("token_hash", name="uq_email_verif_token"),)
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_email_verif_token"),
+        Index("ix_email_verif_user", "user_id"),  # FK cascade + per-user lookup
+    )
 
 
 class PasswordReset(Base):
@@ -96,7 +103,10 @@ class PasswordReset(Base):
         DateTime(timezone=True), default=utc_now, nullable=False
     )
 
-    __table_args__ = (UniqueConstraint("token_hash", name="uq_password_reset_token"),)
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_password_reset_token"),
+        Index("ix_password_reset_user", "user_id"),  # FK cascade + per-user lookup
+    )
 
 
 # --- Devices & sessions -------------------------------------------------------
@@ -162,6 +172,8 @@ class Session(Base):
         UniqueConstraint("refresh_token_hash", name="uq_session_refresh_hash"),
         Index("ix_sessions_family", "family_id"),
         Index("ix_sessions_user_active", "user_id", "revoked_at"),
+        # Device-scoped session revoke when a device is revoked (auth doc).
+        Index("ix_sessions_device", "device_id"),
     )
 
 
@@ -244,6 +256,7 @@ class Redemption(Base):
         #  WHERE id = :id AND uses_remaining > 0, checking rowcount) — NOT by this
         # constraint. (Index on key_id is redundant with this unique's leading col.)
         UniqueConstraint("key_id", "device_id", name="uq_redemption_key_device"),
+        Index("ix_redemptions_user", "user_id"),  # FK cascade + "keys for user"
     )
 
 
@@ -300,7 +313,14 @@ class Subscription(Base):
         DateTime(timezone=True), default=utc_now, nullable=False
     )
 
-    __table_args__ = (Index("ix_subscriptions_user", "user_id"),)
+    __table_args__ = (
+        Index("ix_subscriptions_user", "user_id"),
+        Index("ix_subscriptions_plan", "plan_id"),  # FK lookup
+        CheckConstraint(
+            "status in ('active','past_due','canceled','incomplete')",
+            name="ck_subscriptions_status",
+        ),
+    )
 
 
 # --- Audit & updates ----------------------------------------------------------
@@ -345,4 +365,79 @@ class UpdateRelease(Base):
         UniqueConstraint("channel", "version", name="uq_release_channel_version"),
         Index("ix_releases_channel_published", "channel", "published_at"),
         CheckConstraint("channel in ('stable','beta')", name="ck_release_channel"),
+    )
+
+
+# --- Transient auth/abuse state (DB-backed for v1; no Redis at this scale) ------
+
+
+class OAuthAuthorizationCode(Base):
+    """Short-lived Authorization-Code + PKCE record for the /authorize -> /token
+    exchange. Stores the SHA-256 of the code and the PKCE code_challenge (never the
+    verifier)."""
+
+    __tablename__ = "oauth_authorization_codes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    redirect_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    code_challenge: Mapped[str] = mapped_column(String(128), nullable=False)  # S256
+    code_challenge_method: Mapped[str] = mapped_column(String(8), nullable=False, default="S256")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("code_hash", name="uq_oauth_code_hash"),
+        Index("ix_oauth_code_user", "user_id"),
+        CheckConstraint(
+            "code_challenge_method in ('S256')", name="ck_oauth_pkce_method"
+        ),
+    )
+
+
+class IdempotencyKey(Base):
+    """Makes a retried mutating request (e.g. redeem) safe: the first response is
+    stored and replayed for the same client-supplied key."""
+
+    __tablename__ = "idempotency_keys"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    scope: Mapped[str] = mapped_column(String(32), nullable=False)  # e.g. "redeem"
+    user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE")
+    )
+    status_code: Mapped[int] = mapped_column(Integer, nullable=False)
+    response: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    __table_args__ = (Index("ix_idempotency_expires", "expires_at"),)
+
+
+class AuthThrottle(Base):
+    """Per-(scope, identifier) attempt counter + lockout for login / reset /
+    redeem — the network-facing replacement for the desktop's single global
+    in-memory counter."""
+
+    __tablename__ = "auth_throttle"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    scope: Mapped[str] = mapped_column(String(24), nullable=False)  # login/reset/redeem
+    identifier: Mapped[str] = mapped_column(String(320), nullable=False)  # email or ip
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    window_started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("scope", "identifier", name="uq_throttle_scope_identifier"),
     )

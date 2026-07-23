@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import unicodedata
 
 # Crockford Base32 alphabet (no I, L, O, U).
 _CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
@@ -27,8 +28,12 @@ _GROUP = 4
 
 
 def normalize_email(email: str) -> str:
-    """Canonical email for storage + case-insensitive uniqueness."""
-    return email.strip().lower()
+    """Canonical email for storage + case-insensitive uniqueness.
+
+    Uses NFC normalization + ``casefold()`` (not ``lower()``) so visually identical
+    addresses that differ by Unicode form or special-case letters (ß, Turkish İ)
+    collapse to one row instead of admitting a duplicate (DB-review S4)."""
+    return unicodedata.normalize("NFC", email.strip()).casefold()
 
 
 def _b32_encode(data: bytes) -> str:

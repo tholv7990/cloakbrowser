@@ -52,6 +52,32 @@ def test_schema_builds_and_is_queryable(session_factory):
             assert session.scalar(select(func.count()).select_from(model)) == 0
 
 
+def test_transient_state_tables_build(session_factory):
+    with session_factory() as session:
+        for model in (
+            models.OAuthAuthorizationCode,
+            models.IdempotencyKey,
+            models.AuthThrottle,
+        ):
+            assert session.scalar(select(func.count()).select_from(model)) == 0
+
+
+def test_email_normalization_is_unicode_casefolded():
+    # casefold() (not lower()) collapses ß -> ss, so visually distinct addresses
+    # that are the same identity can't become two rows.
+    assert normalize_email("  Owner@Example.COM ") == "owner@example.com"
+    assert normalize_email("Straße@x.com") == normalize_email("STRASSE@x.com")
+
+
+def test_role_check_rejects_unknown_role(session_factory):
+    with session_factory() as session:
+        session.add(
+            models.User(email="r@example.com", password_hash="h", role="superadmin")
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
 def test_email_is_unique_case_insensitively(session_factory):
     with session_factory() as session:
         session.add(
