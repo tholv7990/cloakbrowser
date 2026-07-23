@@ -195,6 +195,7 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
   const { register, formState, setValue } = useFormContext<ProfileWizardValues>();
   const proxyId = useWatch<ProfileWizardValues>({ name: 'proxy_id' }) as string;
   const geoMode = useWatch<ProfileWizardValues>({ name: 'geolocation_mode' }) as string;
+  const profileName = useWatch<ProfileWizardValues>({ name: 'name' }) as string;
   const selected = refs.proxies.find((p) => p.id === proxyId) ?? null;
   const [proxyEditorOpen, setProxyEditorOpen] = useState(false);
   return (
@@ -219,6 +220,7 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
       <ProxyEditorDrawer
         open={proxyEditorOpen}
         proxy={null}
+        defaultLabel={profileName}
         onClose={() => setProxyEditorOpen(false)}
         onSaved={(saved) => setValue('proxy_id', saved.id, { shouldValidate: true })}
       />

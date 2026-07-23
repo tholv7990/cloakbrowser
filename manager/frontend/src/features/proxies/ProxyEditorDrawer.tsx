@@ -21,9 +21,9 @@ import { useCreateProxy, useQualityTest, useQuickTest, useUpdateProxy } from './
 import { ProxyQualityReportView, ProxyQuickResult } from './ProxyResultViews';
 import { ProxyTestProgress } from './ProxyTestProgress';
 
-function defaults(proxy: Proxy | null): ProxyFormValues {
+function defaults(proxy: Proxy | null, defaultLabel = ''): ProxyFormValues {
   return {
-    label: proxy?.label ?? '',
+    label: proxy?.label ?? defaultLabel,
     scheme: proxy?.scheme ?? 'http',
     host: proxy?.host ?? '',
     port: proxy?.port ?? '',
@@ -38,11 +38,15 @@ export function ProxyEditorDrawer({
   proxy,
   onClose,
   onSaved,
+  defaultLabel = '',
 }: {
   open: boolean;
   proxy: Proxy | null;
   onClose: () => void;
   onSaved?: (proxy: Proxy) => void;
+  /** Pre-fill the label for a NEW proxy (e.g. the profile's name when adding
+   *  a proxy from the profile form). Ignored when editing an existing proxy. */
+  defaultLabel?: string;
 }) {
   const t = useT();
   const [current, setCurrent] = useState<Proxy | null>(proxy);
@@ -57,7 +61,7 @@ export function ProxyEditorDrawer({
 
   const form = useForm<ProxyFormValues>({
     resolver: zodResolver(proxyFormSchema),
-    defaultValues: defaults(proxy),
+    defaultValues: defaults(proxy, defaultLabel),
     mode: 'onChange',
   });
   const { register, handleSubmit, reset, watch, setValue, formState } = form;
@@ -71,11 +75,14 @@ export function ProxyEditorDrawer({
   useEffect(() => {
     if (open) {
       setCurrent(proxy);
-      reset(defaults(proxy));
+      // defaultLabel is read at open time (not a dep) so typing the profile name
+      // later can't wipe an in-progress proxy edit.
+      reset(defaults(proxy, defaultLabel));
       setParseText('');
       setQuickResult(null);
       setQualityResult(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, proxy, reset]);
 
   // Auto-fill all four fields (incl. password) as the user pastes — no button.
