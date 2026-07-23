@@ -316,14 +316,25 @@ class _PersistentContextHandle:
         self._context = context
         self._closed = False
         self._profile_dir = Path(user_data_dir).parent
+        self._user_data_dir = user_data_dir
         self._owned_path = _normalize_udd(user_data_dir)
         self.browser_pid: int | None = None
         self.browser_created_at: datetime | None = None
         self._last_probe = 0.0
         self._cdp_session: Any | None = None
         self._last_saved_urls: list[str] | None = None
+        self._icon_seed: str | None = None  # set by the launcher -> per-profile taskbar icon
+        self._icon_applies_left = 6  # re-apply a few times to survive Chrome's own icon set
         self._locate_browser()
         context.on("close", self._mark_closed)
+
+    def _apply_icon(self) -> None:
+        if self._icon_seed is None or self._icon_applies_left <= 0:
+            return
+        from .window_icon import apply_profile_window_icon
+
+        if apply_profile_window_icon(self._user_data_dir, self._icon_seed):
+            self._icon_applies_left -= 1
 
     def _locate_browser(self) -> bool:
         """Find the profile's browser process by its --user-data-dir.
@@ -430,6 +441,7 @@ class _PersistentContextHandle:
         # re-scan by exact --user-data-dir in case the pid was never captured.
         if self._process_alive() or self._locate_browser():
             self._snapshot_session()  # alive: keep the tab list fresh on disk
+            self._apply_icon()  # per-profile plasma taskbar icon (best-effort)
             return False
         self._closed = True
         return True
@@ -467,4 +479,6 @@ class CloakPersistentLauncher:
                     page.close()  # don't leave a dangling failed/blank tab
                 except Exception:
                     pass
-        return _PersistentContextHandle(context, user_data_dir)
+        handle = _PersistentContextHandle(context, user_data_dir)
+        handle._icon_seed = snapshot["id"]  # distinct plasma taskbar icon per profile
+        return handle
