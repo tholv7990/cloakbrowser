@@ -66,6 +66,7 @@ export function ProxyEditorDrawer({
   const [parseText, setParseText] = useState('');
   const [quickResult, setQuickResult] = useState<ProxyQuickTest | null>(null);
   const [qualityResult, setQualityResult] = useState<ProxyQualityReport | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
 
   const createProxy = useCreateProxy();
   const updateProxy = useUpdateProxy();
@@ -95,6 +96,7 @@ export function ProxyEditorDrawer({
       setParseText('');
       setQuickResult(null);
       setQualityResult(null);
+      setTestError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, proxy, reset]);
@@ -121,29 +123,49 @@ export function ProxyEditorDrawer({
     onSaved?.(saved);
   });
 
-  const runQuick = async () => {
-    setQuickResult(null);
-    if (current) {
-      setQuickResult(await quickTest.mutateAsync(current.id));
-      return;
-    }
-    // Not saved yet — test exactly what's typed (button is gated on a valid form).
-    const values = proxyFormSchema.parse(form.getValues());
-    setQuickResult(
-      await quickAdhoc.mutateAsync({
-        scheme: values.scheme,
-        host: values.host,
-        port: values.port,
-        username: values.username || null,
-        password: values.password || null,
-      }),
-    );
+  // Persist the typed values if not already saved, so the heavy quality test
+  // (a background job keyed by proxy id) has something to run against.
+  const ensureSaved = async (): Promise<Proxy> => {
+    if (current) return current;
+    const saved = await createProxy.mutateAsync(toProxyPayload(proxyFormSchema.parse(form.getValues())));
+    setCurrent(saved);
+    reset(defaults(saved));
+    return saved;
   };
+
+  const runQuick = async () => {
+    setTestError(null);
+    setQuickResult(null);
+    try {
+      if (current) {
+        setQuickResult(await quickTest.mutateAsync(current.id));
+        return;
+      }
+      // Not saved yet — test exactly what's typed (button is gated on a valid form).
+      const values = proxyFormSchema.parse(form.getValues());
+      setQuickResult(
+        await quickAdhoc.mutateAsync({
+          scheme: values.scheme,
+          host: values.host,
+          port: values.port,
+          username: values.username || null,
+          password: values.password || null,
+        }),
+      );
+    } catch (error) {
+      setTestError((error as Error).message || t('pxd.testFailed'));
+    }
+  };
+
   const runQuality = async () => {
-    if (!current) return;
+    setTestError(null);
     setQualityResult(null);
-    const report = await qualityTest.mutateAsync(current.id);
-    setQualityResult(report);
+    try {
+      const proxy = await ensureSaved();
+      setQualityResult(await qualityTest.mutateAsync(proxy.id));
+    } catch (error) {
+      setTestError((error as Error).message || t('pxd.testFailed'));
+    }
   };
 
   const saving = createProxy.isPending || updateProxy.isPending;
@@ -273,13 +295,13 @@ export function ProxyEditorDrawer({
               variant="secondary"
               size="sm"
               onClick={runQuality}
-              disabled={!current}
-              loading={qualityTest.isPending}
+              disabled={!formState.isValid}
+              loading={createProxy.isPending || qualityTest.isPending}
             >
               <Gauge className="h-3.5 w-3.5" /> {t('pxd.fullQualityTest')}
             </Button>
           </div>
-          {!current && <p className="text-2xs text-ink-faint">{t('pxd.saveToTest')}</p>}
+          {!formState.isValid && <p className="text-2xs text-ink-faint">{t('pxd.fillToTest')}</p>}
           {current && (
             <>
               <ProxyTestProgress proxyId={current.id} kind="quick" active={quickTest.isPending} />
@@ -289,6 +311,11 @@ export function ProxyEditorDrawer({
                 active={qualityTest.isPending}
               />
             </>
+          )}
+          {testError && (
+            <p className="rounded-md border border-danger/30 bg-danger/10 p-2.5 text-2xs text-danger">
+              {testError}
+            </p>
           )}
           {quickResult && <ProxyQuickResult result={quickResult} />}
           {qualityResult && <ProxyQualityReportView report={qualityResult} />}

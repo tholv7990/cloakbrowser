@@ -492,6 +492,8 @@ export const vi: Record<keyof typeof en, string> = {
   'pxd.quickTest': 'Kiểm tra nhanh',
   'pxd.fullQualityTest': 'Kiểm tra chất lượng đầy đủ',
   'pxd.saveToTest': 'Lưu proxy để chạy kiểm tra chất lượng đầy đủ.',
+  'pxd.fillToTest': 'Nhập host và port để kiểm tra.',
+  'pxd.testFailed': 'Kiểm tra thất bại. Kiểm tra lại thông tin proxy và thử lại.',
   'pxd.parsed': 'Đã phân tích proxy',
   'pxd.pwDetected': 'Phát hiện mật khẩu — nhập lại bên dưới để lưu.',
   'pxd.parseFailed': 'Không thể phân tích',

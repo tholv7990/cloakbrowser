@@ -488,6 +488,8 @@ export const en = {
   'pxd.quickTest': 'Quick test',
   'pxd.fullQualityTest': 'Full quality test',
   'pxd.saveToTest': 'Save the proxy to run the full quality test.',
+  'pxd.fillToTest': 'Fill in host and port to test.',
+  'pxd.testFailed': 'Test failed. Check the proxy details and try again.',
   'pxd.parsed': 'Parsed proxy',
   'pxd.pwDetected': 'Password detected — re-enter it below to store it.',
   'pxd.parseFailed': 'Could not parse',
