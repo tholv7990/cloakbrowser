@@ -2,12 +2,19 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FormProvider, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AlertTriangle, Play, Save, X } from 'lucide-react';
+import { AlertTriangle, BookmarkPlus, Play, Save, Sparkles, Trash2, X } from 'lucide-react';
 import { api } from '@/api';
 import { useAppData } from '@/hooks/useAppData';
 import { useProxies } from '@/features/proxies/api';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
+import { Select } from '@/components/ui/Select';
+import {
+  deleteTemplate,
+  listTemplates,
+  saveTemplate,
+  type ProfileTemplate,
+} from './profileTemplates';
 import { LoadingBlock, ErrorState } from '@/components/ui/states';
 import { cn } from '@/lib/cn';
 import {
@@ -44,8 +51,34 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
   const [assignmentPending, setAssignmentPending] = useState(false);
   const [persisting, setPersisting] = useState(false);
 
+  const [templates, setTemplates] = useState<ProfileTemplate[]>(() => listTemplates());
+  const [appliedTemplateId, setAppliedTemplateId] = useState('');
+
   const scrollToSection = (id: string) => {
     document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const applyTemplate = (id: string) => {
+    setAppliedTemplateId(id);
+    const template = templates.find((tpl) => tpl.id === id);
+    if (!template) return;
+    // Apply the template but keep the name the user may have already typed.
+    form.reset({ ...defaultWizardValues(), ...template.config, name: form.getValues('name') });
+  };
+
+  const saveAsTemplate = () => {
+    const name = window.prompt(t('editor.tpl.namePrompt'))?.trim();
+    if (!name) return;
+    const saved = saveTemplate(name, form.getValues());
+    setTemplates(listTemplates());
+    setAppliedTemplateId(saved.id);
+  };
+
+  const removeSelectedTemplate = () => {
+    if (!appliedTemplateId) return;
+    deleteTemplate(appliedTemplateId);
+    setTemplates(listTemplates());
+    setAppliedTemplateId('');
   };
 
   const form = useForm<ProfileWizardValues>({
@@ -242,6 +275,41 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
 
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto max-w-2xl space-y-10 px-5 py-6">
+              {mode === 'create' && (
+                <div className="rounded-lg border border-accent/30 bg-accent/5 p-3">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-accent" />
+                    <span className="text-[13px] font-medium text-ink">
+                      {t('editor.tpl.quickStart')}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-2xs text-ink-faint">{t('editor.tpl.hint')}</p>
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <Select
+                      className="h-9 min-w-[200px] flex-1"
+                      value={appliedTemplateId}
+                      onChange={(event) => applyTemplate(event.target.value)}
+                      options={[
+                        { value: '', label: t('editor.tpl.choose') },
+                        ...templates.map((tpl) => ({ value: tpl.id, label: tpl.name })),
+                      ]}
+                    />
+                    <Button type="button" variant="secondary" size="sm" onClick={saveAsTemplate}>
+                      <BookmarkPlus className="h-3.5 w-3.5" /> {t('editor.tpl.save')}
+                    </Button>
+                    {appliedTemplateId && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={removeSelectedTemplate}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> {t('editor.tpl.delete')}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
               {WIZARD_STEPS.map((wizardStep) => {
                 const Section = wizardStep.Component;
                 return (
