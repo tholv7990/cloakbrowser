@@ -9,7 +9,8 @@ deferred — profiles are created directly via the profiles service.
 from __future__ import annotations
 
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import wait as futures_wait
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -63,17 +64,32 @@ class FactoryCoordinator:
         self._lock = threading.Lock()
         self._executors: dict[str, ThreadPoolExecutor] = {}
         self._cancel: dict[str, threading.Event] = {}
+        self._futures: set[Future] = set()
 
     def _cancel_event(self, job_id: str) -> threading.Event:
         with self._lock:
             return self._cancel.setdefault(job_id, threading.Event())
 
-    def shutdown(self) -> None:
+    def _forget_future(self, future: Future) -> None:
         with self._lock:
+            self._futures.discard(future)
+
+    def shutdown(self, timeout: float = 10.0) -> bool:
+        """Signal all jobs then AWAIT them (bounded) so the engine isn't disposed
+        while a build worker still holds a DB session. Returns True only if every
+        worker finished."""
+        with self._lock:
+            for event in self._cancel.values():
+                event.set()
             executors = list(self._executors.values())
             self._executors.clear()
+            pending = set(self._futures)
         for executor in executors:
             executor.shutdown(wait=False, cancel_futures=True)
+        if not pending:
+            return True
+        _, not_done = futures_wait(pending, timeout=timeout)
+        return not not_done
 
     def list_jobs(self, session: Session) -> list[dict]:
         jobs = session.scalars(
@@ -141,9 +157,12 @@ class FactoryCoordinator:
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"factory-{job_id[:8]}")
         with self._lock:
             self._executors[job_id] = executor
-        executor.submit(
+        future = executor.submit(
             self._build, job_id, name_prefix.strip(), item_ids, automation_template_id, start_automation
         )
+        with self._lock:
+            self._futures.add(future)
+        future.add_done_callback(self._forget_future)
         return self.get_job(session, job_id)
 
     def _build(self, job_id, name_prefix, item_ids, template_id, start_automation) -> None:

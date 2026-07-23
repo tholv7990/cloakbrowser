@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -109,8 +110,17 @@ def create_app(
                     diagnostic_shutdown_error = error
             application.state.runtime_manager.shutdown()
             application.state.proxy_quality_manager.shutdown()
-            application.state.automation_runs.shutdown()
-            application.state.automation_factory.shutdown()
+            # Await workers before disposing the engine — a worker still holding a
+            # DB session must not have the engine pulled out from under it.
+            runs_clean = application.state.automation_runs.shutdown()
+            factory_clean = application.state.automation_factory.shutdown()
+            if not (runs_clean and factory_clean):
+                logging.getLogger("manager").warning(
+                    "automation workers did not all finish before engine dispose "
+                    "(runs_clean=%s, factory_clean=%s)",
+                    runs_clean,
+                    factory_clean,
+                )
             application.state.engine.dispose()
             if diagnostic_shutdown_error is not None:
                 raise diagnostic_shutdown_error

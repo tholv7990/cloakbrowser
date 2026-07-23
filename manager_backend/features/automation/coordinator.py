@@ -9,7 +9,8 @@ credential release, aggregate counts, and the per-item gate Events.
 from __future__ import annotations
 
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import wait as futures_wait
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -56,6 +57,7 @@ class RunCoordinator:
         self._executors: dict[str, ThreadPoolExecutor] = {}
         self._gates: dict[str, dict[str, threading.Event]] = {}
         self._cancel: dict[str, threading.Event] = {}
+        self._futures: set[Future] = set()  # in-flight workers, awaited on shutdown
 
     # --- registries ---------------------------------------------------------
     def _cancel_event(self, run_id: str) -> threading.Event:
@@ -80,9 +82,24 @@ class RunCoordinator:
                 self._executors[run_id] = executor
             return executor
 
-    def shutdown(self) -> None:
+    def _submit(self, executor: ThreadPoolExecutor, run_id: str, item_id: str, start_step: int) -> Future:
+        """Submit a worker and track its future so shutdown can await it."""
+        future = executor.submit(self._run_item, run_id, item_id, start_step)
         with self._lock:
-            # Release any gate-blocked worker so its thread can exit.
+            self._futures.add(future)
+        future.add_done_callback(self._forget_future)
+        return future
+
+    def _forget_future(self, future: Future) -> None:
+        with self._lock:
+            self._futures.discard(future)
+
+    def shutdown(self, timeout: float = 10.0) -> bool:
+        """Signal all workers, then AWAIT them (bounded) so the engine is never
+        disposed while a worker still owns a DB session or credential. Returns True
+        only if every worker actually finished — never falsely reports clean."""
+        with self._lock:
+            # Cancel + release any gate-blocked worker so its thread can exit.
             for event in self._cancel.values():
                 event.set()
             for gates in self._gates.values():
@@ -90,8 +107,13 @@ class RunCoordinator:
                     event.set()
             executors = list(self._executors.values())
             self._executors.clear()
+            pending = set(self._futures)
         for executor in executors:
             executor.shutdown(wait=False, cancel_futures=True)
+        if not pending:
+            return True
+        _, not_done = futures_wait(pending, timeout=timeout)
+        return not not_done
 
     # --- start --------------------------------------------------------------
     def start(self, session: Session, template: AutomationTemplate, assignments, max_parallel: int) -> dict:
@@ -174,7 +196,7 @@ class RunCoordinator:
 
         executor = self._executor(run_id, max_parallel)
         for item_id in item_ids:
-            executor.submit(self._run_item, run_id, item_id, 0)
+            self._submit(executor, run_id, item_id, 0)
         return self.get_run(session, run_id)
 
     # --- per-item worker ----------------------------------------------------
@@ -386,9 +408,7 @@ class RunCoordinator:
         run.finished_at = None
         self._cancel_event(run_id).clear()
         session.commit()
-        self._executor(run_id, run.max_parallel).submit(
-            self._run_item, run_id, item.id, start_step
-        )
+        self._submit(self._executor(run_id, run.max_parallel), run_id, item.id, start_step)
         return self.get_run(session, run_id)
 
     def mark_completed(self, session: Session, run_id: str, profile_id: str) -> dict:

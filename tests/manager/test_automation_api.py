@@ -388,6 +388,45 @@ def test_cancel_token_lets_a_worker_abort_promptly(client, auth_headers):
     assert run["items"][0]["status"] == "cancelled"
 
 
+def test_shutdown_awaits_running_workers_before_reporting_clean(client, auth_headers):
+    # Shutdown must not report done (and let the engine be disposed) while a worker
+    # still owns a DB session / credential — it has to await the worker first.
+    import threading
+
+    fake, _ = _setup(client)
+    profile = _profile(client, auth_headers, "Slow")
+    _save_template(client, auth_headers, "t-sd", SIMPLE_STEPS)
+
+    entered, release = threading.Event(), threading.Event()
+
+    def slow(ctx):
+        entered.set()
+        release.wait(3)  # worker owns its resources until released
+
+    fake.behaviors[profile["id"]] = slow
+    client.post(
+        "/api/v1/automations/templates/t-sd/runs",
+        headers=auth_headers,
+        json={"assignments": [{"profile_id": profile["id"], "variables": {}}], "max_parallel": 1},
+    )
+    assert entered.wait(3)
+
+    coord = client.app.state.automation_runs
+    done, result = threading.Event(), {}
+
+    def do_shutdown():
+        result["clean"] = coord.shutdown(timeout=5)
+        done.set()
+
+    t = threading.Thread(target=do_shutdown)
+    t.start()
+    assert not done.wait(0.5)  # blocked: still awaiting the running worker
+    release.set()
+    assert done.wait(5)  # returns once the worker finishes
+    assert result["clean"] is True
+    t.join()
+
+
 # --- startup recovery -------------------------------------------------------
 def test_startup_recovery_fails_runs_and_releases_credentials(client, auth_headers):
     from manager_backend.features.automation.coordinator import recover_interrupted_runs
