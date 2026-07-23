@@ -41,6 +41,30 @@ describe('NewProfileModal', () => {
     expect(mockStore.profiles.some((p) => p.name === 'Solo')).toBe(true);
   });
 
+  it('saves a single proxy with the chosen scheme (SOCKS5, not forced http)', async () => {
+    const user = userEvent.setup();
+    const proxiesBefore = mockStore.proxies.length;
+    renderWithProviders(<NewProfileModal open onClose={() => undefined} folders={[]} />);
+
+    await user.type(screen.getByPlaceholderText(/marketplace/i), 'Sock');
+    await user.selectOptions(proxySourceSelect(), 'one');
+    // The Type dropdown is the combobox carrying a "SOCKS5" option.
+    const typeSelect = screen
+      .getAllByRole('combobox')
+      .find((el) => within(el).queryByRole('option', { name: /^socks5$/i }));
+    if (!typeSelect) throw new Error('proxy type select not found');
+    await user.selectOptions(typeSelect, 'socks5');
+    await user.type(screen.getByPlaceholderText(/host or host/i), '1.2.3.4');
+    await user.type(screen.getByPlaceholderText('1080'), '9000');
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
+
+    await waitFor(() => expect(mockStore.proxies.length).toBe(proxiesBefore + 1), { timeout: 3000 });
+    const created = mockStore.proxies[mockStore.proxies.length - 1];
+    expect(created.scheme).toBe('socks5');
+    expect(created.host).toBe('1.2.3.4');
+    expect(created.port).toBe(9000);
+  });
+
   it('generates provider proxies and assigns one per profile', async () => {
     await mockApi.configureProxyProvider({ provider: 'iproyal', api_token: 'tok' });
     const user = userEvent.setup();

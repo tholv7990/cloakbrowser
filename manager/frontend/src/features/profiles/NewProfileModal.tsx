@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Settings2, Sparkles } from 'lucide-react';
-import type { Folder, ProxyProviderId } from '@/types/api';
+import { CheckCircle2, Settings2, Sparkles, XCircle, Zap } from 'lucide-react';
+import type { Folder, ProxyProviderId, ProxyQuickTest, ProxyScheme } from '@/types/api';
 import { api } from '@/api';
 import { useT } from '@/i18n';
 import { useToast } from '@/components/ui/Toast';
@@ -12,13 +12,30 @@ import { Field } from '@/components/ui/Field';
 import { Input, Textarea } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Badge } from '@/components/ui/Badge';
+import { countryFlag, formatLatency } from '@/lib/format';
 import { defaultWizardValues, wizardValuesToPayload } from '@/schemas/profile';
-import { parseProxyText } from '@/schemas/proxy';
-import { useProxyProviders } from '@/features/proxies/api';
+import { parseProxyText, proxySchemes } from '@/schemas/proxy';
+import { useProxyProviders, useQuickTestAdhoc } from '@/features/proxies/api';
 import { ProvidersDialog } from '@/features/proxies/ProvidersDialog';
 import { listTemplates } from '@/features/profile-editor/profileTemplates';
 
 type ProxyMode = 'none' | 'one' | 'list' | 'provider';
+
+/** Structured single-proxy value for the inline form (port/creds as strings). */
+interface OneProxy {
+  scheme: ProxyScheme;
+  host: string;
+  port: string;
+  username: string;
+  password: string;
+}
+
+const emptyOneProxy: OneProxy = { scheme: 'http', host: '', port: '', username: '', password: '' };
+
+// Selectable proxy transports (drop "direct" — that's the "None" mode).
+const schemeOptions = proxySchemes
+  .filter((s) => s !== 'direct')
+  .map((s) => ({ value: s, label: s.toUpperCase() }));
 
 /**
  * One create flow that scales from a single profile to a batch (BitBrowser /
@@ -46,6 +63,7 @@ export function NewProfileModal({
   const [folderId, setFolderId] = useState('');
   const [proxyMode, setProxyMode] = useState<ProxyMode>('none');
   const [proxyText, setProxyText] = useState('');
+  const [proxyOne, setProxyOne] = useState<OneProxy>(emptyOneProxy);
   const [templateId, setTemplateId] = useState('builtin:no-leak');
   const [providerId, setProviderId] = useState<ProxyProviderId>('iproyal');
   const [country, setCountry] = useState('US');
@@ -63,6 +81,7 @@ export function NewProfileModal({
     setFolderId('');
     setProxyMode('none');
     setProxyText('');
+    setProxyOne(emptyOneProxy);
     setTemplateId('builtin:no-leak');
     setProviderId('iproyal');
     setCountry('US');
@@ -79,10 +98,27 @@ export function NewProfileModal({
   const { fingerprint_seed: _dropSeed, ...templateConfig } =
     templates.find((tpl) => tpl.id === templateId)?.config ?? {};
 
-  const proxyForIndex = (i: number): string | null => {
-    if (proxyMode === 'none') return null;
-    if (proxyMode === 'one') return proxyLines[0] ?? null;
-    return proxyLines[i] ?? null; // list: one line per profile
+  const proxySpecForIndex = (
+    i: number,
+  ): { scheme: ProxyScheme; host: string; port: number; username: string; password: string } | null => {
+    if (proxyMode === 'one') {
+      const host = proxyOne.host.trim();
+      const port = Number(proxyOne.port);
+      if (!host || !port) return null;
+      return { scheme: proxyOne.scheme, host, port, username: proxyOne.username.trim(), password: proxyOne.password };
+    }
+    if (proxyMode === 'list') {
+      const parsed = proxyLines[i] ? parseProxyText(proxyLines[i]) : null;
+      if (!parsed?.host || !parsed.port) return null;
+      return {
+        scheme: parsed.scheme ?? 'http',
+        host: parsed.host,
+        port: Number(parsed.port),
+        username: parsed.username,
+        password: parsed.password,
+      };
+    }
+    return null;
   };
 
   const shortfall = proxyMode === 'list' && proxyLines.length > 0 && proxyLines.length < count;
@@ -126,24 +162,23 @@ export function NewProfileModal({
         if (proxyMode === 'provider') {
           proxyId = providerIds[i] ?? '';
         } else {
-          const line = proxyForIndex(i);
-          if (line) {
-            const parsed = parseProxyText(line);
-            if (parsed?.host && parsed.port) {
-              try {
-                const proxy = await api.createProxy({
-                  label: profileName,
-                  scheme: parsed.scheme ?? 'http',
-                  host: parsed.host,
-                  port: Number(parsed.port),
-                  username: parsed.username || null,
-                  password: parsed.password || undefined,
-                  test_before_launch: true,
-                });
-                proxyId = proxy.id;
-              } catch {
-                // Proxy creation failed — still create the profile, just direct.
-              }
+          // 'one' uses the structured form (its chosen scheme); 'list' parses the
+          // i-th pasted line (scheme:// prefix honoured, else defaults to http).
+          const spec = proxySpecForIndex(i);
+          if (spec) {
+            try {
+              const proxy = await api.createProxy({
+                label: profileName,
+                scheme: spec.scheme,
+                host: spec.host,
+                port: spec.port,
+                username: spec.username || null,
+                password: spec.password || undefined,
+                test_before_launch: true,
+              });
+              proxyId = proxy.id;
+            } catch {
+              // Proxy creation failed — still create the profile, just direct.
             }
           }
         }
@@ -274,14 +309,7 @@ export function NewProfileModal({
             <p className="text-2xs text-ink-faint">{t('new.providerHint', { count })}</p>
           </div>
         )}
-        {proxyMode === 'one' && (
-          <Input
-            value={proxyText}
-            onChange={(e) => setProxyText(e.target.value)}
-            placeholder="host:port:user:pass"
-            className="font-mono text-[12px]"
-          />
-        )}
+        {proxyMode === 'one' && <ProxyOneForm value={proxyOne} onChange={setProxyOne} />}
         {proxyMode === 'list' && (
           <>
             <Textarea
@@ -315,5 +343,140 @@ export function NewProfileModal({
     </Modal>
     <ProvidersDialog open={providersOpen} onClose={() => setProvidersOpen(false)} />
     </>
+  );
+}
+
+/**
+ * Inline single-proxy form (BitBrowser style): pick the transport, fill
+ * host/port/creds — or paste a full `host:port:user:pass` line into Host to
+ * auto-split — and Check it before creating. The chosen scheme is what actually
+ * gets saved, so a SOCKS5 proxy is tested and launched as SOCKS5 (not http).
+ */
+function ProxyOneForm({ value, onChange }: { value: OneProxy; onChange: (v: OneProxy) => void }) {
+  const t = useT();
+  const test = useQuickTestAdhoc();
+  const [result, setResult] = useState<ProxyQuickTest | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const set = (patch: Partial<OneProxy>) => onChange({ ...value, ...patch });
+
+  const onHost = (raw: string) => {
+    const parsed = parseProxyText(raw);
+    if (parsed?.host && parsed.port) {
+      onChange({
+        scheme: parsed.scheme ?? value.scheme,
+        host: parsed.host,
+        port: parsed.port,
+        username: parsed.username,
+        password: parsed.password,
+      });
+    } else {
+      set({ host: raw });
+    }
+  };
+
+  const canCheck = Boolean(value.host.trim() && value.port.trim());
+  const check = async () => {
+    setError(null);
+    setResult(null);
+    try {
+      setResult(
+        await test.mutateAsync({
+          scheme: value.scheme,
+          host: value.host.trim(),
+          port: Number(value.port),
+          username: value.username.trim() || null,
+          password: value.password || null,
+        }),
+      );
+    } catch (e) {
+      setError((e as Error).message || t('new.proxyTestFailed'));
+    }
+  };
+
+  return (
+    <div className="space-y-2.5 rounded-md border border-line bg-surface-sunken p-3">
+      <div className="grid grid-cols-[110px_1fr_88px] gap-2">
+        <Field label={t('new.proxyType')}>
+          <Select
+            value={value.scheme}
+            onChange={(e) => set({ scheme: e.target.value as ProxyScheme })}
+            options={schemeOptions}
+          />
+        </Field>
+        <Field label={t('pxd.host')}>
+          <Input
+            value={value.host}
+            onChange={(e) => onHost(e.target.value)}
+            placeholder="host or host:port:user:pass"
+            className="font-mono text-[12px]"
+          />
+        </Field>
+        <Field label={t('pxd.port')}>
+          <Input
+            value={value.port}
+            onChange={(e) => set({ port: e.target.value.replace(/[^\d]/g, '') })}
+            placeholder="1080"
+            inputMode="numeric"
+            mono
+          />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label={t('pxd.username')}>
+          <Input value={value.username} onChange={(e) => set({ username: e.target.value })} autoComplete="off" />
+        </Field>
+        <Field label={t('auth.password')}>
+          <Input
+            type="password"
+            value={value.password}
+            onChange={(e) => set({ password: e.target.value })}
+            autoComplete="new-password"
+          />
+        </Field>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button type="button" variant="secondary" size="sm" onClick={check} disabled={!canCheck} loading={test.isPending}>
+          <Zap className="h-3.5 w-3.5" /> {t('new.proxyCheck')}
+        </Button>
+        {test.isPending && <span className="text-2xs text-ink-faint">{t('new.proxyChecking')}</span>}
+      </div>
+      {error && (
+        <p className="flex items-center gap-1.5 text-2xs text-danger">
+          <XCircle className="h-3.5 w-3.5" /> {error}
+        </p>
+      )}
+      {result && <OneProxyResult result={result} />}
+    </div>
+  );
+}
+
+/** Compact one-line result for the inline check (IP · flag country · latency). */
+function OneProxyResult({ result }: { result: ProxyQuickTest }) {
+  const t = useT();
+  if (!result.ok) {
+    return (
+      <p className="flex items-center gap-1.5 text-2xs text-danger">
+        <XCircle className="h-3.5 w-3.5" /> {t('new.proxyUnreachable')}
+        {result.error ? ` · ${result.error}` : ''}
+      </p>
+    );
+  }
+  const flag = countryFlag(result.country);
+  const place = [result.city, result.country_name ?? result.country].filter(Boolean).join(', ');
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-success/30 bg-success/10 px-2.5 py-2 text-2xs">
+      <span className="flex items-center gap-1 font-medium text-success">
+        <CheckCircle2 className="h-3.5 w-3.5" /> {t('new.proxyReachable')}
+      </span>
+      {result.exit_ip && <span className="data text-ink">{result.exit_ip}</span>}
+      {place && (
+        <span className="text-ink-muted">
+          {flag ? `${flag} ` : ''}
+          {place}
+        </span>
+      )}
+      <span className="ml-auto text-ink-faint">{t('pxr.median', { latency: formatLatency(result.latency_ms) })}</span>
+    </div>
   );
 }
