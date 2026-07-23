@@ -79,9 +79,9 @@ class ProfileWorker(threading.Thread):
     def run(self) -> None:
         handle = None
         try:
+            self.snapshot["proxy_url"] = self._proxy_preflight(self.snapshot)
             with self._launch_semaphore:
                 self._transition("starting")
-                self.snapshot["proxy_url"] = self._proxy_preflight(self.snapshot)
                 handle = self._launcher.launch(self.snapshot)
                 self._record_browser_ownership(handle)
                 self._append_log(

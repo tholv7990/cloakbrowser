@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from sqlalchemy import func, select, update as sql_update
@@ -145,6 +145,15 @@ def update_proxy(
     proxy.host = payload.host or None
     proxy.port = payload.port
     proxy.test_before_launch = payload.test_before_launch
+    # Endpoint or credential edits invalidate a successful launch-check cache.
+    proxy.exit_ip = None
+    proxy.country = None
+    proxy.city = None
+    proxy.timezone = None
+    proxy.asn = None
+    proxy.organization = None
+    proxy.latency_ms = None
+    proxy.last_checked_at = None
     committed = False
     try:
         session.commit()
@@ -270,6 +279,36 @@ def _apply_proxy_geo(snapshot: dict, result) -> None:
         snapshot["locale"] = _LOCALE_BY_COUNTRY.get(result.country, "en-US")
 
 
+_PREFLIGHT_CACHE_MAX_AGE = timedelta(seconds=60)
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _cached_quick_test(proxy: Proxy, *, now: datetime) -> QuickTestResult | None:
+    checked_at = proxy.last_checked_at
+    if (
+        checked_at is None
+        or not proxy.exit_ip
+        or _as_utc(now) - _as_utc(checked_at) > _PREFLIGHT_CACHE_MAX_AGE
+    ):
+        return None
+    return QuickTestResult(
+        exit_ip=proxy.exit_ip,
+        exit_ip_matches=True,
+        latency_ms=proxy.latency_ms or 0,
+        checked_at=_as_utc(checked_at),
+        country=proxy.country,
+        city=proxy.city,
+        timezone=proxy.timezone,
+        asn=proxy.asn,
+        organization=proxy.organization,
+    )
+
+
 def build_proxy_preflight(session_factory, store: CredentialStore, tester):
     def preflight(snapshot: dict) -> str | None:
         proxy_id = snapshot.get("proxy_id")
@@ -280,16 +319,26 @@ def build_proxy_preflight(session_factory, store: CredentialStore, tester):
             proxy_url = resolve_proxy_url(session, store, proxy_id)
             if proxy_url is None:
                 return None
+            if (
+                not snapshot.get("test_proxy_before_launch", True)
+                or not proxy.test_before_launch
+            ):
+                return proxy_url
+            result = _cached_quick_test(proxy, now=datetime.now(timezone.utc))
+            used_cached_result = result is not None
             try:
-                result = tester.run(proxy_url, timeout_seconds=20)
+                if result is None:
+                    result = tester.run_fast(proxy_url, timeout_seconds=5)
             except ProxyTestFailure:
                 raise ManagerError(
                     "proxy_preflight_failed",
                     "The assigned proxy is unavailable.",
                     409,
                 ) from None
-            cache_quick_test(session, proxy, result)
+            if not used_cached_result:
+                cache_quick_test(session, proxy, result)
             _apply_proxy_geo(snapshot, result)
+            snapshot["proxy_exit_ip"] = result.exit_ip
             return proxy_url
 
     return preflight
