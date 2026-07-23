@@ -38,6 +38,15 @@ class LogoutRequest(StrictModel):
     refresh_token: str = Field(min_length=1, max_length=256)
 
 
+class PasswordResetRequest(StrictModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(StrictModel):
+    token: str = Field(min_length=1, max_length=256)
+    password: str = Field(min_length=12, max_length=1024)
+
+
 class RedeemRequest(StrictModel):
     activation_key: str = Field(min_length=1, max_length=128)
 

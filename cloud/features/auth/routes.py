@@ -14,6 +14,8 @@ from ...features.devices import service as devices
 from ...schemas import (
     LogoutRequest,
     MessageResponse,
+    PasswordResetConfirm,
+    PasswordResetRequest,
     RefreshRequest,
     RegisterRequest,
     TokenRequest,
@@ -84,7 +86,8 @@ def token(
         )
         issued = auth.create_session(session, user=user, device=device, settings=settings)
     except (auth.AuthError, devices.DeviceError) as error:
-        # Persists despite the main transaction rolling back on this raise.
+        # The failing path only READ the request session, so a separate-session
+        # write is safe here — and it persists despite the request's rollback.
         throttle.record_failure(
             factory,
             scope="login",
@@ -93,7 +96,9 @@ def token(
             lockout=settings.lockout,
         )
         raise CloudError(error.code) from error
-    throttle.record_success(factory, scope="login", identifier=identifier)
+    # Success wrote device + session on the request session (which holds the write
+    # lock until it commits), so record success on THAT session, not a second one.
+    throttle.record_success_on(session, scope="login", identifier=identifier)
     return TokenResponse(
         access_token=issued.access_token,
         refresh_token=issued.refresh_token,
@@ -134,3 +139,46 @@ def logout_all(
 ) -> MessageResponse:
     auth.revoke_all_sessions(session, user_id=claims["sub"])
     return MessageResponse(status="logged_out_all")
+
+
+@router.post("/password-reset/request", response_model=MessageResponse)
+def password_reset_request(
+    body: PasswordResetRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+    settings: CloudSettings = Depends(get_settings),
+) -> MessageResponse:
+    identifier = str(body.email)
+    # Throttle by email to cap reset spam / enumeration probing. This route always
+    # succeeds (commits), so the count is recorded on the request session itself —
+    # one connection, no cross-connection write contention.
+    try:
+        throttle.enforce_on(session, scope="reset", identifier=identifier)
+    except throttle.ThrottleError as error:
+        raise CloudError("throttled") from error
+    throttle.record_failure_on(
+        session,
+        scope="reset",
+        identifier=identifier,
+        max_attempts=settings.max_attempts,
+        lockout=settings.lockout,
+    )
+    result = auth.request_password_reset(session, email=body.email, settings=settings)
+    if result is not None:
+        user, token = result
+        request.app.state.email_sender.send_password_reset(email=user.email, token=token)
+    # Generic response either way — never reveals whether the email exists.
+    return MessageResponse(status="reset_sent")
+
+
+@router.post("/password-reset/confirm", response_model=MessageResponse)
+def password_reset_confirm(
+    body: PasswordResetConfirm, session: Session = Depends(get_session)
+) -> MessageResponse:
+    try:
+        auth.confirm_password_reset(
+            session, raw_token=body.token, new_password=body.password
+        )
+    except auth.AuthError as error:
+        raise CloudError(error.code) from error
+    return MessageResponse(status="password_reset")

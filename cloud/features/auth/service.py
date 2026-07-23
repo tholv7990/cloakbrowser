@@ -253,3 +253,54 @@ def change_password(
     now = now or utc_now()
     user.password_hash = hash_password(new_password)
     return revoke_all_sessions(session, user_id=user.id, now=now)
+
+
+# --- password reset -----------------------------------------------------------
+
+
+def request_password_reset(
+    session, *, email: str, settings: CloudSettings, now: datetime | None = None
+) -> tuple[models.User, str] | None:
+    """Create a reset token for the account if it exists. Returns (user, raw_token)
+    to email, or None when the email is unknown — the caller returns a generic
+    response either way so the endpoint never reveals whether an account exists."""
+    now = now or utc_now()
+    user = session.execute(
+        select(models.User).where(models.User.email == normalize_email(email))
+    ).scalar_one_or_none()
+    if user is None:
+        return None
+    raw_token = secrets.token_urlsafe(32)
+    session.add(
+        models.PasswordReset(
+            user_id=user.id,
+            token_hash=hash_token(raw_token),
+            expires_at=now + settings.password_reset_ttl,
+        )
+    )
+    session.flush()
+    return user, raw_token
+
+
+def confirm_password_reset(
+    session, *, raw_token: str, new_password: str, now: datetime | None = None
+) -> models.User:
+    now = now or utc_now()
+    record = session.execute(
+        select(models.PasswordReset).where(
+            models.PasswordReset.token_hash == hash_token(raw_token)
+        )
+    ).scalar_one_or_none()
+    if (
+        record is None
+        or record.consumed_at is not None
+        or ensure_aware_utc(record.expires_at) <= now
+    ):
+        raise AuthError("invalid_token")
+    record.consumed_at = now
+    user = session.get(models.User, record.user_id)
+    user.password_hash = hash_password(new_password)
+    # A reset invalidates every existing session (stolen-account containment).
+    revoke_all_sessions(session, user_id=user.id, now=now)
+    session.flush()
+    return user

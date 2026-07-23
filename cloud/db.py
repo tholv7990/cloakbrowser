@@ -66,9 +66,13 @@ def create_engine_for(url: str) -> Engine:
     if is_sqlite:
 
         @event.listens_for(engine, "connect")
-        def _fk_on(dbapi_connection, _record) -> None:  # pragma: no cover - trivial
+        def _sqlite_pragmas(dbapi_connection, _record) -> None:  # pragma: no cover
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
+            # WAL + a busy timeout so brief writer contention waits instead of
+            # failing outright (Postgres handles concurrency natively).
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
             cursor.close()
 
     return engine

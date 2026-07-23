@@ -33,19 +33,70 @@ def _get(session, scope: str, identifier: str) -> models.AuthThrottle | None:
     ).scalar_one_or_none()
 
 
+# --- session-based core (caller owns the transaction) -------------------------
+
+
+def enforce_on(session, *, scope: str, identifier: str, now: datetime | None = None) -> None:
+    now = now or utc_now()
+    row = _get(session, scope, identifier)
+    if (
+        row is not None
+        and row.locked_until is not None
+        and ensure_aware_utc(row.locked_until) > now
+    ):
+        raise ThrottleError()
+
+
+def record_failure_on(
+    session,
+    *,
+    scope: str,
+    identifier: str,
+    max_attempts: int,
+    lockout: timedelta,
+    now: datetime | None = None,
+) -> None:
+    now = now or utc_now()
+    row = _get(session, scope, identifier)
+    if row is None:
+        # Single INSERT at the caller's commit — no flush, so no extra write.
+        session.add(
+            models.AuthThrottle(
+                scope=scope,
+                identifier=identifier,
+                attempts=1,
+                window_started_at=now,
+                locked_until=now + lockout if 1 >= max_attempts else None,
+            )
+        )
+        return
+    # Roll the window once the previous lockout window has elapsed.
+    if ensure_aware_utc(row.window_started_at) + lockout < now:
+        row.attempts = 0
+        row.window_started_at = now
+        row.locked_until = None
+    row.attempts += 1
+    if row.attempts >= max_attempts:
+        row.locked_until = now + lockout
+
+
+def record_success_on(session, *, scope: str, identifier: str) -> None:
+    row = _get(session, scope, identifier)
+    if row is not None:
+        row.attempts = 0
+        row.locked_until = None
+
+
+# --- factory wrappers (own short-lived transaction; persist despite a caller's
+#     rollback — used where the failure is recorded on a request that will roll
+#     back, e.g. a failed /auth/token). ------------------------------------------
+
+
 def enforce_not_locked(
     factory: sessionmaker, *, scope: str, identifier: str, now: datetime | None = None
 ) -> None:
-    now = now or utc_now()
     with factory() as session:
-        row = _get(session, scope, identifier)
-        locked = (
-            row is not None
-            and row.locked_until is not None
-            and ensure_aware_utc(row.locked_until) > now
-        )
-    if locked:
-        raise ThrottleError()
+        enforce_on(session, scope=scope, identifier=identifier, now=now)
 
 
 def record_failure(
@@ -57,34 +108,22 @@ def record_failure(
     lockout: timedelta,
     now: datetime | None = None,
 ) -> None:
-    now = now or utc_now()
     with factory() as session:
-        row = _get(session, scope, identifier)
-        if row is None:
-            row = models.AuthThrottle(
-                scope=scope, identifier=identifier, attempts=0, window_started_at=now
+        try:
+            record_failure_on(
+                session,
+                scope=scope,
+                identifier=identifier,
+                max_attempts=max_attempts,
+                lockout=lockout,
+                now=now,
             )
-            session.add(row)
-            try:
-                session.flush()
-            except IntegrityError:  # a concurrent first-failure won the insert
-                session.rollback()
-                row = _get(session, scope, identifier)
-        # Roll the window once the previous lockout window has elapsed.
-        if ensure_aware_utc(row.window_started_at) + lockout < now:
-            row.attempts = 0
-            row.window_started_at = now
-            row.locked_until = None
-        row.attempts += 1
-        if row.attempts >= max_attempts:
-            row.locked_until = now + lockout
-        session.commit()
+            session.commit()
+        except IntegrityError:  # concurrent first-failure won the insert — best effort
+            session.rollback()
 
 
 def record_success(factory: sessionmaker, *, scope: str, identifier: str) -> None:
     with factory() as session:
-        row = _get(session, scope, identifier)
-        if row is not None:
-            row.attempts = 0
-            row.locked_until = None
-            session.commit()
+        record_success_on(session, scope=scope, identifier=identifier)
+        session.commit()
