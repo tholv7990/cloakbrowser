@@ -56,6 +56,7 @@ export interface AppData {
   extensions: Extension[];
   browser: BrowserInfo;
   browserVersion: string;
+  platform: string;
   runningCount: number;
   profileRoot: string;
   isLoading: boolean;
@@ -91,6 +92,7 @@ export function useAppData(): AppData {
       path_present: true,
     },
     browserVersion: cloakVersion,
+    platform: bootstrap.data?.platform ?? 'windows',
     runningCount: realtimeRunningCount ?? bootstrap.data?.running_session_count ?? 0,
     profileRoot: '',
     isLoading:

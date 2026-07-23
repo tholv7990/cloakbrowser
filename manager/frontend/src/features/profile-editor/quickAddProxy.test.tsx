@@ -26,6 +26,7 @@ function Harness() {
     proxies: proxies.data ?? [], // live, so a created proxy becomes selectable
     extensions: [],
     browserVersion: '146',
+    platform: 'windows',
     isEdit: false,
   };
   return (

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import platform as _platform
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
@@ -19,9 +20,13 @@ SessionDependency = Annotated[Session, Depends(get_session)]
 
 @router.get("/bootstrap", response_model=AppBootstrap, operation_id="app_bootstrap")
 def bootstrap(request: Request, session: SessionDependency) -> AppBootstrap:
+    # The fingerprint OS mirrors the patched binary's rule: native macOS on a
+    # Mac, Windows everywhere else (Linux hosts spoof Windows). Cross-OS spoofing
+    # is a detectable font/GPU mismatch, so the OS tracks the host, not a choice.
+    fingerprint_os = "macos" if _platform.system() == "Darwin" else "windows"
     return AppBootstrap(
         api_version="v1",
-        platform="windows",
+        platform=fingerprint_os,
         owner_email=request.state.owner.email,
         capabilities={
             "authentication": True,

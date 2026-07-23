@@ -369,6 +369,10 @@ export const en = {
   'editor.longitude': 'Longitude',
   'editor.accuracy': 'Accuracy (m)',
 
+  'editor.fpOs': 'Fingerprint OS',
+  'editor.fpOsMatched': 'matched to this device',
+  'editor.fpOsNote':
+    "The OS mirrors this device — a cross-OS profile leaks a font/GPU mismatch, so it's not spoofed.",
   'editor.fpPreset': 'Fingerprint preset',
   'editor.fpPresetHint': 'Consistent keeps every derived surface coherent across sessions.',
   'editor.fpConsistent': 'Consistent (recommended)',

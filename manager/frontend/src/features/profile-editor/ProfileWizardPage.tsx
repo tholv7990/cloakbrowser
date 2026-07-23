@@ -124,6 +124,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
       proxies: proxiesQuery.data ?? [],
       extensions: app.extensions,
       browserVersion: app.browserVersion,
+      platform: app.platform,
       isEdit: mode === 'edit',
     }),
     [
@@ -132,6 +133,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
       app.tags,
       app.extensions,
       app.browserVersion,
+      app.platform,
       proxiesQuery.data,
       mode,
     ],

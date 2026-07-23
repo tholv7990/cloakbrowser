@@ -24,6 +24,7 @@ export interface WizardRefs {
   proxies: Proxy[];
   extensions: Extension[];
   browserVersion: string;
+  platform: string;
   isEdit: boolean;
 }
 
@@ -421,8 +422,18 @@ const IdentityStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
   const seed = useWatch<ProfileWizardValues>({ name: 'fingerprint_seed' }) as string;
   const versionMode = useWatch<ProfileWizardValues>({ name: 'browser_version_mode' }) as string;
   const uaMode = useWatch<ProfileWizardValues>({ name: 'user_agent_mode' }) as string;
+  const osLabel =
+    ({ windows: 'Windows', macos: 'macOS', linux: 'Linux' } as Record<string, string>)[
+      refs.platform
+    ] ?? refs.platform;
   return (
     <div className="space-y-4">
+      <Field label={t('editor.fpOs')} hint={t('editor.fpOsNote')}>
+        <div className="flex h-9 items-center gap-2 rounded-md border border-line bg-surface-sunken px-3">
+          <span className="text-[13px] font-medium text-ink">{osLabel}</span>
+          <span className="text-2xs text-ink-faint">· {t('editor.fpOsMatched')}</span>
+        </div>
+      </Field>
       <SelectField
         name="fingerprint_preset"
         label={t('editor.fpPreset')}

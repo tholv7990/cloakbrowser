@@ -373,6 +373,10 @@ export const vi: Record<keyof typeof en, string> = {
   'editor.longitude': 'Kinh độ',
   'editor.accuracy': 'Độ chính xác (m)',
 
+  'editor.fpOs': 'Hệ điều hành vân tay',
+  'editor.fpOsMatched': 'khớp với thiết bị này',
+  'editor.fpOsNote':
+    'Hệ điều hành khớp với thiết bị này — hồ sơ khác OS sẽ lộ mismatch font/GPU nên không giả mạo.',
   'editor.fpPreset': 'Cấu hình dấu vân tay',
   'editor.fpPresetHint': 'Nhất quán giữ mọi bề mặt dẫn xuất đồng nhất giữa các phiên.',
   'editor.fpConsistent': 'Nhất quán (khuyến nghị)',
