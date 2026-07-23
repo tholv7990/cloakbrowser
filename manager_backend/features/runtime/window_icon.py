@@ -1,18 +1,16 @@
-"""Per-profile plasma taskbar/window icon (Windows, best-effort).
+"""Plasma-dart taskbar/window icon per profile (Windows, best-effort).
 
-An open profile shows the binary's generic Chromium icon, so two open profiles
-look identical in the taskbar / Alt-Tab. This gives each open profile a distinct
-plasma orb, tinted by a colour derived from the profile id, applied to its browser
-window with WM_SETICON. Windows-only; every failure is swallowed so it can never
-block or fail a launch.
+An open profile shows the binary's generic Chromium icon. This applies the
+plasma-dart brand icon to the browser window (WM_SETICON) and gives each profile a
+distinct AppUserModelID + relaunch icon so the profiles are separate, branded
+taskbar buttons rather than one grouped Chromium button. Windows-only; every
+failure is swallowed so it can never block or fail a launch.
 """
 
 from __future__ import annotations
 
-import colorsys
 import ctypes
 import ctypes.wintypes
-import hashlib
 import sys
 import tempfile
 from pathlib import Path
@@ -97,48 +95,43 @@ def _set_taskbar_identity(hwnd: int, aumid: str, ico_path: str) -> bool:
         release(store)
 
 
-def _color_for(seed: str) -> tuple[int, int, int]:
-    """A vivid, stable, well-spread colour per profile (distinct hues)."""
-    digest = int(hashlib.sha256(seed.encode("utf-8")).hexdigest(), 16)
-    hue = (digest % 360) / 360.0
-    r, g, b = colorsys.hsv_to_rgb(hue, 0.72, 1.0)
-    return int(r * 255), int(g * 255), int(b * 255)
+# The brand mark: a plasma "dart" (arrow with motion lines) — a faithful raster of
+# plasma-dart.svg (no SVG rasterizer is bundled, and the shapes are simple).
+_DART_VIOLET = (127, 119, 221)  # #7F77DD
+_DART_PINK = (212, 83, 126)  # #D4537E
+_DART_LINES = ((9, 22, 26, 22, 3, 0.30), (4, 32, 24, 32, 4, 0.55), (13, 42, 26, 42, 3, 0.25))
+_DART_BODY = ((34, 15), (59, 32), (34, 49), (41, 32))
+_DART_HIGHLIGHT = ((34, 15), (59, 32), (50, 32), (36, 20))
 
 
-def _ensure_ico(rgb: tuple[int, int, int]) -> Path:
-    """Draw (and cache) a plasma-orb .ico in the given colour."""
+def _plasma_dart_ico() -> Path:
+    """Draw (and cache) the plasma-dart .ico (from plasma-dart.svg's 64x64 grid)."""
     _ICON_DIR.mkdir(parents=True, exist_ok=True)
-    path = _ICON_DIR / ("plasma_%02x%02x%02x.ico" % rgb)
+    path = _ICON_DIR / "plasma-dart.ico"
     if path.exists():
         return path
-    from PIL import Image, ImageDraw, ImageFilter
+    from PIL import Image, ImageDraw
 
-    size = 256
-    center = size / 2
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    scale = 16  # supersample the 64-unit SVG grid, then downscale for crisp edges
+    img = Image.new("RGBA", (64 * scale, 64 * scale), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    # Radial glow: colour fading out to transparent.
-    radius = size * 0.46
-    for i in range(int(radius), 0, -1):
-        t = i / radius
-        alpha = int(215 * (1 - t) ** 2)
-        draw.ellipse([center - i, center - i, center + i, center + i], fill=(*rgb, alpha))
-    # Two crossed orbital arcs (the "plasma field").
-    arc = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    adraw = ImageDraw.Draw(arc)
-    rx, ry = size * 0.44, size * 0.15
-    adraw.ellipse([center - rx, center - ry, center + rx, center + ry],
-                  outline=(255, 255, 255, 205), width=max(3, size // 40))
-    for angle in (28, -28):
-        img = Image.alpha_composite(img, arc.rotate(angle, resample=Image.BICUBIC, center=(center, center)))
-    # Bright energised core on top.
-    draw = ImageDraw.Draw(img)
-    core = size * 0.13
-    draw.ellipse([center - core, center - core, center + core, center + core], fill=(255, 255, 255, 255))
-    lighter = tuple(min(255, c + 90) for c in rgb)
-    core2 = size * 0.085
-    draw.ellipse([center - core2, center - core2, center + core2, center + core2], fill=(*lighter, 255))
-    img = img.filter(ImageFilter.GaussianBlur(size / 200))
+
+    def pts(coords):
+        return [(x * scale, y * scale) for x, y in coords]
+
+    for x1, y1, x2, y2, width, opacity in _DART_LINES:
+        color = (*_DART_VIOLET, int(opacity * 255))
+        draw.line(pts(((x1, y1), (x2, y2))), fill=color, width=width * scale)
+        radius = width * scale / 2  # round caps
+        for cx, cy in ((x1, y1), (x2, y2)):
+            draw.ellipse(
+                [cx * scale - radius, cy * scale - radius, cx * scale + radius, cy * scale + radius],
+                fill=color,
+            )
+    draw.polygon(pts(_DART_BODY), fill=(*_DART_VIOLET, 255))
+    draw.polygon(pts(_DART_HIGHLIGHT), fill=(*_DART_PINK, 255))
+
+    img = img.resize((256, 256), Image.LANCZOS)
     img.save(path, format="ICO", sizes=[(16, 16), (24, 24), (32, 32), (48, 48)])
     return path
 
@@ -185,7 +178,7 @@ def apply_profile_window_icon(user_data_dir, seed: str) -> int:
         pids = _profile_chrome_pids(user_data_dir)
         if not pids:
             return 0
-        ico = _ensure_ico(_color_for(seed))
+        ico = _plasma_dart_ico()
         small, big = _hicon(ico, 16), _hicon(ico, 32)
         if not small and not big:
             return 0
