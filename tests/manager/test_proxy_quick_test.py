@@ -25,6 +25,26 @@ def _create(client, auth_headers, **changes):
     return client.post("/api/v1/proxies", headers=auth_headers, json=payload).json()
 
 
+def test_quick_tester_enriches_exit_ip_with_geo():
+    def fake_resolver(url, attempts=3):
+        return {"exit_ip": "1.2.3.4", "exit_ip_agreement": True, "latency_median_ms": 100.0}
+
+    def fake_geo(ip):
+        assert ip == "1.2.3.4"
+        return {
+            "country": "US", "country_name": "United States", "city": "Dallas",
+            "zip_code": "75201", "timezone": "America/Chicago", "latitude": 32.8,
+            "longitude": -96.8, "asn": "AS62240", "organization": "Acme",
+        }
+
+    result = ScannerQuickTester(resolver=fake_resolver, geo_lookup=fake_geo).run("socks5://h:1")
+    assert result.exit_ip == "1.2.3.4"
+    assert result.city == "Dallas" and result.country_name == "United States"
+    assert result.zip_code == "75201" and result.timezone == "America/Chicago"
+    assert result.latitude == 32.8 and result.longitude == -96.8
+    assert result.asn == "AS62240" and result.organization == "Acme"
+
+
 def test_quick_test_returns_and_caches_only_safe_results(client, auth_headers):
     client.app.state.credential_store = MemoryCredentialStore()
 
@@ -39,8 +59,12 @@ def test_quick_test_returns_and_caches_only_safe_results(client, auth_headers):
                 exit_ip_matches=True,
                 latency_ms=184,
                 country="US",
+                country_name="United States",
                 city="Dallas",
+                zip_code="75201",
                 timezone="America/Chicago",
+                latitude=32.7767,
+                longitude=-96.797,
                 asn="AS212238",
                 organization="Datacamp Limited",
                 checked_at=datetime(2026, 7, 21, tzinfo=timezone.utc),
@@ -59,8 +83,12 @@ def test_quick_test_returns_and_caches_only_safe_results(client, auth_headers):
         "exit_ip_matches": True,
         "latency_ms": 184,
         "country": "US",
+        "country_name": "United States",
         "city": "Dallas",
+        "zip_code": "75201",
         "timezone": "America/Chicago",
+        "latitude": 32.7767,
+        "longitude": -96.797,
         "asn": "AS212238",
         "organization": "Datacamp Limited",
         "checked_at": "2026-07-21T00:00:00Z",

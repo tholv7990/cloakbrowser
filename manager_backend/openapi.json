@@ -12557,6 +12557,17 @@
             ],
             "title": "Country"
           },
+          "country_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country Name"
+          },
           "city": {
             "anyOf": [
               {
@@ -12568,6 +12579,17 @@
             ],
             "title": "City"
           },
+          "zip_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zip Code"
+          },
           "timezone": {
             "anyOf": [
               {
@@ -12578,6 +12600,28 @@
               }
             ],
             "title": "Timezone"
+          },
+          "latitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latitude"
+          },
+          "longitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Longitude"
           },
           "asn": {
             "anyOf": [
@@ -12627,8 +12671,12 @@
           "exit_ip_matches",
           "latency_ms",
           "country",
+          "country_name",
           "city",
+          "zip_code",
           "timezone",
+          "latitude",
+          "longitude",
           "asn",
           "organization",
           "checked_at",

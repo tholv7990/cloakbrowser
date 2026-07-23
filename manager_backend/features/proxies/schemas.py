@@ -85,8 +85,12 @@ class ProxyQuickTestRead(StrictModel):
     exit_ip_matches: bool | None
     latency_ms: int | None
     country: str | None
+    country_name: str | None
     city: str | None
+    zip_code: str | None
     timezone: str | None
+    latitude: float | None
+    longitude: float | None
     asn: str | None
     organization: str | None
     checked_at: datetime
