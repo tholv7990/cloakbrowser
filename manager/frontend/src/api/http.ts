@@ -4,7 +4,7 @@
  * envelope (§13) into a thrown ApiError the UI can render safely.
  */
 import type { ApiErrorBody, DownloadFile } from '@/types/api';
-import { absoluteApiBase, getCsrfToken } from './config';
+import { LOCAL_TOKEN, absoluteApiBase, getCsrfToken } from './config';
 
 export class ApiError extends Error {
   readonly code: string;
@@ -52,6 +52,9 @@ function buildUrl(path: string, query?: RequestOptions['query']): string {
 function requestHeaders(method: Method, hasBody: boolean): Record<string, string> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (hasBody) headers['Content-Type'] = 'application/json';
+  // Packaged desktop: prove this request comes from the shell, not another local
+  // process. Absent in dev, where the backend's token gate is off.
+  if (LOCAL_TOKEN) headers['Authorization'] = `Bearer ${LOCAL_TOKEN}`;
   if (method !== 'GET') {
     const csrf = getCsrfToken();
     if (csrf) headers['X-CSRF-Token'] = csrf;

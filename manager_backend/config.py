@@ -14,6 +14,10 @@ def default_data_root() -> Path:
     return Path(local_app_data) / "CloakBrowser" / "Manager"
 
 
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 class ManagerSettings(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -22,6 +26,12 @@ class ManagerSettings(BaseModel):
     port: int = 8765
     allowed_origin: str = "http://127.0.0.1:5273"
     install_token: str | None = None
+    # When true, every /api/v1 request must also carry a valid local Bearer token
+    # (the desktop shell injects it). Off by default so the browser dev workflow is
+    # unchanged; packaged builds set PLASMA_REQUIRE_LOCAL_TOKEN=1.
+    require_local_token: bool = Field(
+        default_factory=lambda: _env_flag("PLASMA_REQUIRE_LOCAL_TOKEN")
+    )
     auto_backup_enabled: bool = True
     max_concurrent_launches: int = Field(default=2, ge=1, le=8)
     max_concurrent_diagnostics: int = Field(default=2, ge=1, le=8)
@@ -46,6 +56,11 @@ class ManagerSettings(BaseModel):
         return self.data_root / "install-token"
 
     def resolved_install_token(self) -> str:
+        # A per-process token (injected by the desktop shell) wins over the persisted
+        # install-token file, so a token read from disk can't outlive the process.
+        per_process = os.environ.get("PLASMA_LOCAL_TOKEN")
+        if per_process:
+            return per_process
         if self.install_token:
             return self.install_token
         return load_or_create_install_token(self.token_path)

@@ -43,6 +43,11 @@ function deriveWsUrl(): string {
 
 export const WS_URL: string = deriveWsUrl();
 
+/** Per-process local API token injected by the desktop shell (packaged builds).
+ * Absent in the browser dev workflow, where the loopback token gate is off. Sent as
+ * an `Authorization: Bearer` header; never persisted or logged. */
+export const LOCAL_TOKEN: string | null = injected?.token ?? null;
+
 let csrfToken: string | null = null;
 
 export function setCsrfToken(token: string | null): void {

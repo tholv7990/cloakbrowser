@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 import secrets
-from uuid import uuid4
 
 from fastapi import Request
 
@@ -22,12 +21,16 @@ def redact_text(value: str) -> str:
 
 
 async def require_local_token(request: Request) -> None:
-    request.state.request_id = str(uuid4())
-    settings = request.app.state.settings
-    origin = request.headers.get("origin")
-    if origin is not None and origin != settings.allowed_origin:
-        raise ManagerError("invalid_origin", "This browser origin is not allowed.", 403)
+    """Require a valid per-install/per-process local Bearer token, when enabled.
 
+    Off by default (dev/browser workflow). When on (packaged desktop), this runs
+    ALONGSIDE the router's existing origin+CSRF+session check, so it only needs to
+    verify the token — a rogue local process that somehow has the session cookie
+    still can't drive the API without the token the shell injected.
+    """
+    settings = request.app.state.settings
+    if not settings.require_local_token:
+        return
     authorization = request.headers.get("authorization", "")
     scheme, _, supplied = authorization.partition(" ")
     expected = request.app.state.install_token

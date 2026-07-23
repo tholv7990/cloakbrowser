@@ -16,12 +16,13 @@ from .features.media.routes import router as media_router
 from .features.automation.routes import router as automation_router
 from .features.shopify.routes import router as shopify_router
 from .dependencies import require_authenticated_session
+from .security import require_local_token
 from .schemas.common import ErrorEnvelope
 
 
 api_router = APIRouter(
     prefix="/api/v1",
-    dependencies=[Depends(require_authenticated_session)],
+    dependencies=[Depends(require_authenticated_session), Depends(require_local_token)],
     responses={
         401: {"model": ErrorEnvelope, "description": "Authentication required"},
         403: {"model": ErrorEnvelope, "description": "Origin or CSRF rejected"},
