@@ -50,7 +50,11 @@ class ShopifyClient(Protocol):
 
     def upsert_menus(self, ctx: StoreContext, menus: list[dict]) -> dict: ...
 
-    def duplicate_theme(self, ctx: StoreContext, source_theme_id: str, name: str) -> str: ...
+    def duplicate_theme(self, ctx: StoreContext, source_theme_id: str, name: str) -> dict:
+        """Duplicate a theme; return {"id", "role"} so the caller can enforce draft-only."""
+
+    def get_theme_role(self, ctx: StoreContext, theme_id: str) -> str:
+        """Return a theme's current role (e.g. "unpublished", "main"), lowercased."""
 
     def upsert_theme_file_batch(
         self, ctx: StoreContext, theme_id: str, files: list[dict]
@@ -201,14 +205,23 @@ class HttpShopifyClient:
         data = self._graphql(
             ctx,
             "mutation themeDuplicate($id: ID!, $name: String) {"
-            " themeDuplicate(id: $id, name: $name) { theme { id } userErrors { message } } }",
+            " themeDuplicate(id: $id, name: $name) { theme { id role } userErrors { message } } }",
             {"id": source_theme_id, "name": name},
         )
         result = data.get("themeDuplicate") or {}
         theme = result.get("theme") or {}
         if not theme.get("id"):
             raise ManagerError("shopify_theme_error", "Shopify did not return a duplicated theme.", 502)
-        return theme["id"]  # role stays UNPUBLISHED — never published
+        # Return the role so the pipeline can enforce draft-only structurally.
+        return {"id": theme["id"], "role": str(theme.get("role") or "").lower()}
+
+    def get_theme_role(self, ctx, theme_id):
+        data = self._graphql(
+            ctx,
+            "query themeRole($id: ID!) { theme(id: $id) { role } }",
+            {"id": theme_id},
+        )
+        return str(((data.get("theme") or {}).get("role")) or "").lower()
 
     def upsert_theme_file_batch(self, ctx, theme_id, files):
         data = self._graphql(

@@ -346,12 +346,47 @@ def _execute_step(session, step, ctx: StoreContext, shopify: ShopifyClient, open
     if key == "design":
         return {"files": len(_theme_files(config))}, []
     if key == "theme":
-        new_theme_id = shopify.duplicate_theme(ctx, config["theme_id"], config["theme_name"])
-        rejected = upsert_theme_files(
-            _theme_files(config),
-            lambda batch: shopify.upsert_theme_file_batch(ctx, new_theme_id, batch),
-        )
-        admin_url, preview_url = shopify.theme_urls(ctx, new_theme_id)
-        errors = [f"theme file rejected: {key}" for key in rejected]
-        return {"theme_id": new_theme_id, "admin_url": admin_url, "preview_url": preview_url}, errors
+        return _run_theme_step(session, step, ctx, shopify, config)
     return {}, []
+
+
+def _draft_only(role: str) -> bool:
+    return str(role or "").lower() == "unpublished"
+
+
+def _run_theme_step(session, step, ctx: StoreContext, shopify: ShopifyClient, config) -> tuple[dict, list]:
+    """Build onto a private draft ONLY, enforced structurally.
+
+    The duplicate must be a NEW, UNPUBLISHED theme (id != source, role == unpublished),
+    and the role is re-fetched and re-checked before EVERY file batch — so we never
+    write to the live/main theme even if it flips mid-build. The new theme id is
+    persisted before any write, so a retry reuses it instead of duplicating again.
+    """
+    source_id = config["theme_id"]
+    new_id = (step.result_json or {}).get("theme_id")
+    if not new_id:  # first run — duplicate into a fresh draft and validate it
+        dup = shopify.duplicate_theme(ctx, source_id, config["theme_name"])
+        new_id = (dup or {}).get("id")
+        if not new_id or new_id == source_id or not _draft_only((dup or {}).get("role")):
+            raise ManagerError(
+                "shopify_theme_not_draft",
+                "Refused to build: the duplicated theme is not a new private draft.",
+                502,
+            )
+        step.result_json = {"theme_id": new_id}  # persist the external id before any write
+        session.commit()
+
+    def guarded_batch(batch: list[dict]) -> list[str]:
+        # Re-validate the live role before every write; refuse anything not a draft.
+        if not _draft_only(shopify.get_theme_role(ctx, new_id)):
+            raise ManagerError(
+                "shopify_theme_not_draft",
+                "Refused to write: the theme is no longer a private draft.",
+                502,
+            )
+        return shopify.upsert_theme_file_batch(ctx, new_id, batch)
+
+    rejected = upsert_theme_files(_theme_files(config), guarded_batch)
+    admin_url, preview_url = shopify.theme_urls(ctx, new_id)
+    errors = [f"theme file rejected: {rejected_key}" for rejected_key in rejected]
+    return {"theme_id": new_id, "admin_url": admin_url, "preview_url": preview_url}, errors
