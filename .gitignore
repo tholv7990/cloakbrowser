@@ -87,3 +87,6 @@ proxy-credentials*
 .antigravitycli
 .plans
 .pi
+
+# Isolated local feature worktrees
+.worktrees/
