@@ -17,6 +17,7 @@ from .errors import install_error_handlers
 from .features.activation.routes import router as activation_router
 from .features.auth.routes import router as auth_router
 from .features.devices.routes import router as devices_router
+from .features.updates.routes import router as updates_router
 
 
 def create_app(
@@ -37,6 +38,7 @@ def create_app(
     app.include_router(auth_router)
     app.include_router(devices_router)
     app.include_router(activation_router)
+    app.include_router(updates_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

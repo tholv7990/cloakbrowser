@@ -3,6 +3,8 @@ as the desktop) so a malformed/hostile body is rejected, not silently accepted."
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
@@ -71,3 +73,13 @@ class DeviceResponse(StrictModel):
 
 class MessageResponse(StrictModel):
     status: str
+
+
+class UpdateReleaseResponse(StrictModel):
+    channel: str
+    version: str
+    min_supported_version: str
+    artifact_url: str
+    sha256: str
+    signature: str
+    published_at: datetime
