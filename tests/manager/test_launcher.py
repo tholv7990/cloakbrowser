@@ -111,6 +111,36 @@ def test_ensure_initial_preferences_never_raises_on_bad_dir(tmp_path):
     ensure_initial_preferences(missing)  # parent absent -> swallowed, no crash
 
 
+def _write_web_data_with_google(path, active):
+    import sqlite3
+
+    conn = sqlite3.connect(str(path))
+    conn.execute("CREATE TABLE keywords (keyword TEXT, is_active INTEGER)")
+    conn.execute("INSERT INTO keywords VALUES ('google.com', ?)", (1 if active else 0,))
+    conn.commit()
+    conn.close()
+
+
+def test_google_search_ready_guard(tmp_path):
+    default = tmp_path / "Default"
+    default.mkdir()
+    # Nothing seeded yet -> not ready.
+    assert launcher._google_search_ready(default) is False
+
+    # A DSE in Secure Preferences but no active Google keyword -> still not ready.
+    (default / "Secure Preferences").write_text(
+        json.dumps({"default_search_provider_data": {"template_url_data": {"short_name": "Google"}}}),
+        encoding="utf-8",
+    )
+    _write_web_data_with_google(default / "Web Data", active=False)
+    assert launcher._google_search_ready(default) is False
+
+    # DSE + an ACTIVE Google keyword -> ready (seed is skipped).
+    (default / "Web Data").unlink()
+    _write_web_data_with_google(default / "Web Data", active=True)
+    assert launcher._google_search_ready(default) is True
+
+
 class _FakeCDPSession:
     def __init__(self, infos):
         self._infos = infos

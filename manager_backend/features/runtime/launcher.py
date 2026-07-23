@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any, Protocol
@@ -139,6 +142,51 @@ def ensure_initial_preferences(binary_dir: Path) -> None:
             return
         target.write_text(desired, encoding="utf-8")
     except OSError:
+        pass
+
+
+def _google_search_ready(default_dir: Path) -> bool:
+    """True if this profile already has a working Google DSE (so we skip re-seeding)."""
+    try:
+        secure = json.loads((default_dir / "Secure Preferences").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not (secure.get("default_search_provider_data") or {}).get("template_url_data"):
+        return False
+    web_data = default_dir / "Web Data"
+    if not web_data.exists():
+        return False
+    try:
+        conn = sqlite3.connect(str(web_data))
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM keywords WHERE keyword='google.com' AND is_active=1"
+            ).fetchone()
+        finally:
+            conn.close()
+        return bool(row)
+    except sqlite3.Error:
+        return False
+
+
+def ensure_google_search(user_data_dir: Path) -> None:
+    """One-time seed so the profile's omnibox searches Google (see google_seed).
+
+    Idempotent: skips instantly once the profile has a working Google DSE. The
+    seed runs in a separate process (isolated from the manager's Playwright driver)
+    and off-screen. Best-effort — never blocks or fails a launch. Runs before the
+    profile is launched, so its files are not locked.
+    """
+    if _google_search_ready(user_data_dir / "Default"):
+        return
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "manager_backend.features.runtime.google_seed",
+             str(user_data_dir)],
+            timeout=45,
+            check=False,
+        )
+    except Exception:
         pass
 
 
@@ -390,18 +438,13 @@ class _PersistentContextHandle:
 class CloakPersistentLauncher:
     def launch(self, snapshot: dict[str, Any]) -> BrowserHandle:
         import cloakbrowser
-        from cloakbrowser.config import get_binary_dir
 
         profile_dir = snapshot["profile_dir"]
         profile_dir.mkdir(parents=True, exist_ok=True)
         user_data_path = profile_dir / "user-data"
-        # Seed a default search engine (Google) so the omnibox searches instead of
-        # treating typed text as a hostname. Best-effort; must never block a launch.
-        try:
-            ensure_initial_preferences(get_binary_dir(snapshot.get("browser_version")))
-        except Exception:
-            pass
-        seed_default_search_engine(user_data_path)
+        # One-time seed so the omnibox searches Google instead of treating typed
+        # text as a hostname. Best-effort; must never block a launch.
+        ensure_google_search(user_data_path)
         user_data_dir = str(user_data_path)
         context = cloakbrowser.launch_persistent_context(
             user_data_dir,
