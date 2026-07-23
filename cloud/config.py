@@ -31,6 +31,7 @@ class CloudSettings:
     offline_grace: timedelta = timedelta(days=7)
     email_verification_ttl: timedelta = timedelta(hours=24)
     password_reset_ttl: timedelta = timedelta(hours=1)
+    oauth_code_ttl: timedelta = timedelta(minutes=5)  # PKCE authorization code
     # Abuse controls (auth_throttle): attempts allowed before lockout, and how long.
     max_attempts: int = 8
     lockout: timedelta = timedelta(minutes=15)

@@ -32,6 +32,31 @@ class TokenRequest(StrictModel):
     device_name: str = Field(default="Windows PC", max_length=120)
 
 
+class AuthorizeRequest(StrictModel):
+    """The hosted login page posts credentials + the PKCE challenge here."""
+
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=1024)
+    code_challenge: str = Field(min_length=43, max_length=128)  # base64url(S256)
+    redirect_uri: str = Field(min_length=1, max_length=512)
+
+
+class AuthorizeResponse(StrictModel):
+    code: str
+    redirect_uri: str
+
+
+class OAuthTokenRequest(StrictModel):
+    """Exchange the authorization code + PKCE verifier + device for tokens."""
+
+    code: str = Field(min_length=1, max_length=256)
+    code_verifier: str = Field(min_length=43, max_length=128)
+    redirect_uri: str = Field(min_length=1, max_length=512)
+    device_public_key: str = Field(min_length=1, max_length=128)
+    device_signature: str = Field(min_length=1, max_length=128)
+    device_name: str = Field(default="Windows PC", max_length=120)
+
+
 class RefreshRequest(StrictModel):
     refresh_token: str = Field(min_length=1, max_length=256)
 

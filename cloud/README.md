@@ -59,14 +59,22 @@ python -m pytest tests/cloud -q      # 53 tests: schema, licensing, auth, device
 
 ## Endpoints (v1)
 
-`POST /auth/register` · `POST /auth/verify-email` · `POST /auth/token` (login + device
-attach) · `POST /auth/token/refresh` · `POST /auth/logout` · `POST /auth/logout-all` ·
-`GET /devices` · `POST /devices/{id}/revoke` · `POST /activation/redeem` ·
-`POST /entitlement/refresh` · `GET /health`.
+- **Auth:** `POST /auth/register` · `/auth/verify-email` · `/auth/token` (direct login +
+  device attach) · `/auth/token/refresh` · `/auth/logout` · `/auth/logout-all` ·
+  `/auth/password-reset/request` · `/auth/password-reset/confirm`
+- **OAuth PKCE:** `POST /oauth/authorize` (hosted login page → code) · `POST /oauth/token`
+  (code + PKCE verifier + device → tokens)
+- **Devices:** `GET /devices` · `POST /devices/{id}/revoke`
+- **Licensing:** `POST /activation/redeem` · `POST /entitlement/refresh`
+- **Updates:** `GET /updates/latest?channel=stable|beta` (public, signed manifest)
+- `GET /health`
+
+Login is rate-limited with lockout (`auth_throttle`). Admin key issuance:
+`python -m cloud.admin issue|revoke|suspend|lookup`.
 
 ## Not yet wired (next)
 
-PKCE `/authorize`+`/token` hosted browser flow, password-reset routes, per-scope
-rate-limit/lockout enforcement (tables exist: `auth_throttle`), admin CLI (issue/
-revoke keys, support lookup by prefix), update-release endpoints, Sentry. See the
-repo backlog.
+- The **hosted HTML login page** that drives `/oauth/authorize` (the JSON flow exists +
+  is tested; the page is a thin UI over it).
+- MFA/passkeys, Sentry error reporting, broader audit-event coverage, a Postgres-backed
+  concurrency test for redeem row-locking. See the repo backlog.

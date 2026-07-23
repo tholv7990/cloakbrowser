@@ -17,6 +17,7 @@ from .errors import install_error_handlers
 from .features.activation.routes import router as activation_router
 from .features.auth.routes import router as auth_router
 from .features.devices.routes import router as devices_router
+from .features.oauth.routes import router as oauth_router
 from .features.updates.routes import router as updates_router
 
 
@@ -36,6 +37,7 @@ def create_app(
 
     install_error_handlers(app)
     app.include_router(auth_router)
+    app.include_router(oauth_router)
     app.include_router(devices_router)
     app.include_router(activation_router)
     app.include_router(updates_router)

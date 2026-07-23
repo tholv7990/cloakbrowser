@@ -34,6 +34,7 @@ AUTH_ERRORS = frozenset(
         "refresh_reuse",
         "refresh_expired",
         "device_mismatch",
+        "invalid_grant",
     }
 )
 
