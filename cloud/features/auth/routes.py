@@ -6,6 +6,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
+from ... import throttle
 from ...config import CloudSettings
 from ...deps import get_session, get_settings, require_access
 from ...errors import CloudError
@@ -61,9 +62,16 @@ def verify_email(
 @router.post("/token", response_model=TokenResponse)
 def token(
     body: TokenRequest,
+    request: Request,
     session: Session = Depends(get_session),
     settings: CloudSettings = Depends(get_settings),
 ) -> TokenResponse:
+    factory = request.app.state.session_factory
+    identifier = str(body.email)
+    try:
+        throttle.enforce_not_locked(factory, scope="login", identifier=identifier)
+    except throttle.ThrottleError as error:
+        raise CloudError("throttled") from error
     try:
         user = auth.authenticate(session, email=body.email, password=body.password)
         device = devices.register_device(
@@ -76,7 +84,16 @@ def token(
         )
         issued = auth.create_session(session, user=user, device=device, settings=settings)
     except (auth.AuthError, devices.DeviceError) as error:
+        # Persists despite the main transaction rolling back on this raise.
+        throttle.record_failure(
+            factory,
+            scope="login",
+            identifier=identifier,
+            max_attempts=settings.max_attempts,
+            lockout=settings.lockout,
+        )
         raise CloudError(error.code) from error
+    throttle.record_success(factory, scope="login", identifier=identifier)
     return TokenResponse(
         access_token=issued.access_token,
         refresh_token=issued.refresh_token,
