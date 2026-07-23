@@ -10,7 +10,9 @@ files with recursive bisection to isolate a bad file — it never publishes.
 
 from __future__ import annotations
 
-from sqlalchemy import select
+import logging
+
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ...errors import ManagerError
@@ -18,6 +20,18 @@ from ...models import ShopifyBuildPlan, ShopifyPlanStep, ShopifyStore
 from ..proxies.credentials import CredentialStore
 from .clients import OpenAIImageClient, ShopifyClient, StoreContext
 from .service import CATALOGS, get_ai_settings, store_context
+
+
+_LOG = logging.getLogger("manager.shopify")
+
+
+def _redact(text: str, ctx: StoreContext) -> str:
+    """Strip the store token and proxy URL from any text before it is surfaced."""
+    out = str(text)
+    for secret in (ctx.token, ctx.proxy_url):
+        if secret:
+            out = out.replace(secret, "***")
+    return out
 
 
 STEP_ORDER = [
@@ -255,20 +269,23 @@ def _run_plan_step(session, step, ctx, shopify, openai, config) -> dict:
     step.error = None
     session.commit()
     try:
-        result, user_errors = _execute_step(step.key, ctx, shopify, openai, config)
+        result, user_errors = _execute_step(session, step, ctx, shopify, openai, config)
     except ManagerError as error:
         step.status = "failed"
-        step.error = error.message[:1000]
+        step.error = error.message[:1000]  # our own fixed, safe message
         session.commit()
         return {}
     except Exception as error:  # network / unexpected — a step failure, never a 500
+        # Never persist raw exception text: it can carry the token, a proxy URL, or
+        # an HTTP body. Log a redacted detail; surface only a stable safe message.
+        _LOG.warning("shopify step %s failed: %s", step.key, _redact(repr(error), ctx))
         step.status = "failed"
-        step.error = str(error)[:1000]
+        step.error = f"The {step.key} step failed unexpectedly."
         session.commit()
         return {}
     if user_errors:
         step.status = "failed"
-        step.error = "; ".join(str(e) for e in user_errors)[:1000]
+        step.error = _redact("; ".join(str(e) for e in user_errors), ctx)[:1000]
     else:
         step.status = "completed"
         step.result_json = result
@@ -276,7 +293,8 @@ def _run_plan_step(session, step, ctx, shopify, openai, config) -> dict:
     return result
 
 
-def _execute_step(key, ctx: StoreContext, shopify: ShopifyClient, openai, config) -> tuple[dict, list]:
+def _execute_step(session, step, ctx: StoreContext, shopify: ShopifyClient, openai, config) -> tuple[dict, list]:
+    key = step.key
     if key == "product_csv":
         products = _product_inputs(config)
         if not products:

@@ -222,6 +222,34 @@ def test_user_errors_fail_a_step_without_raising_and_reexecute_skips_completed(c
     assert second["status"] == "completed"
 
 
+def test_step_failure_never_leaks_secrets_in_the_error(client, auth_headers):
+    # An unexpected exception must never put raw text (which could carry the store
+    # token, a proxy URL, or an HTTP body) into the persisted/returned step error.
+    shopify, _ = _setup(client)
+
+    def leaky(ctx, products):
+        raise RuntimeError(
+            f"POST https://user:{ctx.token}@proxy.example:8080 failed; token={ctx.token} SECRET_ABC123"
+        )
+
+    shopify.upsert_products = leaky
+    store_id = _connect(client, auth_headers).json()["id"]
+    plan_id = _stage(client, auth_headers, store_id).json()["id"]
+    response = client.post(
+        f"{_BASE}/stores/{store_id}/plans/{plan_id}/execute",
+        headers=auth_headers,
+        json={"confirm": True},
+    )
+    assert response.status_code == 200, response.text
+    steps = {s["key"]: s for s in response.json()["steps"]}
+    error = steps["product_csv"]["error"] or ""
+    assert steps["product_csv"]["status"] == "failed"
+    assert error  # a stable, safe message is present
+    assert "SECRET_ABC123" not in error
+    assert "tok-" not in error  # the fake store token is "tok-<domain>"
+    assert "proxy" not in error.lower()
+
+
 def test_theme_file_upsert_bisects_to_isolate_a_bad_file(client, auth_headers):
     from manager_backend.features.shopify.pipeline import upsert_theme_files
 
