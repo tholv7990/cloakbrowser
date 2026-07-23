@@ -155,7 +155,7 @@ def list_sessions(session: Session, limit: int = 25) -> list[dict[str, Any]]:
     runtimes = session.execute(
         select(RuntimeSession, Profile.name)
         .join(Profile, Profile.id == RuntimeSession.profile_id)
-        .order_by(RuntimeSession.created_at.desc(), RuntimeSession.id)
+        .order_by(RuntimeSession.created_at.desc(), RuntimeSession.id.desc())
         .limit(limit)
     ).all()
     records: list[dict[str, Any]] = []

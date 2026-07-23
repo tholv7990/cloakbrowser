@@ -24,7 +24,7 @@ from manager_backend.features.media.service import list_assets
 from manager_backend.features.profiles.service import list_profiles
 from manager_backend.features.proxies.service import list_proxies
 from manager_backend.features.resources.service import list_sessions
-from manager_backend.features.runtime.snapshots import load_latest_runtimes
+from manager_backend.features.runtime.snapshots import RuntimeSnapshotCache
 from manager_backend.models import (
     Base,
     MediaAsset,
@@ -168,22 +168,36 @@ def main() -> None:
                     page_size=100,
                 ),
             )
+            assert counter.count == 4
             proxies = _measure("proxy list (1,000)", counter, lambda: list_proxies(session))
+            assert counter.count == 2
             media = _measure("media list (100)", counter, lambda: list_assets(session))
+            assert counter.count == 2
             sessions = _measure(
                 "recent sessions (100)", counter, lambda: list_sessions(session, 100)
             )
-            runtimes, _ = _measure(
-                "latest runtime snapshot",
+            assert counter.count == 1
+            cache = RuntimeSnapshotCache()
+            initial_snapshot = _measure(
+                "initial runtime snapshot",
                 counter,
-                lambda: load_latest_runtimes(session),
+                lambda: cache.poll(session),
             )
+            assert counter.count == 4
+            idle_snapshot = _measure(
+                "unchanged snapshot poll",
+                counter,
+                lambda: cache.poll(session),
+            )
+            assert counter.count == 3
 
         assert len(profiles["items"]) == 100
         assert len(proxies) == PROXY_COUNT
         assert len(media) == MEDIA_COUNT
         assert len(sessions) == 100
-        assert len(runtimes) == PROFILE_COUNT
+        assert initial_snapshot.changed is True
+        assert len(initial_snapshot.runtimes) == PROFILE_COUNT
+        assert idle_snapshot.changed is False
         engine.dispose()
 
 

@@ -363,10 +363,16 @@ class RuntimeSession(Base):
             "created_at",
         ),
         Index(
+            "ix_runtime_sessions_profile_state",
+            "profile_id",
+            "state",
+        ),
+        Index(
             "ix_runtime_sessions_created_at_id",
             "created_at",
             "id",
         ),
+        Index("ix_runtime_sessions_updated_at", "updated_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)

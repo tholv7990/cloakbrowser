@@ -21,7 +21,7 @@ from .dependencies import require_authenticated_session
 from .features.runtime.manager import RuntimeManager
 from .features.runtime.reconcile import cleanup_stale_locks, reconcile_runtimes
 from .features.runtime.routes import runtime_to_dict
-from .features.runtime.snapshots import load_latest_runtimes, runtime_marker
+from .features.runtime.snapshots import RuntimeSnapshotCache
 from .auth.sessions import validate_session
 from .dependencies import SESSION_COOKIE
 from .features.proxies.credentials import KeyringCredentialStore
@@ -218,15 +218,18 @@ def create_app(
                 return
         await websocket.accept()
         diagnostic_queue = app.state.event_broker.subscribe()
+        snapshot_cache = RuntimeSnapshotCache()
         sequence = 0
-        previous = None
         try:
             while True:
                 with app.state.session_factory() as session:
-                    runtimes, running_session_count = load_latest_runtimes(session)
-                    marker = runtime_marker(runtimes, running_session_count)
-                    payload = [runtime_to_dict(item) for item in runtimes]
-                if marker != previous:
+                    snapshot = snapshot_cache.poll(session)
+                    payload = (
+                        [runtime_to_dict(item) for item in snapshot.runtimes]
+                        if snapshot.changed
+                        else []
+                    )
+                if snapshot.changed:
                     sequence += 1
                     await websocket.send_json(
                         jsonable_encoder(
@@ -234,11 +237,10 @@ def create_app(
                                 "sequence": sequence,
                                 "type": "runtime.snapshot",
                                 "runtimes": payload,
-                                "running_session_count": running_session_count,
+                                "running_session_count": snapshot.running_count,
                             }
                         )
                     )
-                    previous = marker
                 try:
                     event = await asyncio.wait_for(
                         diagnostic_queue.get(), timeout=0.25

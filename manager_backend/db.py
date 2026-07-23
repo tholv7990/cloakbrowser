@@ -13,7 +13,9 @@ _PERFORMANCE_INDEXES = frozenset(
     {
         "ix_profiles_proxy_id",
         "ix_runtime_sessions_profile_created_at",
+        "ix_runtime_sessions_profile_state",
         "ix_runtime_sessions_created_at_id",
+        "ix_runtime_sessions_updated_at",
         "ix_profile_media_assets_media_profile",
     }
 )

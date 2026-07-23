@@ -9,6 +9,8 @@ from alembic.config import Config
 EXPECTED = {
     "ix_profiles_proxy_id",
     "ix_runtime_sessions_profile_created_at",
+    "ix_runtime_sessions_profile_state",
+    "ix_runtime_sessions_updated_at",
     "ix_runtime_sessions_created_at_id",
     "ix_profile_media_assets_media_profile",
 }
@@ -49,6 +51,13 @@ def test_performance_indexes_are_selected_by_sqlite(tmp_path, monkeypatch) -> No
         "ix_runtime_sessions_profile_created_at": (
             "SELECT id FROM runtime_sessions WHERE profile_id = ? ORDER BY created_at DESC"
         ),
+        "ix_runtime_sessions_profile_state": (
+            "SELECT id FROM runtime_sessions WHERE profile_id = ? AND state IN "
+            "(?,?,?,?,?)"
+        ),
+        "ix_runtime_sessions_updated_at": (
+            "SELECT max(updated_at) FROM runtime_sessions"
+        ),
         "ix_runtime_sessions_created_at_id": (
             "SELECT id FROM runtime_sessions ORDER BY created_at DESC, id DESC LIMIT 100"
         ),
@@ -58,7 +67,11 @@ def test_performance_indexes_are_selected_by_sqlite(tmp_path, monkeypatch) -> No
     }
     with sqlite3.connect(database) as connection:
         for index_name, sql in statements.items():
-            parameter = ("missing",) if "?" in sql else ()
+            parameter = tuple(
+                ["missing", "queued", "starting", "running", "stopping", "detached"][
+                    : sql.count("?")
+                ]
+            )
             plan = " ".join(
                 str(column)
                 for row in connection.execute(f"EXPLAIN QUERY PLAN {sql}", parameter)

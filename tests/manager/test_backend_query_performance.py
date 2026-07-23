@@ -13,6 +13,7 @@ from manager_backend.features.profiles.service import list_profiles
 from manager_backend.features.proxies.service import list_proxies
 from manager_backend.features.resources.service import list_sessions
 from manager_backend.features.resources import service as resource_service
+from manager_backend.features.runtime import snapshots as runtime_snapshots
 from manager_backend.features.runtime.snapshots import load_latest_runtimes
 from manager_backend.models import (
     Base,
@@ -268,3 +269,44 @@ def test_resource_snapshot_uses_constant_profile_lookup_queries(monkeypatch) -> 
 
     assert len(snapshot["profiles"]) == 100
     assert len(statements) <= 2
+
+
+def test_runtime_snapshot_cache_skips_loader_when_database_is_unchanged(
+    monkeypatch,
+) -> None:
+    engine = _engine()
+    calls = 0
+    original = runtime_snapshots.load_latest_runtimes
+
+    def counted(session: Session):
+        nonlocal calls
+        calls += 1
+        return original(session)
+
+    monkeypatch.setattr(runtime_snapshots, "load_latest_runtimes", counted)
+    cache_type = getattr(runtime_snapshots, "RuntimeSnapshotCache", None)
+    assert cache_type is not None
+    cache = cache_type()
+
+    with Session(engine) as session:
+        profile = _profile(1)
+        session.add(profile)
+        session.flush()
+        runtime = RuntimeSession(
+            profile_id=profile.id,
+            state="running",
+            last_message="running",
+        )
+        session.add(runtime)
+        session.commit()
+
+        first = cache.poll(session)
+        second = cache.poll(session)
+        runtime.last_message = "changed"
+        session.commit()
+        third = cache.poll(session)
+
+    assert first.changed is True
+    assert second.changed is False
+    assert third.changed is True
+    assert calls == 2

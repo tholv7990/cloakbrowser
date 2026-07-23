@@ -20,9 +20,21 @@ def upgrade() -> None:
         if_not_exists=True,
     )
     op.create_index(
+        "ix_runtime_sessions_profile_state",
+        "runtime_sessions",
+        ["profile_id", "state"],
+        if_not_exists=True,
+    )
+    op.create_index(
         "ix_runtime_sessions_created_at_id",
         "runtime_sessions",
         ["created_at", "id"],
+        if_not_exists=True,
+    )
+    op.create_index(
+        "ix_runtime_sessions_updated_at",
+        "runtime_sessions",
+        ["updated_at"],
         if_not_exists=True,
     )
     op.create_index(
@@ -40,6 +52,14 @@ def downgrade() -> None:
     )
     op.drop_index(
         "ix_runtime_sessions_created_at_id",
+        table_name="runtime_sessions",
+    )
+    op.drop_index(
+        "ix_runtime_sessions_updated_at",
+        table_name="runtime_sessions",
+    )
+    op.drop_index(
+        "ix_runtime_sessions_profile_state",
         table_name="runtime_sessions",
     )
     op.drop_index(
