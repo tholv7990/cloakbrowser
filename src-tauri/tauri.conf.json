@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Plasma",
+  "version": "1.0.0",
+  "identifier": "app.plasma.desktop",
+  "build": {
+    "frontendDist": "../manager/frontend/dist",
+    "devUrl": "http://127.0.0.1:5273",
+    "beforeDevCommand": "npm --prefix ../manager/frontend run dev",
+    "beforeBuildCommand": "npm --prefix ../manager/frontend run build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": ["binaries/plasma-backend"],
+    "windows": {
+      "nsis": {
+        "installMode": "perUser"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://cloud.plasma.example/updates/latest?channel=stable"],
+      "pubkey": "REPLACE_WITH_TAURI_MINISIGN_PUBLIC_KEY"
+    }
+  }
+}

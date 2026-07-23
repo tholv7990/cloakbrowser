@@ -55,7 +55,12 @@ class ManagerSettings(BaseModel):
     data_root: Path = Field(default_factory=default_data_root)
     host: str = "127.0.0.1"
     port: int = 8765
-    allowed_origin: str = "http://127.0.0.1:5273"
+    # The browser origin allowed to call the API. Dev default is the Vite server;
+    # the desktop shell overrides it with the WebView origin via PLASMA_ALLOWED_ORIGIN.
+    allowed_origin: str = Field(
+        default_factory=lambda: os.environ.get("PLASMA_ALLOWED_ORIGIN")
+        or "http://127.0.0.1:5273"
+    )
     install_token: str | None = None
     # When true, every /api/v1 request must also carry a valid local Bearer token
     # (the desktop shell injects it). Off by default so the browser dev workflow is

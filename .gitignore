@@ -93,3 +93,9 @@ proxy-credentials*
 
 # Plasma cloud secrets
 cloud/.env
+
+# Tauri build artifacts (Phase 3)
+src-tauri/target/
+src-tauri/gen/
+src-tauri/binaries/
+src-tauri/icons/

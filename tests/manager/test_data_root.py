@@ -7,13 +7,24 @@ from __future__ import annotations
 
 import pytest
 
-from manager_backend.config import default_data_root
+from manager_backend.config import ManagerSettings, default_data_root
 
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
     monkeypatch.delenv("CLOAK_MANAGER_DATA_ROOT", raising=False)
     monkeypatch.delenv("PLASMA_DATA_ROOT_MODE", raising=False)
+    monkeypatch.delenv("PLASMA_ALLOWED_ORIGIN", raising=False)
+
+
+def test_allowed_origin_defaults_to_dev_origin(monkeypatch, tmp_path):
+    assert ManagerSettings(data_root=tmp_path).allowed_origin == "http://127.0.0.1:5273"
+
+
+def test_allowed_origin_reads_env(monkeypatch, tmp_path):
+    # The desktop shell sets this to the WebView origin (e.g. http://tauri.localhost).
+    monkeypatch.setenv("PLASMA_ALLOWED_ORIGIN", "http://tauri.localhost")
+    assert ManagerSettings(data_root=tmp_path).allowed_origin == "http://tauri.localhost"
 
 
 def _base(monkeypatch, tmp_path):
