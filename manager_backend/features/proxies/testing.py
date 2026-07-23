@@ -90,6 +90,10 @@ def _failure_category(error: Exception) -> str:
 
 
 class ScannerQuickTester:
+    _fast_executor = ThreadPoolExecutor(
+        max_workers=8, thread_name_prefix="proxy-launch-test"
+    )
+
     def __init__(self, *, resolver=resolve_exit_ip, geo_lookup=lookup_geo):
         self._resolver = resolver
         self._geo_lookup = geo_lookup
@@ -124,3 +128,39 @@ class ScannerQuickTester:
             raise ProxyTestFailure(_failure_category(error)) from None
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
+
+    def run_fast(
+        self, proxy_url: str, timeout_seconds: float = 5
+    ) -> QuickTestResult:
+        """Run the smaller launch gate under one absolute wall-clock budget."""
+
+        def check() -> QuickTestResult:
+            result = self._resolver(proxy_url, attempts=2)
+            exit_ip = str(result["exit_ip"])
+            geo = self._geo_lookup(exit_ip) or {}
+            return QuickTestResult(
+                exit_ip=exit_ip,
+                exit_ip_matches=bool(result["exit_ip_agreement"]),
+                latency_ms=round(float(result["latency_median_ms"])),
+                checked_at=datetime.now(timezone.utc),
+                country=geo.get("country"),
+                country_name=geo.get("country_name"),
+                city=geo.get("city"),
+                zip_code=geo.get("zip_code"),
+                timezone=geo.get("timezone"),
+                latitude=geo.get("latitude"),
+                longitude=geo.get("longitude"),
+                asn=geo.get("asn"),
+                organization=geo.get("organization"),
+            )
+
+        future = self._fast_executor.submit(check)
+        try:
+            return future.result(timeout=timeout_seconds)
+        except FutureTimeout:
+            future.cancel()
+            raise ProxyTestFailure("timeout") from None
+        except ProxyConnectivityError as error:
+            raise ProxyTestFailure(_failure_category(error)) from None
+        except Exception as error:
+            raise ProxyTestFailure(_failure_category(error)) from None

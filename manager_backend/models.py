@@ -17,6 +17,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    and_,
     text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -32,6 +33,9 @@ def new_id() -> str:
 
 class Base(DeclarativeBase):
     pass
+
+
+ACTIVE_RUNTIME_STATES = ("queued", "starting", "running", "stopping", "detached")
 
 
 profile_tags = Table(
@@ -178,6 +182,7 @@ class Profile(TimestampMixin, Base):
             "user_agent_mode IN ('automatic', 'custom')",
             name="ck_profiles_user_agent_mode",
         ),
+        Index("ix_profiles_proxy_id", "proxy_id"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -225,6 +230,13 @@ class Profile(TimestampMixin, Base):
     runtime_sessions: Mapped[list["RuntimeSession"]] = relationship(
         back_populates="profile", cascade="all, delete-orphan"
     )
+    active_runtime_sessions: Mapped[list["RuntimeSession"]] = relationship(
+        primaryjoin=lambda: and_(
+            Profile.id == RuntimeSession.profile_id,
+            RuntimeSession.state.in_(ACTIVE_RUNTIME_STATES),
+        ),
+        viewonly=True,
+    )
     extensions: Mapped[list["Extension"]] = relationship(
         secondary=profile_extensions, back_populates="profiles"
     )
@@ -234,11 +246,7 @@ class Profile(TimestampMixin, Base):
 
     @property
     def runtime_state(self) -> str:
-        active = {"queued", "starting", "running", "stopping", "detached"}
-        current = next(
-            (runtime for runtime in reversed(self.runtime_sessions) if runtime.state in active),
-            None,
-        )
+        current = next(iter(self.active_runtime_sessions), None)
         return current.state if current is not None else "stopped"
 
 
@@ -349,6 +357,22 @@ class RuntimeSession(Base):
                 "state IN ('queued','starting','running','stopping','detached')"
             ),
         ),
+        Index(
+            "ix_runtime_sessions_profile_created_at",
+            "profile_id",
+            "created_at",
+        ),
+        Index(
+            "ix_runtime_sessions_profile_state",
+            "profile_id",
+            "state",
+        ),
+        Index(
+            "ix_runtime_sessions_created_at_id",
+            "created_at",
+            "id",
+        ),
+        Index("ix_runtime_sessions_updated_at", "updated_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -458,6 +482,11 @@ profile_media_assets = Table(
         String(36),
         ForeignKey("media_assets.id", ondelete="CASCADE"),
         primary_key=True,
+    ),
+    Index(
+        "ix_profile_media_assets_media_profile",
+        "media_asset_id",
+        "profile_id",
     ),
 )
 

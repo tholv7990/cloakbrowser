@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from sqlalchemy import func, select, update as sql_update
@@ -30,7 +30,27 @@ def _assigned_count(session: Session, proxy_id: str) -> int:
     return int(session.scalar(select(func.count(Profile.id)).where(Profile.proxy_id == proxy_id)) or 0)
 
 
-def proxy_to_dict(session: Session, proxy: Proxy, store: CredentialStore | None = None) -> dict:
+def _assigned_counts(session: Session, proxy_ids: list[str]) -> dict[str, int]:
+    if not proxy_ids:
+        return {}
+    return {
+        proxy_id: int(count)
+        for proxy_id, count in session.execute(
+            select(Profile.proxy_id, func.count(Profile.id))
+            .where(Profile.proxy_id.in_(proxy_ids))
+            .group_by(Profile.proxy_id)
+        )
+        if proxy_id is not None
+    }
+
+
+def proxy_to_dict(
+    session: Session,
+    proxy: Proxy,
+    store: CredentialStore | None = None,
+    *,
+    assigned_count: int | None = None,
+) -> dict:
     endpoint = "direct" if proxy.scheme == "direct" else f"{proxy.scheme}://{proxy.host}:{proxy.port}"
     username = None
     if store is not None and proxy.credential_ref:
@@ -46,7 +66,9 @@ def proxy_to_dict(session: Session, proxy: Proxy, store: CredentialStore | None 
         "has_password": proxy.credential_ref is not None,
         "masked_endpoint": endpoint,
         "test_before_launch": proxy.test_before_launch,
-        "assigned_profile_count": _assigned_count(session, proxy.id),
+        "assigned_profile_count": (
+            _assigned_count(session, proxy.id) if assigned_count is None else assigned_count
+        ),
         "exit_ip": proxy.exit_ip,
         "country": proxy.country,
         "city": proxy.city,
@@ -69,7 +91,11 @@ def list_proxies(session: Session, store: CredentialStore | None = None) -> list
             select(Proxy).where(Proxy.deleted_at.is_(None)).order_by(Proxy.label, Proxy.id)
         )
     )
-    return [proxy_to_dict(session, proxy, store) for proxy in proxies]
+    counts = _assigned_counts(session, [proxy.id for proxy in proxies])
+    return [
+        proxy_to_dict(session, proxy, store, assigned_count=counts.get(proxy.id, 0))
+        for proxy in proxies
+    ]
 
 
 def create_proxy(session: Session, store: CredentialStore, payload: ProxyWrite) -> Proxy:
@@ -119,6 +145,15 @@ def update_proxy(
     proxy.host = payload.host or None
     proxy.port = payload.port
     proxy.test_before_launch = payload.test_before_launch
+    # Endpoint or credential edits invalidate a successful launch-check cache.
+    proxy.exit_ip = None
+    proxy.country = None
+    proxy.city = None
+    proxy.timezone = None
+    proxy.asn = None
+    proxy.organization = None
+    proxy.latency_ms = None
+    proxy.last_checked_at = None
     committed = False
     try:
         session.commit()
@@ -244,6 +279,36 @@ def _apply_proxy_geo(snapshot: dict, result) -> None:
         snapshot["locale"] = _LOCALE_BY_COUNTRY.get(result.country, "en-US")
 
 
+_PREFLIGHT_CACHE_MAX_AGE = timedelta(seconds=60)
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _cached_quick_test(proxy: Proxy, *, now: datetime) -> QuickTestResult | None:
+    checked_at = proxy.last_checked_at
+    if (
+        checked_at is None
+        or not proxy.exit_ip
+        or _as_utc(now) - _as_utc(checked_at) > _PREFLIGHT_CACHE_MAX_AGE
+    ):
+        return None
+    return QuickTestResult(
+        exit_ip=proxy.exit_ip,
+        exit_ip_matches=True,
+        latency_ms=proxy.latency_ms or 0,
+        checked_at=_as_utc(checked_at),
+        country=proxy.country,
+        city=proxy.city,
+        timezone=proxy.timezone,
+        asn=proxy.asn,
+        organization=proxy.organization,
+    )
+
+
 def build_proxy_preflight(session_factory, store: CredentialStore, tester):
     def preflight(snapshot: dict) -> str | None:
         proxy_id = snapshot.get("proxy_id")
@@ -254,16 +319,26 @@ def build_proxy_preflight(session_factory, store: CredentialStore, tester):
             proxy_url = resolve_proxy_url(session, store, proxy_id)
             if proxy_url is None:
                 return None
+            if (
+                not snapshot.get("test_proxy_before_launch", True)
+                or not proxy.test_before_launch
+            ):
+                return proxy_url
+            result = _cached_quick_test(proxy, now=datetime.now(timezone.utc))
+            used_cached_result = result is not None
             try:
-                result = tester.run(proxy_url, timeout_seconds=20)
+                if result is None:
+                    result = tester.run_fast(proxy_url, timeout_seconds=5)
             except ProxyTestFailure:
                 raise ManagerError(
                     "proxy_preflight_failed",
                     "The assigned proxy is unavailable.",
                     409,
                 ) from None
-            cache_quick_test(session, proxy, result)
+            if not used_cached_result:
+                cache_quick_test(session, proxy, result)
             _apply_proxy_geo(snapshot, result)
+            snapshot["proxy_exit_ip"] = result.exit_ip
             return proxy_url
 
     return preflight

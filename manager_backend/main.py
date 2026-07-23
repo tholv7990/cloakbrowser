@@ -8,13 +8,12 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import select
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import api_router
 from .auth.routes import router as auth_router
 from .config import ManagerSettings
-from .db import create_engine_for, create_session_factory
+from .db import create_engine_for, create_session_factory, ensure_performance_indexes
 from .errors import install_error_handlers
 from .maintenance import MaintenanceGate
 from .models import Base
@@ -22,10 +21,9 @@ from .dependencies import require_authenticated_session
 from .features.runtime.manager import RuntimeManager
 from .features.runtime.reconcile import cleanup_stale_locks, reconcile_runtimes
 from .features.runtime.routes import runtime_to_dict
-from .features.runtime.service import count_active_runtimes
+from .features.runtime.snapshots import RuntimeSnapshotCache
 from .auth.sessions import validate_session
 from .dependencies import SESSION_COOKIE
-from .models import RuntimeSession
 from .features.proxies.credentials import KeyringCredentialStore
 from .features.proxies.testing import ScannerQuickTester
 from .features.proxies.providers import DefaultProviderClient
@@ -132,6 +130,7 @@ def create_app(
     app.state.install_token = resolved.resolved_install_token()
     app.state.engine = create_engine_for(resolved)
     Base.metadata.create_all(app.state.engine)
+    ensure_performance_indexes(app.state.engine)
     app.state.session_factory = create_session_factory(app.state.engine)
     # Serializes a destructive backup-restore against every worker-spawning /
     # state-changing endpoint (they take a gate operation; restore takes it
@@ -219,26 +218,18 @@ def create_app(
                 return
         await websocket.accept()
         diagnostic_queue = app.state.event_broker.subscribe()
+        snapshot_cache = RuntimeSnapshotCache()
         sequence = 0
-        previous = None
         try:
             while True:
                 with app.state.session_factory() as session:
-                    runtimes = list(
-                        session.scalars(
-                            select(RuntimeSession).order_by(
-                                RuntimeSession.created_at.desc(), RuntimeSession.id
-                            )
-                        )
+                    snapshot = snapshot_cache.poll(session)
+                    payload = (
+                        [runtime_to_dict(item) for item in snapshot.runtimes]
+                        if snapshot.changed
+                        else []
                     )
-                    marker = tuple(
-                        (item.id, item.state, item.updated_at, item.last_message)
-                        for item in runtimes
-                    )
-                    running_session_count = count_active_runtimes(session)
-                    payload = [runtime_to_dict(item) for item in runtimes]
-                marker = (marker, running_session_count)
-                if marker != previous:
+                if snapshot.changed:
                     sequence += 1
                     await websocket.send_json(
                         jsonable_encoder(
@@ -246,14 +237,13 @@ def create_app(
                                 "sequence": sequence,
                                 "type": "runtime.snapshot",
                                 "runtimes": payload,
-                                "running_session_count": running_session_count,
+                                "running_session_count": snapshot.running_count,
                             }
                         )
                     )
-                    previous = marker
                 try:
                     event = await asyncio.wait_for(
-                        diagnostic_queue.get(), timeout=0.05
+                        diagnostic_queue.get(), timeout=0.25
                     )
                 except asyncio.TimeoutError:
                     continue

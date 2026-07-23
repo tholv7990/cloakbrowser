@@ -89,12 +89,17 @@ def build_snapshot(session: Session) -> dict[str, Any]:
         }
         backend = _summarize([_backend_proc], logical)
 
-        runtimes = session.scalars(
-            select(RuntimeSession).where(RuntimeSession.state.in_(ACTIVE_STATES))
+        runtimes = session.execute(
+            select(RuntimeSession, Profile.name)
+            .join(Profile, Profile.id == RuntimeSession.profile_id)
+            .where(
+                RuntimeSession.state.in_(ACTIVE_STATES),
+                Profile.deleted_at.is_(None),
+            )
         ).all()
         profile_rows: list[dict[str, Any]] = []
         all_browser: dict[int, psutil.Process] = {}
-        for runtime in runtimes:
+        for runtime, profile_name in runtimes:
             if runtime.browser_pid is None:
                 continue
             procs = _tree(runtime.browser_pid)
@@ -102,12 +107,11 @@ def build_snapshot(session: Session) -> dict[str, Any]:
                 continue
             for proc in procs:
                 all_browser[proc.pid] = proc
-            profile = session.get(Profile, runtime.profile_id)
             profile_rows.append(
                 {
                     **_summarize(procs, logical),
                     "profile_id": runtime.profile_id,
-                    "profile_name": profile.name if profile is not None else runtime.profile_id,
+                    "profile_name": profile_name,
                     "runtime_state": runtime.state,
                 }
             )
@@ -148,14 +152,14 @@ def _exit_reason(runtime: RuntimeSession) -> str | None:
 
 
 def list_sessions(session: Session, limit: int = 25) -> list[dict[str, Any]]:
-    runtimes = session.scalars(
-        select(RuntimeSession)
-        .order_by(RuntimeSession.created_at.desc(), RuntimeSession.id)
+    runtimes = session.execute(
+        select(RuntimeSession, Profile.name)
+        .join(Profile, Profile.id == RuntimeSession.profile_id)
+        .order_by(RuntimeSession.created_at.desc(), RuntimeSession.id.desc())
         .limit(limit)
     ).all()
     records: list[dict[str, Any]] = []
-    for runtime in runtimes:
-        profile = session.get(Profile, runtime.profile_id)
+    for runtime, profile_name in runtimes:
         duration = None
         if runtime.started_at is not None and runtime.stopped_at is not None:
             duration = max(0, int((runtime.stopped_at - runtime.started_at).total_seconds()))
@@ -166,7 +170,7 @@ def list_sessions(session: Session, limit: int = 25) -> list[dict[str, Any]]:
             {
                 "id": runtime.id,
                 "profile_id": runtime.profile_id,
-                "profile_name": profile.name if profile is not None else runtime.profile_id,
+                "profile_name": profile_name,
                 "started_at": runtime.started_at or runtime.created_at,
                 "ended_at": runtime.stopped_at,
                 "duration_seconds": duration,

@@ -8,7 +8,10 @@ import pytest
 
 from manager_backend.errors import ManagerError
 from manager_backend.features.extensions import service as extension_service
-from manager_backend.features.runtime.launcher import persistent_context_kwargs
+from manager_backend.features.runtime.launcher import (
+    persistent_context_kwargs,
+    profile_launch_snapshot,
+)
 from manager_backend.features.runtime.manager import RuntimeManager
 from manager_backend.models import Extension, Profile, RuntimeSession
 
@@ -124,6 +127,22 @@ def test_launch_builder_uses_structured_extension_option_not_chromium_arguments(
     assert isinstance(kwargs["extension_paths"], list)
     assert kwargs["args"] == ["--fingerprint=42", "--window-size=1920,1080"]
     assert all("load-extension" not in argument for argument in kwargs["args"])
+
+
+def test_launch_builder_uses_preflight_exit_ip_for_webrtc_without_auto_lookup():
+    kwargs = persistent_context_kwargs(
+        {
+            "fingerprint_seed": "42",
+            "fingerprint_preset": "consistent",
+            "proxy_url": "socks5://proxy.example:1080",
+            "proxy_exit_ip": "203.0.113.8",
+            "location": {"webrtc_mode": "proxy"},
+        },
+        headless=False,
+    )
+
+    assert "--fingerprint-webrtc-ip=203.0.113.8" in kwargs["args"]
+    assert "--fingerprint-webrtc-ip=auto" not in kwargs["args"]
 
 
 def test_start_passes_only_enabled_assigned_extensions_in_deterministic_order(
@@ -336,6 +355,38 @@ def test_launch_queue_limits_concurrent_browser_starts(db_session_factory, setti
     manager.shutdown()
 
 
+def test_slow_proxy_preflight_does_not_consume_browser_launch_slot(
+    db_session_factory, settings
+):
+    first_profile = _profile(db_session_factory, "slow-preflight")
+    second_profile = _profile(db_session_factory, "fast-preflight")
+    first_entered = threading.Event()
+    release_first = threading.Event()
+
+    def preflight(snapshot):
+        if snapshot["id"] == first_profile:
+            first_entered.set()
+            release_first.wait(3)
+        return None
+
+    launcher = FakeLauncher()
+    manager = RuntimeManager(
+        db_session_factory,
+        settings.model_copy(update={"max_concurrent_launches": 1}),
+        launcher=launcher,
+        proxy_preflight=preflight,
+    )
+    first_runtime = manager.start(first_profile)
+    assert first_entered.wait(1)
+    second_runtime = manager.start(second_profile)
+
+    _wait_state(db_session_factory, second_runtime.id, "running", timeout=1)
+    assert first_profile not in launcher.handles
+    release_first.set()
+    _wait_state(db_session_factory, first_runtime.id, "running")
+    manager.shutdown()
+
+
 def test_filesystem_lock_failure_does_not_create_runtime(db_session_factory, settings):
     class UnavailableLock:
         def acquire(self):
@@ -394,3 +445,16 @@ def test_proxy_preflight_value_is_forwarded_only_in_worker_memory(
     assert launcher.handles[profile_id]
     assert launcher.snapshots[profile_id]["proxy_url"].endswith("@proxy.example:1080")
     manager.shutdown()
+
+
+def test_launch_snapshot_carries_profile_proxy_check_toggle(
+    db_session_factory, settings
+):
+    profile_id = _profile(db_session_factory, "proxy-toggle")
+    with db_session_factory() as session:
+        profile = session.get(Profile, profile_id)
+        profile.test_proxy_before_launch = False
+        session.commit()
+        snapshot = profile_launch_snapshot(profile, settings)
+
+    assert snapshot["test_proxy_before_launch"] is False

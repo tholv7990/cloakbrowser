@@ -1,14 +1,18 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import time
 
+import pytest
+
 from manager_backend.features.proxies.credentials import MemoryCredentialStore
+from manager_backend.features.proxies.service import build_proxy_preflight
 from manager_backend.features.proxies.testing import (
     QuickTestResult,
     ProxyTestFailure,
     ScannerQuickTester,
 )
+from manager_backend.models import Proxy
 
 
 def _create(client, auth_headers, **changes):
@@ -246,3 +250,167 @@ def test_scanner_quick_test_honors_total_timeout_budget():
     else:
         raise AssertionError("expected timeout")
     assert time.monotonic() - started < 0.15
+
+
+def test_fast_proxy_test_bounds_resolver_and_geo_by_one_deadline():
+    def resolver(_proxy_url, *, attempts):
+        assert attempts == 2
+        return {
+            "exit_ip": "1.2.3.4",
+            "exit_ip_agreement": True,
+            "latency_median_ms": 10.0,
+        }
+
+    def slow_geo(_ip):
+        time.sleep(0.2)
+        return {"country": "US"}
+
+    tester = ScannerQuickTester(resolver=resolver, geo_lookup=slow_geo)
+    started = time.monotonic()
+    with pytest.raises(ProxyTestFailure) as caught:
+        tester.run_fast("socks5://proxy.example:1080", timeout_seconds=0.02)
+
+    assert caught.value.category == "timeout"
+    assert time.monotonic() - started < 0.15
+
+
+def test_preflight_skips_tester_when_profile_check_is_disabled(db_session_factory):
+    proxy = Proxy(
+        label="No launch test",
+        scheme="socks5",
+        host="proxy.example",
+        port=1080,
+    )
+    with db_session_factory() as session:
+        session.add(proxy)
+        session.commit()
+        proxy_id = proxy.id
+
+    class UnexpectedTester:
+        def run(self, *_args, **_kwargs):
+            raise AssertionError("disabled launch check must not call the tester")
+
+    snapshot = {
+        "proxy_id": proxy_id,
+        "test_proxy_before_launch": False,
+        "location": {"geo_mode": "system"},
+    }
+    preflight = build_proxy_preflight(
+        db_session_factory, MemoryCredentialStore(), UnexpectedTester()
+    )
+
+    assert preflight(snapshot) == "socks5://proxy.example:1080"
+
+
+def test_preflight_skips_tester_when_proxy_check_is_disabled(db_session_factory):
+    proxy = Proxy(
+        label="Proxy-level launch check disabled",
+        scheme="socks5",
+        host="proxy.example",
+        port=1080,
+        test_before_launch=False,
+    )
+    with db_session_factory() as session:
+        session.add(proxy)
+        session.commit()
+        proxy_id = proxy.id
+
+    class UnexpectedTester:
+        def run_fast(self, *_args, **_kwargs):
+            raise AssertionError("disabled proxy check must not call the tester")
+
+    snapshot = {
+        "proxy_id": proxy_id,
+        "test_proxy_before_launch": True,
+        "location": {"geo_mode": "system"},
+    }
+    preflight = build_proxy_preflight(
+        db_session_factory, MemoryCredentialStore(), UnexpectedTester()
+    )
+
+    assert preflight(snapshot) == "socks5://proxy.example:1080"
+
+
+def test_preflight_reuses_recent_successful_proxy_result(db_session_factory):
+    checked_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    proxy = Proxy(
+        label="Fresh launch check",
+        scheme="socks5",
+        host="proxy.example",
+        port=1080,
+        exit_ip="203.0.113.8",
+        country="US",
+        timezone="America/Chicago",
+        latency_ms=80,
+        last_checked_at=checked_at,
+    )
+    with db_session_factory() as session:
+        session.add(proxy)
+        session.commit()
+        proxy_id = proxy.id
+        original_updated_at = proxy.updated_at
+
+    class UnexpectedTester:
+        def run_fast(self, *_args, **_kwargs):
+            raise AssertionError("fresh successful result must be reused")
+
+    snapshot = {
+        "proxy_id": proxy_id,
+        "test_proxy_before_launch": True,
+        "location": {"geo_mode": "proxy"},
+        "locale": None,
+        "timezone": None,
+    }
+    preflight = build_proxy_preflight(
+        db_session_factory, MemoryCredentialStore(), UnexpectedTester()
+    )
+
+    assert preflight(snapshot) == "socks5://proxy.example:1080"
+    assert snapshot["timezone"] == "America/Chicago"
+    assert snapshot["locale"] == "en-US"
+    assert snapshot["proxy_exit_ip"] == "203.0.113.8"
+    with db_session_factory() as session:
+        assert session.get(Proxy, proxy_id).updated_at.replace(
+            tzinfo=None
+        ) == original_updated_at.replace(tzinfo=None)
+
+
+def test_preflight_rechecks_stale_proxy_result(db_session_factory):
+    proxy = Proxy(
+        label="Stale launch check",
+        scheme="socks5",
+        host="proxy.example",
+        port=1080,
+        exit_ip="203.0.113.8",
+        last_checked_at=datetime.now(timezone.utc) - timedelta(seconds=61),
+    )
+    with db_session_factory() as session:
+        session.add(proxy)
+        session.commit()
+        proxy_id = proxy.id
+
+    class Tester:
+        called = False
+
+        def run_fast(self, _proxy_url, timeout_seconds=5):
+            self.called = True
+            return QuickTestResult(
+                exit_ip="203.0.113.9",
+                exit_ip_matches=True,
+                latency_ms=90,
+                checked_at=datetime.now(timezone.utc),
+            )
+
+    tester = Tester()
+    snapshot = {
+        "proxy_id": proxy_id,
+        "test_proxy_before_launch": True,
+        "location": {"geo_mode": "system"},
+    }
+    preflight = build_proxy_preflight(
+        db_session_factory, MemoryCredentialStore(), tester
+    )
+
+    assert preflight(snapshot) == "socks5://proxy.example:1080"
+    assert tester.called is True
+    assert snapshot["proxy_exit_ip"] == "203.0.113.9"

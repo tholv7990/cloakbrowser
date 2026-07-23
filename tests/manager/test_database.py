@@ -3,9 +3,12 @@ from __future__ import annotations
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from alembic import command
+from alembic.config import Config
 
 from manager_backend.config import ManagerSettings
 from manager_backend.db import create_engine_for
+from manager_backend.main import create_app
 from manager_backend.models import Base, Folder, Profile, Tag
 
 
@@ -145,3 +148,28 @@ def test_capability_aligned_profile_fields_persist(tmp_path):
         assert persisted.fingerprint_revision == 1
         assert persisted.fingerprint_config_hash == "a" * 64
         assert persisted.location == {"geo_mode": "system"}
+
+
+def test_app_startup_applies_pending_migrations(tmp_path, monkeypatch):
+    data_root = tmp_path / "existing-manager"
+    monkeypatch.setenv("CLOAK_MANAGER_DATA_ROOT", str(data_root))
+    config = Config("manager_backend/alembic.ini")
+    command.upgrade(config, "0014_shopify")
+
+    settings = ManagerSettings(
+        data_root=data_root,
+        install_token="test-local-token",
+        auto_backup_enabled=False,
+    )
+    app = create_app(settings)
+
+    with app.state.engine.connect() as connection:
+        indexes = {
+            name
+            for name, in connection.exec_driver_sql(
+                "SELECT name FROM sqlite_master WHERE type='index'"
+            )
+        }
+    app.state.engine.dispose()
+
+    assert "ix_profiles_proxy_id" in indexes

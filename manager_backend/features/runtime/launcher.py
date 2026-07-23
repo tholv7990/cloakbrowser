@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import sqlite3
@@ -95,6 +96,9 @@ def profile_launch_snapshot(
         "behavior": dict(profile.behavior or {}),
         "startup_urls": list(profile.startup_urls or []),
         "proxy_id": profile.proxy_id,
+        "test_proxy_before_launch": getattr(
+            profile, "test_proxy_before_launch", True
+        ),
         "extension_paths": list(extension_paths or []),
     }
 
@@ -285,7 +289,11 @@ def persistent_context_kwargs(
     # proxy). Without this the field is dead config and WebRTC exposes the host IP.
     location = snapshot.get("location") or {}
     if snapshot.get("proxy_url") and location.get("webrtc_mode", "proxy") == "proxy":
-        args.append("--fingerprint-webrtc-ip=auto")
+        exit_ip = snapshot.get("proxy_exit_ip")
+        if exit_ip:
+            args.append(f"--fingerprint-webrtc-ip={ipaddress.ip_address(exit_ip)}")
+        else:
+            args.append("--fingerprint-webrtc-ip=auto")
     kwargs = {
         "headless": headless,
         "fingerprint_preset": snapshot["fingerprint_preset"],
