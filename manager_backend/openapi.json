@@ -9800,7 +9800,9 @@
               "pin",
               "unpin",
               "move_folder",
-              "set_status"
+              "set_status",
+              "add_tag",
+              "remove_tag"
             ],
             "title": "Action"
           },
@@ -9834,6 +9836,17 @@
               }
             ],
             "title": "Workflow Status Id"
+          },
+          "tag_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag Id"
           }
         },
         "additionalProperties": false,

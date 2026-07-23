@@ -148,6 +148,7 @@ export function ProfilesPage() {
         count={selectedIds.length}
         folders={folders}
         statuses={statuses}
+        tags={tags}
         onAction={handleBulk}
         onAssignProxies={() => setBulkProxyOpen(true)}
         onClear={() => setRowSelection({})}

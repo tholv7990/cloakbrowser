@@ -284,10 +284,13 @@ class ProfileLogPage(Page[ProfileLogRead]):
 
 
 class BulkProfileRequest(StrictModel):
-    action: Literal["trash", "restore", "pin", "unpin", "move_folder", "set_status"]
+    action: Literal[
+        "trash", "restore", "pin", "unpin", "move_folder", "set_status", "add_tag", "remove_tag"
+    ]
     ids: list[str] = Field(min_length=1, max_length=100)
     folder_id: str | None = None
     workflow_status_id: str | None = None
+    tag_id: str | None = None
 
     @model_validator(mode="after")
     def validate_action_value(self):
@@ -295,6 +298,8 @@ class BulkProfileRequest(StrictModel):
             raise ValueError("move_folder requires folder_id")
         if self.action == "set_status" and self.workflow_status_id is None:
             raise ValueError("set_status requires workflow_status_id")
+        if self.action in ("add_tag", "remove_tag") and self.tag_id is None:
+            raise ValueError(f"{self.action} requires tag_id")
         return self
 
 

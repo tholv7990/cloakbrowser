@@ -490,6 +490,11 @@ def bulk_update(
             tag_ids=[],
             proxy_id=None,
         )
+    tag: Tag | None = None
+    if payload.action in ("add_tag", "remove_tag"):
+        tag = _validate_references(
+            session, folder_id=None, status_id=None, tag_ids=[payload.tag_id], proxy_id=None
+        )[0]
     now = datetime.now(timezone.utc)
     for profile in profiles:
         if payload.action == "trash":
@@ -504,5 +509,11 @@ def bulk_update(
             profile.folder_id = payload.folder_id
         elif payload.action == "set_status":
             profile.status_id = payload.workflow_status_id
+        elif payload.action == "add_tag" and tag is not None:
+            if tag not in profile.tags:
+                profile.tags.append(tag)
+        elif payload.action == "remove_tag" and tag is not None:
+            if tag in profile.tags:
+                profile.tags.remove(tag)
     session.commit()
     return unique_ids, len(unique_ids)

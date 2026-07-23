@@ -311,10 +311,19 @@ export interface ProfileListParams {
 }
 
 export interface BulkProfileRequest {
-  action: 'trash' | 'restore' | 'pin' | 'unpin' | 'move_folder' | 'set_status';
+  action:
+    | 'trash'
+    | 'restore'
+    | 'pin'
+    | 'unpin'
+    | 'move_folder'
+    | 'set_status'
+    | 'add_tag'
+    | 'remove_tag';
   ids: string[];
   folder_id?: string | null;
   workflow_status_id?: string | null;
+  tag_id?: string | null;
 }
 
 export interface BulkProfileResult {

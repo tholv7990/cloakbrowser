@@ -44,7 +44,7 @@ def test_profile_name_and_unsigned_seed_persist(tmp_path):
         persisted = session.get(Profile, profile_id)
         assert persisted is not None
         assert persisted.fingerprint_seed == "18446744073709551615"
-        assert persisted.location == {"geo_mode": "system"}
+        assert persisted.location == {"geo_mode": "proxy"}
         assert persisted.window == {"mode": "maximized"}
         assert persisted.behavior == {"humanize_enabled": False}
 

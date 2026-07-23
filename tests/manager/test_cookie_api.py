@@ -309,7 +309,7 @@ def test_cookie_context_adapter_uses_headless_normal_profile_config_and_closes(
             browser_version="134.0.0",
             user_agent_mode="custom",
             custom_user_agent="Custom User Agent/134.0",
-            location={"locale": "vi-VN", "timezone": "Asia/Ho_Chi_Minh"},
+            location={"geo_mode": "manual", "locale": "vi-VN", "timezone": "Asia/Ho_Chi_Minh"},
         )
         session.add(profile)
         session.commit()
@@ -329,7 +329,7 @@ def test_cookie_context_adapter_uses_headless_normal_profile_config_and_closes(
             {
                 "headless": True,
                 "fingerprint_preset": "consistent",
-                "args": ["--fingerprint=8200"],
+                "args": ["--fingerprint=8200", "--fingerprint-webrtc-ip=auto"],
                 "browser_version": "134.0.0",
                 "user_agent": "Custom User Agent/134.0",
                 "proxy": "http://user:pass@proxy.example:8080",

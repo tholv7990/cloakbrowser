@@ -1,13 +1,14 @@
-import { CircleDot, FolderInput, Globe, Pin, PinOff, Trash2, X } from 'lucide-react';
-import type { BulkProfileRequest, Folder, WorkflowStatus } from '@/types/api';
+import { CircleDot, FolderInput, Globe, Pin, PinOff, Tag as TagIcon, Trash2, X } from 'lucide-react';
+import type { BulkProfileRequest, Folder, Tag, WorkflowStatus } from '@/types/api';
 import { Button } from '@/components/ui/Button';
-import { Menu, MenuItem } from '@/components/ui/Menu';
+import { Menu, MenuGroup, MenuItem } from '@/components/ui/Menu';
 import { useT } from '@/i18n';
 
 export function BulkActionsBar({
   count,
   folders,
   statuses,
+  tags,
   onAction,
   onAssignProxies,
   onClear,
@@ -15,6 +16,7 @@ export function BulkActionsBar({
   count: number;
   folders: Folder[];
   statuses: WorkflowStatus[];
+  tags: Tag[];
   onAction: (action: Omit<BulkProfileRequest, 'ids'>) => void;
   onAssignProxies: () => void;
   onClear: () => void;
@@ -67,6 +69,38 @@ export function BulkActionsBar({
                 {status.name}
               </MenuItem>
             ))}
+          </Menu>
+        )}
+        {tags.length > 0 && (
+          <Menu
+            align="start"
+            width={220}
+            trigger={
+              <Button size="sm" variant="secondary">
+                <TagIcon className="h-3.5 w-3.5" /> {t('bulk.tags')}
+              </Button>
+            }
+          >
+            <MenuGroup label={t('bulk.addTag')}>
+              {tags.map((tag) => (
+                <MenuItem
+                  key={`add-${tag.id}`}
+                  onSelect={() => onAction({ action: 'add_tag', tag_id: tag.id })}
+                >
+                  {tag.name}
+                </MenuItem>
+              ))}
+            </MenuGroup>
+            <MenuGroup label={t('bulk.removeTag')}>
+              {tags.map((tag) => (
+                <MenuItem
+                  key={`rm-${tag.id}`}
+                  onSelect={() => onAction({ action: 'remove_tag', tag_id: tag.id })}
+                >
+                  {tag.name}
+                </MenuItem>
+              ))}
+            </MenuGroup>
           </Menu>
         )}
         <Button size="sm" variant="secondary" onClick={onAssignProxies}>

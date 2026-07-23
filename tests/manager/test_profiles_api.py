@@ -242,6 +242,46 @@ def test_bulk_pin_and_trash(client, auth_headers):
     assert client.get("/api/v1/profiles", headers=auth_headers).json()["total"] == 0
 
 
+def test_bulk_add_and_remove_tag(client, auth_headers):
+    tag = client.post(
+        "/api/v1/tags", headers=auth_headers, json={"name": "US", "color": "#2563EB"}
+    ).json()
+    a = create_profile(client, auth_headers, "A")
+    b = create_profile(client, auth_headers, "B")
+    ids = [a["id"], b["id"]]
+
+    added = client.post(
+        "/api/v1/profiles/bulk",
+        headers=auth_headers,
+        json={"action": "add_tag", "ids": ids, "tag_id": tag["id"]},
+    )
+    assert added.status_code == 200
+    assert client.get(f"/api/v1/profiles/{a['id']}", headers=auth_headers).json()["tag_ids"] == [
+        tag["id"]
+    ]
+    assert client.get(f"/api/v1/profiles/{b['id']}", headers=auth_headers).json()["tag_ids"] == [
+        tag["id"]
+    ]
+
+    removed = client.post(
+        "/api/v1/profiles/bulk",
+        headers=auth_headers,
+        json={"action": "remove_tag", "ids": ids, "tag_id": tag["id"]},
+    )
+    assert removed.status_code == 200
+    assert (
+        client.get(f"/api/v1/profiles/{a['id']}", headers=auth_headers).json()["tag_ids"] == []
+    )
+
+    # tag_id is required for tag actions.
+    bad = client.post(
+        "/api/v1/profiles/bulk",
+        headers=auth_headers,
+        json={"action": "add_tag", "ids": ids},
+    )
+    assert bad.status_code == 422
+
+
 def test_focus_runtime_route_is_typed_until_adapter_is_installed(client, auth_headers):
     profile = create_profile(client, auth_headers)
     response = client.post(
@@ -333,10 +373,10 @@ def test_patch_replaces_nested_objects_atomically(client, auth_headers):
 
     assert response.status_code == 200, response.text
     assert response.json()["location"] == {
-        "geo_mode": "system",
+        "geo_mode": "proxy",
         "locale": None,
         "timezone": "UTC",
-        "webrtc_mode": "direct",
+        "webrtc_mode": "proxy",
         "geolocation_mode": "ask",
         "latitude": None,
         "longitude": None,
