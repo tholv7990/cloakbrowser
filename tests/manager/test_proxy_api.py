@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import pytest
+from sqlalchemy.exc import OperationalError
+
+from manager_backend.features.proxies import service
 from manager_backend.features.proxies.credentials import MemoryCredentialStore
+from manager_backend.features.proxies.schemas import ProxyWrite
 
 
 def _proxy_payload(**changes):
@@ -125,6 +130,43 @@ def test_duplicate_proxy_label_is_case_insensitive(client, auth_headers):
     assert duplicate.status_code == 409
     assert duplicate.json()["error"]["code"] == "proxy_label_conflict"
     assert len(store._values) == 1
+
+
+def test_update_proxy_cleans_the_new_secret_on_any_commit_failure(client, monkeypatch):
+    # A rotation stores a new secret before committing. If the commit fails for ANY
+    # reason (not just an IntegrityError), the new secret must be cleaned up and the
+    # old one retained — never orphaned in the store.
+    store = MemoryCredentialStore()
+    with client.app.state.session_factory() as session:
+        created = service.create_proxy(
+            session,
+            store,
+            ProxyWrite(
+                label="Rotate", scheme="socks5", host="h.example", port=1000,
+                username="u1", password="p1",
+            ),
+        )
+        old_ref = created.credential_ref
+        assert len(store._values) == 1
+
+        def boom():
+            raise OperationalError("stmt", {}, Exception("disk I/O error"))
+
+        monkeypatch.setattr(session, "commit", boom)
+        with pytest.raises(OperationalError):
+            service.update_proxy(
+                session,
+                store,
+                created.id,
+                ProxyWrite(
+                    label="Rotate", scheme="socks5", host="h.example", port=1000,
+                    username="u2", password="p2",
+                ),
+            )
+
+    assert len(store._values) == 1  # new secret not orphaned
+    kept = store.get(old_ref)
+    assert kept is not None and kept.username == "u1"  # old secret retained
 
 
 def test_direct_proxy_requires_no_endpoint_or_credentials(client, auth_headers):
