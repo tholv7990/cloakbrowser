@@ -91,7 +91,6 @@ def profile_launch_snapshot(
 
 
 _SESSION_FILE = "last-session.json"
-_INTERNAL_URL_PREFIXES = ("about:", "chrome:", "chrome-extension:", "devtools:", "edge:")
 
 # The stealth binary ships with NO prepopulated search engines, so the omnibox
 # has no search fallback and types plain text as a hostname ("test" -> http://test/).
@@ -169,13 +168,34 @@ def seed_default_search_engine(user_data_dir: Path) -> None:
         pass  # a bad seed must never block a launch
 
 
+# Tab-session restoration reads an on-disk file, so treat it as untrusted: only a
+# bounded number of real web URLs (http/https, sane length) may be reopened, and
+# restoring them is capped by a total time budget so a run of dead hosts can't
+# stall a launch.
+_MAX_RESTORE_TABS = 25
+_RESTORE_SCHEMES = ("http://", "https://")
+_MAX_URL_LENGTH = 2048
+_RESTORE_TIME_BUDGET_SECONDS = 30.0
+
+
+def _valid_restore_url(url: object) -> bool:
+    return (
+        isinstance(url, str)
+        and 0 < len(url) <= _MAX_URL_LENGTH
+        and url.startswith(_RESTORE_SCHEMES)
+    )
+
+
 def _read_last_session(profile_dir: Path) -> list[str]:
-    """Return the tab URLs saved when the profile was last stopped (may be empty)."""
+    """Return the saved tab URLs (validated + bounded); [] if none or malformed."""
     try:
         data = json.loads((profile_dir / _SESSION_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
-    return [url for url in data.get("urls", []) if isinstance(url, str) and url]
+    if not isinstance(data, dict) or not isinstance(data.get("urls"), list):
+        return []
+    valid = [url for url in data["urls"] if _valid_restore_url(url)]
+    return valid[:_MAX_RESTORE_TABS]
 
 
 def urls_to_open(profile_dir: Path, startup_urls: list[str]) -> list[str]:
@@ -294,11 +314,8 @@ class _PersistentContextHandle:
         urls = [
             info["url"]
             for info in infos
-            if info.get("type") == "page"
-            and isinstance(info.get("url"), str)
-            and info["url"]
-            and not info["url"].startswith(_INTERNAL_URL_PREFIXES)
-        ]
+            if info.get("type") == "page" and _valid_restore_url(info.get("url"))
+        ][:_MAX_RESTORE_TABS]
         if urls and urls != self._last_saved_urls:
             try:
                 (self._profile_dir / _SESSION_FILE).write_text(
@@ -363,13 +380,19 @@ class CloakPersistentLauncher:
         )
         # Reopen the tabs from the last stop; fall back to startup_urls on first
         # run. Each navigation is best-effort: a dead or slow URL (a typo'd host
-        # like http://test/, a hung page) must never crash the launch or block
-        # the other tabs. "commit" also returns as soon as the page starts
-        # loading, so a heavy site doesn't hold up the launch.
+        # like http://test/, a hung page) must never crash the launch or block the
+        # other tabs. "commit" returns as soon as the page starts loading, and a
+        # total time budget caps how long a run of dead hosts can hold up a launch.
+        deadline = time.monotonic() + _RESTORE_TIME_BUDGET_SECONDS
         for url in urls_to_open(profile_dir, snapshot["startup_urls"]):
+            if time.monotonic() >= deadline:
+                break  # bounded total restoration time
             page = context.new_page()
             try:
                 page.goto(url, wait_until="commit", timeout=15000)
             except Exception:
-                continue
+                try:
+                    page.close()  # don't leave a dangling failed/blank tab
+                except Exception:
+                    pass
         return _PersistentContextHandle(context, user_data_dir)

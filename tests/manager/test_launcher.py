@@ -4,11 +4,43 @@ import json
 
 from manager_backend.features.runtime import launcher
 from manager_backend.features.runtime.launcher import (
+    _read_last_session,
     ensure_initial_preferences,
     persistent_context_kwargs,
     seed_default_search_engine,
     urls_to_open,
 )
+
+
+def test_read_last_session_bounds_count_and_validates_schemes(tmp_path):
+    urls = [f"https://ok.example/{i}" for i in range(60)]
+    urls += [
+        "javascript:alert(1)",
+        "file:///etc/passwd",
+        "chrome://settings/",
+        "data:text/html,x",
+        "ftp://host/file",
+        "",
+        123,
+        None,
+        "https://" + "a" * 5000,  # over length cap
+    ]
+    (tmp_path / "last-session.json").write_text(
+        json.dumps({"urls": urls}), encoding="utf-8"
+    )
+    result = _read_last_session(tmp_path)
+    assert len(result) <= 25  # small max tabs
+    assert all(isinstance(u, str) and u.startswith(("http://", "https://")) for u in result)
+    assert all(len(u) <= 2048 for u in result)
+    assert "javascript:alert(1)" not in result and "file:///etc/passwd" not in result
+
+
+def test_read_last_session_rejects_malformed_files(tmp_path):
+    session = tmp_path / "last-session.json"
+    session.write_text(json.dumps(["raw", "list"]), encoding="utf-8")  # not a dict
+    assert _read_last_session(tmp_path) == []
+    session.write_text(json.dumps({"urls": "not-a-list"}), encoding="utf-8")
+    assert _read_last_session(tmp_path) == []
 
 
 def test_ensure_initial_preferences_seeds_google_search(tmp_path):
