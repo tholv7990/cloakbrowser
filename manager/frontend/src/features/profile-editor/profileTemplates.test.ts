@@ -14,12 +14,13 @@ describe('profileTemplates', () => {
     expect(listTemplates().some((t) => t.id === 'builtin:no-leak')).toBe(true);
   });
 
-  it('saves, lists and deletes user templates; strips the name from config', () => {
+  it('saves, lists and deletes user templates; strips name and seed from config', () => {
     expect(userOnly()).toEqual([]);
     const template = saveTemplate('US residential', values);
     expect(template.name).toBe('US residential');
     expect(template.config).not.toHaveProperty('name'); // name stays per-profile
-    expect(template.config.fingerprint_seed).toBe('42');
+    expect(template.config).not.toHaveProperty('fingerprint_seed'); // never pin a seed
+    expect(template.config.proxy_id).toBe('x'); // other fields kept
     expect(userOnly()).toHaveLength(1);
 
     deleteTemplate(template.id);

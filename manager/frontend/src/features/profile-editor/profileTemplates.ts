@@ -56,9 +56,11 @@ function persist(templates: ProfileTemplate[]): void {
   localStorage.setItem(KEY, JSON.stringify(templates));
 }
 
-/** Save the current form values (name excluded) as a named template. */
+/** Save the current form values as a named template. The profile name and the
+ *  fingerprint seed are excluded — a template must never pin a seed, or every
+ *  profile made from it would share one fingerprint. */
 export function saveTemplate(name: string, values: ProfileWizardValues): ProfileTemplate {
-  const { name: _drop, ...config } = values;
+  const { name: _drop, fingerprint_seed: _seed, ...config } = values;
   const template: ProfileTemplate = {
     id: crypto.randomUUID(),
     name: name.trim(),

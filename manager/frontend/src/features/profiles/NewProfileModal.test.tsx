@@ -15,7 +15,18 @@ function proxySourceSelect(): HTMLElement {
   return select;
 }
 
-beforeEach(() => mockStore.reset());
+beforeEach(() => {
+  mockStore.reset();
+  localStorage.clear();
+});
+
+function templateSelect(): HTMLElement {
+  const select = screen
+    .getAllByRole('combobox')
+    .find((el) => within(el).queryByRole('option', { name: /legacy pinned/i }));
+  if (!select) throw new Error('template select not found');
+  return select;
+}
 
 describe('NewProfileModal', () => {
   it('creates a single named profile', async () => {
@@ -43,8 +54,35 @@ describe('NewProfileModal', () => {
     await user.click(screen.getByRole('button', { name: /create all/i }));
 
     // 2 profiles created, and 2 provider proxies generated for them.
-    await waitFor(() => expect(mockStore.profiles.length).toBe(before + 2));
+    await waitFor(() => expect(mockStore.profiles.length).toBe(before + 2), { timeout: 3000 });
     expect(mockStore.proxies.length).toBe(proxiesBefore + 2);
+  });
+
+  it('gives every profile a unique fingerprint seed, even from a seed-pinned template', async () => {
+    // A legacy template that captured a fingerprint seed must NOT clone it.
+    localStorage.setItem(
+      'cb.profileTemplates',
+      JSON.stringify([
+        { id: 'legacy', name: 'Legacy pinned', createdAt: 1, config: { fingerprint_seed: '99999' } },
+      ]),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<NewProfileModal open onClose={() => undefined} folders={[]} />);
+
+    await user.type(screen.getByPlaceholderText(/marketplace/i), 'Pin');
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '5' } });
+    await user.selectOptions(templateSelect(), 'legacy');
+    await user.click(screen.getByRole('button', { name: /create all/i }));
+
+    await waitFor(
+      () => expect(mockStore.profiles.filter((p) => p.name.startsWith('Pin ')).length).toBe(5),
+      { timeout: 4000 },
+    );
+    const seeds = mockStore.profiles
+      .filter((p) => p.name.startsWith('Pin '))
+      .map((p) => p.fingerprint_seed);
+    expect(new Set(seeds).size).toBe(5); // all distinct
+    expect(seeds).not.toContain('99999'); // never the pinned seed
   });
 
   it('creates a numbered batch when count > 1', async () => {
@@ -56,7 +94,7 @@ describe('NewProfileModal', () => {
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '3' } });
     await user.click(screen.getByRole('button', { name: /create all/i }));
 
-    await waitFor(() => expect(mockStore.profiles.length).toBe(before + 3));
+    await waitFor(() => expect(mockStore.profiles.length).toBe(before + 3), { timeout: 3000 });
     const names = mockStore.profiles.map((p) => p.name);
     expect(names).toContain('Batch 01');
     expect(names).toContain('Batch 03');

@@ -82,8 +82,10 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
     setAppliedTemplateId(id);
     const template = templates.find((tpl) => tpl.id === id);
     if (!template) return;
-    // Apply the template but keep the name the user may have already typed.
-    form.reset({ ...defaultWizardValues(), ...template.config, name: form.getValues('name') });
+    // Apply the template but keep the typed name and a fresh seed — a template
+    // must never pin the fingerprint (legacy templates may still carry one).
+    const { fingerprint_seed: _dropSeed, ...cfg } = template.config;
+    form.reset({ ...defaultWizardValues(), ...cfg, name: form.getValues('name') });
   };
 
   const saveAsTemplate = () => {

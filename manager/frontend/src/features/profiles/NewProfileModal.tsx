@@ -74,7 +74,10 @@ export function NewProfileModal({
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean);
-  const templateConfig = templates.find((tpl) => tpl.id === templateId)?.config ?? {};
+  // Drop any seed a (legacy) template may carry — defaultWizardValues() runs per
+  // profile below, so each gets its own fresh, unique fingerprint seed.
+  const { fingerprint_seed: _dropSeed, ...templateConfig } =
+    templates.find((tpl) => tpl.id === templateId)?.config ?? {};
 
   const proxyForIndex = (i: number): string | null => {
     if (proxyMode === 'none') return null;
