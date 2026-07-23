@@ -187,6 +187,9 @@ class RunCoordinator:
             if self._is_cancelled(run_id):
                 item.status = "cancelled"
                 session.commit()
+                # This worker owns the reservation until it terminates — release here
+                # (the sole releaser), since cancel() never touches worker-owned creds.
+                release_credential(session, run_id=run_id, profile_id=item.profile_id)
                 self._recompute(run_id)
                 return
             run = session.get(AutomationRun, run_id)
@@ -220,6 +223,7 @@ class RunCoordinator:
                 start_step=start_step,
                 set_progress=set_progress,
                 request_attention=request_attention,
+                is_cancelled=lambda: self._is_cancelled(run_id),
             )
             try:
                 self._controller.run_item(ctx)
@@ -315,20 +319,17 @@ class RunCoordinator:
 
     def cancel(self, session: Session, run_id: str) -> dict:
         run = self._require_run(session, run_id)
+        # Signal cancellation: wake any gated workers and flip the cancel token so
+        # in-flight replays abort promptly. Credentials are NOT released here — each
+        # item's worker owns its reservation and releases it when it terminates
+        # (the sole releaser), so a cancel can never hand a live credential to
+        # another run. Every item has a worker (submitted at start/retry), so no
+        # reservation is orphaned by leaving it to the worker.
         self._cancel_event(run_id).set()
         for event in self._gates.get(run_id, {}).values():
             event.set()
-        items = session.scalars(
-            select(AutomationRunItem).where(AutomationRunItem.run_id == run_id)
-        ).all()
-        for item in items:
-            if item.status == "pending":
-                item.status = "cancelled"
         run.status = "cancelled"
         session.commit()
-        for item in items:
-            if item.status != "completed":
-                release_credential(session, run_id=run_id, profile_id=item.profile_id)
         self._recompute(run_id)
         return self.get_run(session, run_id)
 

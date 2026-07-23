@@ -274,6 +274,86 @@ def test_retry_resumes_from_last_completed_step(client, auth_headers):
     assert run["status"] == "completed"
 
 
+def test_cancel_holds_credential_until_worker_releases_it(client, auth_headers):
+    # A credential must never be returned to the pool while a worker still owns it
+    # (mid-replay), or a concurrent run could reserve and use the same login.
+    import threading
+
+    fake, _ = _setup(client)
+    profile = _profile(client, auth_headers, "Holder")
+    _save_template(client, auth_headers, "t-hold", CRED_STEPS)
+    client.post(
+        "/api/v1/automations/credentials/import",
+        headers=auth_headers,
+        json={"text": "victim@x.com:s3cr3tPW"},
+    )
+
+    entered, release = threading.Event(), threading.Event()
+
+    def hold(ctx):
+        entered.set()
+        release.wait(5)  # worker keeps ownership of the credential until released
+
+    fake.behaviors[profile["id"]] = hold
+
+    run_id = client.post(
+        "/api/v1/automations/templates/t-hold/runs",
+        headers=auth_headers,
+        json={"assignments": [{"profile_id": profile["id"], "variables": {}}], "max_parallel": 1},
+    ).json()["id"]
+    assert entered.wait(3)  # worker is inside run_item, owns the credential
+    assert client.get("/api/v1/automations/credentials").json()["reserved"] == 1
+
+    # Cancel while the worker still owns the credential.
+    client.post(f"/api/v1/automations/runs/{run_id}/cancel", headers=auth_headers)
+    time.sleep(0.3)
+    summary = client.get("/api/v1/automations/credentials").json()
+    assert summary["available"] == 0  # NOT released while a worker holds it
+    assert summary["reserved"] == 1
+
+    # Once the worker terminates, it releases the credential exactly once.
+    release.set()
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        if client.get("/api/v1/automations/credentials").json()["available"] == 1:
+            break
+        time.sleep(0.05)
+    final = client.get("/api/v1/automations/credentials").json()
+    assert final["available"] == 1 and final["reserved"] == 0
+
+
+def test_cancel_token_lets_a_worker_abort_promptly(client, auth_headers):
+    # The controller gets a cancellation token so a long replay can stop itself
+    # rather than running to completion after a cancel.
+    import threading
+
+    fake, _ = _setup(client)
+    profile = _profile(client, auth_headers, "Abortable")
+    _save_template(client, auth_headers, "t-token", SIMPLE_STEPS)
+
+    entered = threading.Event()
+
+    def wait_for_cancel(ctx):
+        entered.set()
+        for _ in range(200):  # ~10s ceiling; should break far sooner via the token
+            if ctx.is_cancelled():
+                return
+            time.sleep(0.05)
+        raise AssertionError("cancel token never signalled")
+
+    fake.behaviors[profile["id"]] = wait_for_cancel
+    run_id = client.post(
+        "/api/v1/automations/templates/t-token/runs",
+        headers=auth_headers,
+        json={"assignments": [{"profile_id": profile["id"], "variables": {}}], "max_parallel": 1},
+    ).json()["id"]
+    assert entered.wait(3)
+    client.post(f"/api/v1/automations/runs/{run_id}/cancel", headers=auth_headers)
+    # The worker aborts via the token (no release event set) and cancels its item.
+    run = _poll_run(client, run_id, lambda r: r["items"][0]["status"] == "cancelled")
+    assert run["items"][0]["status"] == "cancelled"
+
+
 # --- startup recovery -------------------------------------------------------
 def test_startup_recovery_fails_runs_and_releases_credentials(client, auth_headers):
     from manager_backend.features.automation.coordinator import recover_interrupted_runs

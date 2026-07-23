@@ -31,6 +31,9 @@ class RunItemContext:
     set_progress: Callable[[int], None]
     # request_attention(reason) -> True to continue, False if the run was cancelled.
     request_attention: Callable[[str], bool]
+    # is_cancelled() -> True once the run is cancelled; poll it in long replays so a
+    # cancel aborts promptly instead of running to completion (and holding a credential).
+    is_cancelled: Callable[[], bool]
 
 
 class AutomationController(Protocol):
