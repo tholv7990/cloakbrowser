@@ -318,6 +318,7 @@ export const vi: Record<keyof typeof en, string> = {
     'Không đọc được proxy. Dùng host:port:user:pass hoặc scheme://user:pass@host:port.',
   'editor.quickProxyFailed': 'Không thể thêm proxy.',
   'editor.advancedProxy': 'Nâng cao (biểu mẫu + kiểm tra)',
+  'editor.checkProxy': 'Kiểm tra proxy',
   'editor.proxyShared':
     'Proxy này đã được gán cho {count} hồ sơ. Dùng chung một điểm thoát giữa các danh tính có thể liên kết chúng.',
   'editor.testProxy': 'Kiểm tra proxy trước mỗi lần chạy',

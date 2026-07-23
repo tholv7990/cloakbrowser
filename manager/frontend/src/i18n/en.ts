@@ -314,6 +314,7 @@ export const en = {
     'Could not read that proxy. Use host:port:user:pass or scheme://user:pass@host:port.',
   'editor.quickProxyFailed': 'Could not add the proxy.',
   'editor.advancedProxy': 'Advanced (form + test)',
+  'editor.checkProxy': 'Check proxy',
   'editor.proxyShared':
     'This proxy is already assigned to {count} profile(s). Sharing one exit across identities can link them.',
   'editor.testProxy': 'Test proxy before every launch',

@@ -1,7 +1,7 @@
-import { useState, type FC } from 'react';
+import { useEffect, useState, type FC } from 'react';
 import { Controller, useFormContext, useWatch } from 'react-hook-form';
-import { AlertTriangle, Plus, RefreshCw } from 'lucide-react';
-import type { Extension, Folder, Proxy, Tag, WorkflowStatus } from '@/types/api';
+import { AlertTriangle, Plus, RefreshCw, Zap } from 'lucide-react';
+import type { Extension, Folder, Proxy, ProxyQuickTest, Tag, WorkflowStatus } from '@/types/api';
 import { Field } from '@/components/ui/Field';
 import { Input, Textarea } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -11,7 +11,8 @@ import { Badge, TagChip } from '@/components/ui/Badge';
 import { ProxyHealthDot } from '@/components/domain/StatusBadges';
 import { FingerprintGlyph } from '@/components/FingerprintGlyph';
 import { ProxyEditorDrawer } from '@/features/proxies/ProxyEditorDrawer';
-import { useCreateProxy } from '@/features/proxies/api';
+import { ProxyQuickResult } from '@/features/proxies/ProxyResultViews';
+import { useCreateProxy, useQuickTest } from '@/features/proxies/api';
 import { parseProxyText } from '@/schemas/proxy';
 import type { ProfileWizardValues } from '@/schemas/profile';
 import { useT, type TranslationKey } from '@/i18n';
@@ -202,7 +203,22 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
   const [proxyEditorOpen, setProxyEditorOpen] = useState(false);
   const [pasteProxy, setPasteProxy] = useState('');
   const [pasteError, setPasteError] = useState<string | null>(null);
+  const [checkResult, setCheckResult] = useState<ProxyQuickTest | null>(null);
   const createProxy = useCreateProxy();
+  const quickTest = useQuickTest();
+
+  // Clear a stale check result when the selected proxy changes.
+  useEffect(() => setCheckResult(null), [proxyId]);
+
+  const checkProxy = async () => {
+    if (!proxyId) return;
+    setCheckResult(null);
+    try {
+      setCheckResult(await quickTest.mutateAsync(proxyId));
+    } catch {
+      // Failures surface as ok:false in the result; nothing else to do here.
+    }
+  };
 
   const quickAddProxy = async () => {
     const parsed = parseProxyText(pasteProxy);
@@ -289,23 +305,35 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
       />
       {selected && (
         <div className="space-y-2 rounded-md border border-line bg-surface-sunken p-3 text-[13px]">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <span className="data text-ink">{selected.masked_endpoint}</span>
-            <ProxyHealthDot
-              health={
-                selected.reputation === 'malicious'
-                  ? 'unreachable'
-                  : selected.reputation === 'suspicious'
-                    ? 'degraded'
-                    : selected.latency_ms
-                      ? 'healthy'
-                      : 'untested'
-              }
-            />
+            <div className="flex items-center gap-2">
+              <ProxyHealthDot
+                health={
+                  selected.reputation === 'malicious'
+                    ? 'unreachable'
+                    : selected.reputation === 'suspicious'
+                      ? 'degraded'
+                      : selected.latency_ms
+                        ? 'healthy'
+                        : 'untested'
+                }
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={checkProxy}
+                loading={quickTest.isPending}
+              >
+                <Zap className="h-3.5 w-3.5" /> {t('editor.checkProxy')}
+              </Button>
+            </div>
           </div>
           {selected.assigned_profile_count > (refs.isEdit ? 1 : 0) && (
             <Warning>{t('editor.proxyShared', { count: selected.assigned_profile_count })}</Warning>
           )}
+          {checkResult && <ProxyQuickResult result={checkResult} />}
         </div>
       )}
       <ToggleField
