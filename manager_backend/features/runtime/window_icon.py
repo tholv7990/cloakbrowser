@@ -105,7 +105,11 @@ _DART_HIGHLIGHT = ((34, 15), (59, 32), (50, 32), (36, 20))
 
 
 def _plasma_dart_ico() -> Path:
-    """Draw (and cache) the plasma-dart .ico (from plasma-dart.svg's 64x64 grid)."""
+    """Draw (and cache) the plasma-dart .ico (from plasma-dart.svg's 64x64 grid).
+
+    The art is cropped to its content and scaled to nearly fill the icon square,
+    so the mark reads large in the taskbar instead of floating with big margins.
+    """
     _ICON_DIR.mkdir(parents=True, exist_ok=True)
     path = _ICON_DIR / "plasma-dart.ico"
     if path.exists():
@@ -131,8 +135,22 @@ def _plasma_dart_ico() -> Path:
     draw.polygon(pts(_DART_BODY), fill=(*_DART_VIOLET, 255))
     draw.polygon(pts(_DART_HIGHLIGHT), fill=(*_DART_PINK, 255))
 
-    img = img.resize((256, 256), Image.LANCZOS)
-    img.save(path, format="ICO", sizes=[(16, 16), (24, 24), (32, 32), (48, 48)])
+    # Crop to the drawn content, then scale to fill the icon's HEIGHT so the dart
+    # reads large (the mark is wide, so filling width alone leaves it small). The
+    # arrow is right-aligned and fully visible; the speed lines trail in from the
+    # left edge, which reads as motion.
+    bbox = img.getbbox()
+    content = img.crop(bbox) if bbox else img
+    target = 256
+    margin = round(target * 0.08)
+    factor = (target - 2 * margin) / content.height
+    resized = content.resize(
+        (max(1, round(content.width * factor)), max(1, round(content.height * factor))),
+        Image.LANCZOS,
+    )
+    canvas = Image.new("RGBA", (target, target), (0, 0, 0, 0))
+    canvas.paste(resized, (target - margin - resized.width, (target - resized.height) // 2), resized)
+    canvas.save(path, format="ICO", sizes=[(16, 16), (24, 24), (32, 32), (48, 48)])
     return path
 
 
