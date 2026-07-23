@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FormProvider, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, Play, Save, X } from 'lucide-react';
+import { AlertTriangle, Play, Save, X } from 'lucide-react';
 import { api } from '@/api';
 import { useAppData } from '@/hooks/useAppData';
 import { useProxies } from '@/features/proxies/api';
@@ -38,10 +38,15 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
   const createProfile = useCreateProfile();
   const updateProfile = useUpdateProfile();
 
-  const [step, setStep] = useState(0);
+  const [activeId, setActiveId] = useState(WIZARD_STEPS[0].id);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [savedProfile, setSavedProfile] = useState<ProfileRead | null>(null);
   const [assignmentPending, setAssignmentPending] = useState(false);
   const [persisting, setPersisting] = useState(false);
+
+  const scrollToSection = (id: string) => {
+    document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const form = useForm<ProfileWizardValues>({
     resolver: zodResolver(profileWizardSchema),
@@ -79,6 +84,36 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
     ],
   );
 
+  const editBusy =
+    mode === 'edit' &&
+    (profileQuery.isLoading ||
+      profileExtensionsQuery.isLoading ||
+      profileQuery.isError ||
+      profileExtensionsQuery.isError);
+  const contentReady = !app.isLoading && !app.isError && !editBusy;
+
+  // Scroll-spy: highlight the section currently at the top of the form.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!contentReady || !root) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((entry) => entry.isIntersecting);
+        if (visible.length === 0) return;
+        const topmost = visible.reduce((a, b) =>
+          a.boundingClientRect.top <= b.boundingClientRect.top ? a : b,
+        );
+        setActiveId(topmost.target.id.replace('sec-', ''));
+      },
+      { root, rootMargin: '0px 0px -65% 0px', threshold: 0 },
+    );
+    for (const wizardStep of WIZARD_STEPS) {
+      const element = document.getElementById(`sec-${wizardStep.id}`);
+      if (element) observer.observe(element);
+    }
+    return () => observer.disconnect();
+  }, [contentReady]);
+
   if (
     app.isLoading ||
     (mode === 'edit' && (profileQuery.isLoading || profileExtensionsQuery.isLoading))
@@ -100,23 +135,17 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
     );
   }
 
-  const isLast = step === WIZARD_STEPS.length - 1;
   const saving = createProfile.isPending || updateProfile.isPending || persisting;
-
-  const goNext = async () => {
-    const valid = await form.trigger(stepFields[step]);
-    if (valid) setStep((current) => Math.min(current + 1, WIZARD_STEPS.length - 1));
-  };
 
   const persist = async (): Promise<string | null> => {
     const valid = await form.trigger();
     if (!valid) {
-      // Jump to the first step that has an error.
+      // Scroll to the first section that has an error.
       const errored = Object.keys(form.formState.errors);
       const firstStep = WIZARD_STEPS.findIndex((_, index) =>
         stepFields[index].some((field) => errored.includes(field as string)),
       );
-      if (firstStep >= 0) setStep(firstStep);
+      if (firstStep >= 0) scrollToSection(WIZARD_STEPS[firstStep].id);
       return null;
     }
     const values = form.getValues();
@@ -167,24 +196,13 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
     navigate('/profiles');
   };
 
-  const CurrentStep = WIZARD_STEPS[step].Component;
-
   return (
     <FormProvider {...form}>
       <div className="flex h-full flex-col">
         <div className="flex items-center justify-between border-b border-line px-5 py-3">
-          <div>
-            <h2 className="font-display text-[15px] font-semibold text-ink">
-              {t(mode === 'edit' ? 'title.editProfile' : 'title.newProfile')}
-            </h2>
-            <p className="text-2xs text-ink-faint">
-              {t('editor.stepProgress', {
-                current: step + 1,
-                total: WIZARD_STEPS.length,
-                title: t(WIZARD_STEPS[step].titleKey),
-              })}
-            </p>
-          </div>
+          <h2 className="font-display text-[15px] font-semibold text-ink">
+            {t(mode === 'edit' ? 'title.editProfile' : 'title.newProfile')}
+          </h2>
           <IconButton label={t('editor.close')} onClick={() => navigate('/profiles')}>
             <X className="h-4 w-4" />
           </IconButton>
@@ -192,101 +210,72 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
 
         <div className="flex min-h-0 flex-1">
           <nav
-            className="hidden w-56 shrink-0 overflow-y-auto border-r border-line p-3 md:block"
+            className="hidden w-52 shrink-0 overflow-y-auto border-r border-line p-3 md:block"
             aria-label={t('editor.steps')}
           >
-            <ol className="space-y-0.5">
-              {WIZARD_STEPS.map((wizardStep, index) => {
-                const active = index === step;
-                const done = index < step;
+            <ul className="space-y-0.5">
+              {WIZARD_STEPS.map((wizardStep) => {
+                const active = activeId === wizardStep.id;
                 return (
                   <li key={wizardStep.id}>
                     <button
                       type="button"
-                      onClick={() => setStep(index)}
+                      onClick={() => scrollToSection(wizardStep.id)}
                       className={cn(
-                        'flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors',
-                        active ? 'bg-accent/15' : 'hover:bg-surface-sunken',
+                        'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors',
+                        active ? 'bg-accent/15 text-ink' : 'text-ink-muted hover:bg-surface-sunken',
                       )}
                     >
                       <span
                         className={cn(
-                          'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-2xs font-semibold',
-                          active
-                            ? 'border-accent bg-accent text-accent-fg'
-                            : done
-                              ? 'border-success/40 bg-success/15 text-success'
-                              : 'border-line text-ink-faint',
+                          'h-1.5 w-1.5 shrink-0 rounded-full transition-colors',
+                          active ? 'bg-accent' : 'bg-line-strong',
                         )}
-                      >
-                        {done ? <Check className="h-3 w-3" /> : index + 1}
-                      </span>
-                      <span className="min-w-0">
-                        <span
-                          className={cn(
-                            'block text-[13px] font-medium',
-                            active ? 'text-ink' : 'text-ink-muted',
-                          )}
-                        >
-                          {t(wizardStep.titleKey)}
-                        </span>
-                        <span className="block truncate text-2xs text-ink-faint">
-                          {t(wizardStep.descKey)}
-                        </span>
-                      </span>
+                      />
+                      <span className="text-[13px] font-medium">{t(wizardStep.titleKey)}</span>
                     </button>
                   </li>
                 );
               })}
-            </ol>
+            </ul>
           </nav>
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-2xl px-5 py-6">
-              <div className="mb-4">
-                <h3 className="font-display text-base font-semibold text-ink">
-                  {t(WIZARD_STEPS[step].titleKey)}
-                </h3>
-                <p className="text-[13px] text-ink-muted">{t(WIZARD_STEPS[step].descKey)}</p>
-              </div>
-              <CurrentStep refs={refs} />
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-2xl space-y-10 px-5 py-6">
+              {WIZARD_STEPS.map((wizardStep) => {
+                const Section = wizardStep.Component;
+                return (
+                  <section key={wizardStep.id} id={`sec-${wizardStep.id}`} className="scroll-mt-4">
+                    <div className="mb-4">
+                      <h3 className="font-display text-base font-semibold text-ink">
+                        {t(wizardStep.titleKey)}
+                      </h3>
+                      <p className="text-[13px] text-ink-muted">{t(wizardStep.descKey)}</p>
+                    </div>
+                    <Section refs={refs} />
+                  </section>
+                );
+              })}
             </div>
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-2 border-t border-line px-5 py-3">
-          <Button
-            variant="ghost"
-            onClick={() => setStep((s) => Math.max(0, s - 1))}
-            disabled={step === 0}
-          >
-            <ArrowLeft className="h-4 w-4" /> {t('common.back')}
-          </Button>
-          <div className="flex items-center gap-2">
-            {assignmentPending && (
-              <div
-                role="alert"
-                className="mr-2 flex max-w-md items-center gap-2 text-2xs text-warning"
-              >
-                <AlertTriangle className="h-4 w-4 shrink-0" />
-                <span>{t('editor.extensionAssignmentPartial')}</span>
-                <Button size="sm" variant="ghost" loading={saving} onClick={onSave}>
-                  {t('editor.retryExtensionAssignment')}
-                </Button>
-              </div>
-            )}
-            <Button variant="secondary" onClick={onSave} loading={saving}>
-              <Save className="h-4 w-4" /> {t('common.save')}
-            </Button>
-            <Button variant="secondary" onClick={onSaveAndRun} loading={saving}>
-              <Play className="h-4 w-4" /> {t('editor.saveRun')}
-            </Button>
-            {!isLast && (
-              <Button variant="primary" onClick={goNext}>
-                {t('common.next')} <ArrowRight className="h-4 w-4" />
+        <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
+          {assignmentPending && (
+            <div role="alert" className="mr-auto flex max-w-md items-center gap-2 text-2xs text-warning">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>{t('editor.extensionAssignmentPartial')}</span>
+              <Button size="sm" variant="ghost" loading={saving} onClick={onSave}>
+                {t('editor.retryExtensionAssignment')}
               </Button>
-            )}
-          </div>
+            </div>
+          )}
+          <Button variant="secondary" onClick={onSave} loading={saving}>
+            <Save className="h-4 w-4" /> {t('common.save')}
+          </Button>
+          <Button variant="primary" onClick={onSaveAndRun} loading={saving}>
+            <Play className="h-4 w-4" /> {t('editor.saveRun')}
+          </Button>
         </div>
       </div>
     </FormProvider>
