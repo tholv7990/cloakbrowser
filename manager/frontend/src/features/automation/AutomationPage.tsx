@@ -14,14 +14,12 @@ import { RecordDialog } from './RecordDialog';
 import { RunWizard } from './RunWizard';
 import { RunView } from './RunView';
 import { CredentialsPanel } from './CredentialsPanel';
-import { FactoryPanel } from './FactoryPanel';
 
-type Tab = 'templates' | 'runs' | 'credentials' | 'factory';
+type Tab = 'templates' | 'runs' | 'credentials';
 const TABS: { id: Tab; key: TranslationKey }[] = [
   { id: 'templates', key: 'auto.tab.templates' },
   { id: 'runs', key: 'auto.tab.runs' },
   { id: 'credentials', key: 'auto.tab.credentials' },
-  { id: 'factory', key: 'auto.tab.factory' },
 ];
 
 export function AutomationPage() {
@@ -127,7 +125,6 @@ export function AutomationPage() {
         ))}
 
       {tab === 'credentials' && <CredentialsPanel />}
-      {tab === 'factory' && <FactoryPanel />}
 
       <RecordDialog open={recordOpen} onClose={() => setRecordOpen(false)} />
       <RunWizard
