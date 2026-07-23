@@ -338,7 +338,7 @@ def test_icon_burst_stamps_plasma_icon_immediately_without_a_probe(tmp_path, mon
     seen = threading.Event()
     calls: list[str] = []
 
-    def fake_apply(udd, seed):
+    def fake_apply(udd, seed, pids=None):
         calls.append(seed)
         seen.set()
         return 1

@@ -185,15 +185,19 @@ def _profile_chrome_pids(user_data_dir) -> set[int]:
     return pids
 
 
-def apply_profile_window_icon(user_data_dir, seed: str) -> int:
+def apply_profile_window_icon(user_data_dir, seed: str, pids: set[int] | None = None) -> int:
     """Set the plasma icon on every visible window of the profile's browser.
 
-    Returns how many windows were iconed (0 if none yet / not applicable).
+    Pass ``pids`` (the profile's already-known Chrome pids) to skip the
+    whole-OS process scan — the icon burst does this so it can re-stamp densely
+    without a full ``process_iter`` per iteration. Returns how many windows were
+    iconed (0 if none yet / not applicable).
     """
     if sys.platform != "win32":
         return 0
     try:
-        pids = _profile_chrome_pids(user_data_dir)
+        if pids is None:
+            pids = _profile_chrome_pids(user_data_dir)
         if not pids:
             return 0
         ico = _plasma_dart_ico()

@@ -355,15 +355,23 @@ class _PersistentContextHandle:
             threading.Thread(target=self._icon_burst, name="profile-icon", daemon=True).start()
 
     def _icon_burst(self) -> None:
-        from .window_icon import apply_profile_window_icon
+        # Scan for the profile's Chrome pids ONCE (the browser process is stable
+        # from launch), then re-stamp its windows every ~30ms so Chrome never wins
+        # a visible frame while it re-sets its own icon during startup — the source
+        # of the flicker. Skipping the per-iteration whole-OS process_iter also
+        # keeps the burst from competing with the browser's cold start for CPU.
+        from .window_icon import _profile_chrome_pids, apply_profile_window_icon
 
-        deadline = time.monotonic() + 4.0
+        pids: set[int] | None = None
+        deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline and not self._closed:
             try:
-                apply_profile_window_icon(self._user_data_dir, self._icon_seed)
+                if not pids:
+                    pids = _profile_chrome_pids(self._user_data_dir) or None
+                apply_profile_window_icon(self._user_data_dir, self._icon_seed, pids=pids)
             except Exception:
                 pass
-            time.sleep(0.15)
+            time.sleep(0.03)
 
     def _apply_icon(self) -> None:
         if self._icon_seed is None or self._icon_applies_left <= 0:
