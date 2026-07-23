@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { RowSelectionState } from '@tanstack/react-table';
-import { Users } from 'lucide-react';
+import { Upload, Users } from 'lucide-react';
 import type { BulkProfileRequest, ProfileListParams, ProfileSort, ProfileView } from '@/types/api';
 import { api } from '@/api';
 import { useAppData } from '@/hooks/useAppData';
@@ -256,13 +256,22 @@ function ImportProfileModal({
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  const readFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      setText(String(reader.result ?? ''));
+      setError(null);
+    };
+    reader.readAsText(file);
+  };
+
   const submit = () => {
     try {
       const parsed = JSON.parse(text) as Record<string, unknown>;
       setError(null);
       onImport(parsed);
     } catch {
-      setError('That is not valid JSON. Paste an exported .cloakprofile.json file.');
+      setError('That is not valid JSON. Paste or drop an exported .cloakprofile.json file.');
     }
   };
 
@@ -283,14 +292,36 @@ function ImportProfileModal({
         </>
       }
     >
-      <Textarea
-        rows={10}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder='{"format":"cloakbrowser-manager-profile","version":1,"exported_at":"2026-07-22T00:00:00Z","profile":{…},"extensions":[]}'
-        className="font-mono text-[12px]"
-        invalid={Boolean(error)}
-      />
+      <div
+        className="space-y-2"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          const file = e.dataTransfer.files?.[0];
+          if (file) readFile(file);
+        }}
+      >
+        <label className="flex cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-line-strong py-2.5 text-[13px] text-ink-muted hover:bg-surface-sunken">
+          <input
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) readFile(file);
+            }}
+          />
+          <Upload className="h-3.5 w-3.5" /> Choose a .json file, or drag it here
+        </label>
+        <Textarea
+          rows={8}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder='{"format":"cloakbrowser-manager-profile","version":1,"exported_at":"2026-07-22T00:00:00Z","profile":{…},"extensions":[]}'
+          className="font-mono text-[12px]"
+          invalid={Boolean(error)}
+        />
+      </div>
       {error && <p className="mt-2 text-2xs text-danger">{error}</p>}
     </Modal>
   );

@@ -67,12 +67,12 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
 
   const [templates, setTemplates] = useState<ProfileTemplate[]>(() => listTemplates());
   const [appliedTemplateId, setAppliedTemplateId] = useState('');
-  // Edit mode always shows every section; create starts collapsed to essentials.
-  const [showAdvanced, setShowAdvanced] = useState(mode === 'edit');
-  const visibleSteps =
-    mode === 'edit' || showAdvanced
-      ? WIZARD_STEPS
-      : WIZARD_STEPS.filter((step) => ESSENTIAL_STEP_IDS.has(step.id));
+  // Both create and edit start collapsed to the essentials (name + proxy);
+  // hidden sections keep their loaded values and reveal via "Advanced settings".
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const visibleSteps = showAdvanced
+    ? WIZARD_STEPS
+    : WIZARD_STEPS.filter((step) => ESSENTIAL_STEP_IDS.has(step.id));
 
   const scrollToSection = (id: string) => {
     document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -348,7 +348,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
                   </section>
                 );
               })}
-              {mode === 'create' && !showAdvanced && (
+              {!showAdvanced && (
                 <button
                   type="button"
                   onClick={() => setShowAdvanced(true)}
