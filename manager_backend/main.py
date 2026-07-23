@@ -115,9 +115,11 @@ def create_app(
             application.state.runtime_manager.shutdown()
             application.state.proxy_quality_manager.shutdown()
             # Await workers before disposing the engine — a worker still holding a
-            # DB session must not have the engine pulled out from under it.
-            runs_clean = application.state.automation_runs.shutdown()
+            # DB session must not have the engine pulled out from under it. Drain the
+            # factory first: a factory build can spawn run workers, so runs must be
+            # drained only after the factory can no longer create new ones.
             factory_clean = application.state.automation_factory.shutdown()
+            runs_clean = application.state.automation_runs.shutdown()
             if not (runs_clean and factory_clean):
                 logging.getLogger("manager").warning(
                     "automation workers did not all finish before engine dispose "
