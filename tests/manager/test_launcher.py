@@ -319,6 +319,33 @@ def test_headed_runtime_sizes_window_to_spoofed_screen():
     assert custom["args"] == ["--fingerprint=8200", "--window-size=1366,768"]
 
 
+def test_icon_burst_stamps_plasma_icon_immediately_without_a_probe(tmp_path, monkeypatch):
+    import threading
+
+    seen = threading.Event()
+    calls: list[str] = []
+
+    def fake_apply(udd, seed):
+        calls.append(seed)
+        seen.set()
+        return 1
+
+    monkeypatch.setattr(
+        "manager_backend.features.runtime.window_icon.apply_profile_window_icon", fake_apply
+    )
+    monkeypatch.setattr(launcher._PersistentContextHandle, "_locate_browser", lambda self: False)
+    handle = launcher._PersistentContextHandle(
+        _FakeContext([]), str(tmp_path / "prof" / "user-data"), icon_seed="seed-xyz"
+    )
+    try:
+        # The background burst applies the icon within a couple frames of launch —
+        # no is_closed() probe (throttled to 2s) was needed.
+        assert seen.wait(2.0)
+        assert calls[0] == "seed-xyz"
+    finally:
+        handle._closed = True  # let the daemon burst thread exit
+
+
 def test_webrtc_ip_spoofed_to_proxy_only_in_proxy_mode_with_a_proxy():
     # webrtc_mode="proxy" + a proxy -> spoof the WebRTC IP to the exit IP so the
     # real IP can't leak via STUN.

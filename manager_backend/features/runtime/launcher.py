@@ -5,6 +5,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Protocol
@@ -323,7 +324,7 @@ def _cmdline_user_data_dir(cmdline: list[str]) -> str | None:
 class _PersistentContextHandle:
     _PROBE_INTERVAL = 2.0
 
-    def __init__(self, context: Any, user_data_dir: str):
+    def __init__(self, context: Any, user_data_dir: str, icon_seed: str | None = None):
         self._context = context
         self._closed = False
         self._profile_dir = Path(user_data_dir).parent
@@ -334,10 +335,27 @@ class _PersistentContextHandle:
         self._last_probe = 0.0
         self._cdp_session: Any | None = None
         self._last_saved_urls: list[str] | None = None
-        self._icon_seed: str | None = None  # set by the launcher -> per-profile taskbar icon
-        self._icon_applies_left = 6  # re-apply a few times to survive Chrome's own icon set
+        self._icon_seed = icon_seed  # per-profile taskbar icon
+        self._icon_applies_left = 6  # slow-path re-apply on probes, long-term safety net
         self._locate_browser()
         context.on("close", self._mark_closed)
+        # Front-load the icon: a short, fast burst in the background so the plasma
+        # icon replaces Chrome's default within a frame or two of the window
+        # appearing — and keeps winning while Chrome re-sets its own icon during
+        # startup (the source of the visible flicker). Best-effort, never blocks.
+        if icon_seed:
+            threading.Thread(target=self._icon_burst, name="profile-icon", daemon=True).start()
+
+    def _icon_burst(self) -> None:
+        from .window_icon import apply_profile_window_icon
+
+        deadline = time.monotonic() + 4.0
+        while time.monotonic() < deadline and not self._closed:
+            try:
+                apply_profile_window_icon(self._user_data_dir, self._icon_seed)
+            except Exception:
+                pass
+            time.sleep(0.15)
 
     def _apply_icon(self) -> None:
         if self._icon_seed is None or self._icon_applies_left <= 0:
@@ -473,6 +491,10 @@ class CloakPersistentLauncher:
             user_data_dir,
             **persistent_context_kwargs(snapshot, headless=False),
         )
+        # Create the handle first so its icon burst starts stamping the plasma
+        # taskbar icon immediately — concurrently with (not after) tab restore,
+        # which otherwise let Chrome's default icon show for the whole restore.
+        handle = _PersistentContextHandle(context, user_data_dir, icon_seed=snapshot["id"])
         # Reopen the tabs from the last stop; fall back to startup_urls on first
         # run. Each navigation is best-effort: a dead or slow URL (a typo'd host
         # like http://test/, a hung page) must never crash the launch or block the
@@ -490,6 +512,4 @@ class CloakPersistentLauncher:
                     page.close()  # don't leave a dangling failed/blank tab
                 except Exception:
                     pass
-        handle = _PersistentContextHandle(context, user_data_dir)
-        handle._icon_seed = snapshot["id"]  # distinct plasma taskbar icon per profile
         return handle
