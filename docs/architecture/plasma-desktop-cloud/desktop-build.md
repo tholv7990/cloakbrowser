@@ -80,11 +80,22 @@ Rust (`rustup`), Tauri CLI (`npm i -g @tauri-apps/cli`), `pip install pyinstalle
   **Keep** — that only removes `%LOCALAPPDATA%\Plasma` on explicit Yes; a legacy
   `CloakBrowser\Manager` root is never touched.
 
-## Still to verify
+## Shell supervisor (implemented)
 
-- **WebView origin** — confirm the real Windows origin and keep `PLASMA_ALLOWED_ORIGIN`
-  in sync (see `main.rs`).
-- **Readiness / restart** — the `main.rs` TODOs (health-gate before UI, respawn on exit).
+`src-tauri/src/main.rs` now:
+
+- **Readiness-gates the UI** — after spawning the sidecar it polls the backend's public
+  `GET /livez` (raw HTTP, no dep) and only builds the window once it answers 200 (15 s
+  cap, then shows the window anyway). Prevents the SPA's first API calls racing startup.
+- **Respawns the sidecar on unexpected exit** — a supervisor task restarts it with a
+  capped backoff (reusing the same port + token so the loaded WebView keeps working),
+  giving up after repeated fast crashes; resets the counter after a healthy run.
+
+## Still to verify (needs a Windows build)
+
+- **WebView origin** — `WEBVIEW_ORIGIN` in `main.rs` is Tauri v2's Windows default
+  (`http://tauri.localhost`); confirm it on a real build and keep `PLASMA_ALLOWED_ORIGIN`
+  in sync (the backend enforces exact match).
 - **Minimum-supported-version** — the release row carries `min_supported_version`; wire
   a client check (or a server 426) to force-update clients below it.
 

@@ -195,6 +195,12 @@ def create_app(
     app.include_router(auth_router)
     app.include_router(api_router)
 
+    @app.get("/livez")
+    async def livez() -> dict[str, str]:
+        # Public, unauthenticated liveness probe — the desktop shell polls this to
+        # gate the UI on the sidecar being up. Leaks nothing (no auth, no state).
+        return {"status": "ok"}
+
     @app.get("/api/v1/health", dependencies=[Depends(require_authenticated_session)])
     async def health() -> dict[str, str]:
         return {
