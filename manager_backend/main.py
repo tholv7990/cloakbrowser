@@ -36,6 +36,7 @@ from .features.automation.controller import StubAutomationController
 from .features.automation.coordinator import RunCoordinator, recover_interrupted_runs
 from .features.automation.factory import FactoryCoordinator
 from .features.shopify.clients import HttpOpenAIImageClient, HttpShopifyClient
+from .features.shopify.pipeline import recover_interrupted_plans
 from .features.portability.browser_cookies import CookieContextAdapter
 from .features.settings.store import SettingsStore
 from .features.diagnostics.service import DiagnosticManager
@@ -86,6 +87,9 @@ def create_app(
                 application.state.session_factory
             )
             application.state.automation_recovered = recover_interrupted_runs(
+                application.state.session_factory
+            )
+            application.state.shopify_plans_recovered = recover_interrupted_plans(
                 application.state.session_factory
             )
             application.state.diagnostic_recovered = (

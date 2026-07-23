@@ -250,6 +250,53 @@ def test_step_failure_never_leaks_secrets_in_the_error(client, auth_headers):
     assert "proxy" not in error.lower()
 
 
+def test_execute_rejects_a_concurrent_execution_of_the_same_plan(client, auth_headers):
+    # Two executions must not both run steps (double themes/products); the second
+    # to arrive is rejected because the plan is already claimed.
+    from manager_backend.models import ShopifyBuildPlan
+
+    shopify, _ = _setup(client)
+    store_id = _connect(client, auth_headers).json()["id"]
+    plan_id = _stage(client, auth_headers, store_id).json()["id"]
+    with client.app.state.session_factory() as session:
+        plan = session.get(ShopifyBuildPlan, plan_id)
+        plan.status = "running"  # another execution already owns it
+        session.commit()
+
+    shopify.calls.clear()  # ignore connect-time calls; watch only execution
+    response = client.post(
+        f"{_BASE}/stores/{store_id}/plans/{plan_id}/execute",
+        headers=auth_headers,
+        json={"confirm": True},
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "plan_execution_in_progress"
+    assert not shopify.calls  # execution ran nothing remotely
+
+
+def test_startup_recovery_resets_stuck_running_plans(client, auth_headers):
+    from manager_backend.features.shopify.pipeline import recover_interrupted_plans
+    from manager_backend.models import ShopifyBuildPlan
+
+    _setup(client)
+    store_id = _connect(client, auth_headers).json()["id"]
+    plan_id = _stage(client, auth_headers, store_id).json()["id"]
+    with client.app.state.session_factory() as session:
+        session.get(ShopifyBuildPlan, plan_id).status = "running"  # interrupted
+        session.commit()
+
+    assert recover_interrupted_plans(client.app.state.session_factory) == 1
+    with client.app.state.session_factory() as session:
+        assert session.get(ShopifyBuildPlan, plan_id).status == "failed"
+    # A recovered plan can be executed again.
+    again = client.post(
+        f"{_BASE}/stores/{store_id}/plans/{plan_id}/execute",
+        headers=auth_headers,
+        json={"confirm": True},
+    )
+    assert again.status_code == 200
+
+
 def test_theme_file_upsert_bisects_to_isolate_a_bad_file(client, auth_headers):
     from manager_backend.features.shopify.pipeline import upsert_theme_files
 

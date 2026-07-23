@@ -213,6 +213,22 @@ def _theme_files(config: dict) -> list[dict]:
 
 
 # --- execution ---------------------------------------------------------------
+def recover_interrupted_plans(session_factory) -> int:
+    """Reset plans left 'running' by an interrupted process so they can be re-run.
+
+    Completed steps persist, so a re-execution safely resumes and skips them. Runs
+    at startup, mirroring the automation run recovery.
+    """
+    with session_factory() as session:
+        result = session.execute(
+            update(ShopifyBuildPlan)
+            .where(ShopifyBuildPlan.status == "running")
+            .values(status="failed")
+        )
+        session.commit()
+        return result.rowcount
+
+
 def execute_build_plan(
     session: Session,
     cred_store: CredentialStore,
@@ -226,10 +242,21 @@ def execute_build_plan(
         raise ManagerError("confirm_required", "Execution must be confirmed.", 422)
     store = _store(session, store_id)
     plan = _plan(session, store_id, plan_id)
+    # Atomically claim execution — only one runner may own a plan at a time, so a
+    # concurrent execute can't double-run steps (duplicate themes/products).
+    claimed = session.execute(
+        update(ShopifyBuildPlan)
+        .where(ShopifyBuildPlan.id == plan_id, ShopifyBuildPlan.status != "running")
+        .values(status="running")
+    ).rowcount
+    session.commit()
+    if claimed != 1:
+        raise ManagerError(
+            "plan_execution_in_progress", "This plan is already being executed.", 409
+        )
+    session.refresh(plan)
     ctx = store_context(session, cred_store, store, shopify)
     config = dict(plan.config_json or {})
-    plan.status = "running"
-    session.commit()
 
     steps = session.scalars(
         select(ShopifyPlanStep)
