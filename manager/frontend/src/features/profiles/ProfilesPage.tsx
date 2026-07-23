@@ -107,6 +107,26 @@ export function ProfilesPage() {
     });
   };
 
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const runOnSelected = async (
+    op: (id: string) => Promise<unknown>,
+    label: (n: number) => string,
+  ) => {
+    setBulkBusy(true);
+    try {
+      const results = await Promise.allSettled(selectedIds.map((id) => op(id)));
+      const ok = results.filter((r) => r.status === 'fulfilled').length;
+      toast({ title: label(ok), tone: ok ? 'success' : 'danger' });
+      setRowSelection({});
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+  const handleLaunch = () =>
+    runOnSelected((id) => api.startProfile(id), (n) => t('bulk.launched', { count: n }));
+  const handleStop = () =>
+    runOnSelected((id) => api.stopProfile(id), (n) => t('bulk.stopped', { count: n }));
+
   const handleExport = async () => {
     try {
       for (const profile of items) {
@@ -150,8 +170,11 @@ export function ProfilesPage() {
         statuses={statuses}
         tags={tags}
         onAction={handleBulk}
+        onLaunch={handleLaunch}
+        onStop={handleStop}
         onAssignProxies={() => setBulkProxyOpen(true)}
         onClear={() => setRowSelection({})}
+        busy={bulkBusy}
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto">

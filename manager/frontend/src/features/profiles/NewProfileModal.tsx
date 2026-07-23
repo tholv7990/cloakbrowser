@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Sparkles } from 'lucide-react';
-import type { Folder } from '@/types/api';
+import { Settings2, Sparkles } from 'lucide-react';
+import type { Folder, ProxyProviderId } from '@/types/api';
 import { api } from '@/api';
 import { useT } from '@/i18n';
 import { useToast } from '@/components/ui/Toast';
@@ -11,11 +11,14 @@ import { Button } from '@/components/ui/Button';
 import { Field } from '@/components/ui/Field';
 import { Input, Textarea } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { Badge } from '@/components/ui/Badge';
 import { defaultWizardValues, wizardValuesToPayload } from '@/schemas/profile';
 import { parseProxyText } from '@/schemas/proxy';
+import { useProxyProviders } from '@/features/proxies/api';
+import { ProvidersDialog } from '@/features/proxies/ProvidersDialog';
 import { listTemplates } from '@/features/profile-editor/profileTemplates';
 
-type ProxyMode = 'none' | 'one' | 'list';
+type ProxyMode = 'none' | 'one' | 'list' | 'provider';
 
 /**
  * One create flow that scales from a single profile to a batch (BitBrowser /
@@ -44,8 +47,14 @@ export function NewProfileModal({
   const [proxyMode, setProxyMode] = useState<ProxyMode>('none');
   const [proxyText, setProxyText] = useState('');
   const [templateId, setTemplateId] = useState('builtin:no-leak');
+  const [providerId, setProviderId] = useState<ProxyProviderId>('iproyal');
+  const [country, setCountry] = useState('US');
+  const [providersOpen, setProvidersOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(0);
+
+  const providers = useProxyProviders();
+  const provider = (providers.data ?? []).find((p) => p.id === providerId);
 
   useEffect(() => {
     if (!open) return;
@@ -55,6 +64,8 @@ export function NewProfileModal({
     setProxyMode('none');
     setProxyText('');
     setTemplateId('builtin:no-leak');
+    setProviderId('iproyal');
+    setCountry('US');
     setBusy(false);
     setDone(0);
   }, [open]);
@@ -84,26 +95,52 @@ export function NewProfileModal({
     setDone(0);
     let ok = 0;
     try {
+      // Provider mode: generate `count` proxies from the provider up front, then
+      // hand one to each profile.
+      let providerIds: string[] = [];
+      if (proxyMode === 'provider') {
+        try {
+          const result = await api.generateProxies({
+            provider: providerId,
+            count,
+            country: country.trim() || 'US',
+            session_type: 'sticky',
+          });
+          providerIds = result.proxy_ids;
+        } catch (error) {
+          toast({
+            title: t('new.providerFailed'),
+            description: (error as Error).message,
+            tone: 'danger',
+          });
+          setBusy(false);
+          return;
+        }
+      }
       for (let i = 0; i < count; i++) {
         const profileName = nameFor(i);
         let proxyId = '';
-        const line = proxyForIndex(i);
-        if (line) {
-          const parsed = parseProxyText(line);
-          if (parsed?.host && parsed.port) {
-            try {
-              const proxy = await api.createProxy({
-                label: profileName,
-                scheme: parsed.scheme ?? 'http',
-                host: parsed.host,
-                port: Number(parsed.port),
-                username: parsed.username || null,
-                password: parsed.password || undefined,
-                test_before_launch: true,
-              });
-              proxyId = proxy.id;
-            } catch {
-              // Proxy creation failed — still create the profile, just direct.
+        if (proxyMode === 'provider') {
+          proxyId = providerIds[i] ?? '';
+        } else {
+          const line = proxyForIndex(i);
+          if (line) {
+            const parsed = parseProxyText(line);
+            if (parsed?.host && parsed.port) {
+              try {
+                const proxy = await api.createProxy({
+                  label: profileName,
+                  scheme: parsed.scheme ?? 'http',
+                  host: parsed.host,
+                  port: Number(parsed.port),
+                  username: parsed.username || null,
+                  password: parsed.password || undefined,
+                  test_before_launch: true,
+                });
+                proxyId = proxy.id;
+              } catch {
+                // Proxy creation failed — still create the profile, just direct.
+              }
             }
           }
         }
@@ -142,6 +179,7 @@ export function NewProfileModal({
   };
 
   return (
+    <>
     <Modal
       open={open}
       onClose={onClose}
@@ -199,9 +237,40 @@ export function NewProfileModal({
               { value: 'none', label: t('new.proxyNone') },
               { value: 'one', label: t('new.proxyOne') },
               { value: 'list', label: t('new.proxyList') },
+              { value: 'provider', label: t('new.proxyProvider') },
             ]}
           />
         </Field>
+        {proxyMode === 'provider' && (
+          <div className="space-y-2 rounded-md border border-line bg-surface-sunken p-3">
+            <div className="grid grid-cols-[1fr_120px] gap-2">
+              <Field label={t('new.provider')}>
+                <Select
+                  value={providerId}
+                  onChange={(e) => setProviderId(e.target.value as ProxyProviderId)}
+                  options={(providers.data ?? []).map((p) => ({ value: p.id, label: p.name }))}
+                />
+              </Field>
+              <Field label={t('new.providerCountry')}>
+                <Input
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value.toUpperCase().slice(0, 2))}
+                  placeholder="US"
+                  className="uppercase"
+                />
+              </Field>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <Badge tone={provider?.configured ? 'success' : 'warning'}>
+                {provider?.configured ? t('prov.configured') : t('prov.notConfigured')}
+              </Badge>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setProvidersOpen(true)}>
+                <Settings2 className="h-3.5 w-3.5" /> {t('new.providerConfigure')}
+              </Button>
+            </div>
+            <p className="text-2xs text-ink-faint">{t('new.providerHint', { count })}</p>
+          </div>
+        )}
         {proxyMode === 'one' && (
           <Input
             value={proxyText}
@@ -241,5 +310,7 @@ export function NewProfileModal({
         </p>
       </div>
     </Modal>
+    <ProvidersDialog open={providersOpen} onClose={() => setProvidersOpen(false)} />
+    </>
   );
 }

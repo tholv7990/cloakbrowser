@@ -1,4 +1,15 @@
-import { CircleDot, FolderInput, Globe, Pin, PinOff, Tag as TagIcon, Trash2, X } from 'lucide-react';
+import {
+  CircleDot,
+  FolderInput,
+  Globe,
+  Pin,
+  PinOff,
+  Play,
+  Square,
+  Tag as TagIcon,
+  Trash2,
+  X,
+} from 'lucide-react';
 import type { BulkProfileRequest, Folder, Tag, WorkflowStatus } from '@/types/api';
 import { Button } from '@/components/ui/Button';
 import { Menu, MenuGroup, MenuItem } from '@/components/ui/Menu';
@@ -10,16 +21,22 @@ export function BulkActionsBar({
   statuses,
   tags,
   onAction,
+  onLaunch,
+  onStop,
   onAssignProxies,
   onClear,
+  busy,
 }: {
   count: number;
   folders: Folder[];
   statuses: WorkflowStatus[];
   tags: Tag[];
   onAction: (action: Omit<BulkProfileRequest, 'ids'>) => void;
+  onLaunch: () => void;
+  onStop: () => void;
   onAssignProxies: () => void;
   onClear: () => void;
+  busy?: boolean;
 }) {
   const t = useT();
   if (count === 0) return null;
@@ -27,6 +44,13 @@ export function BulkActionsBar({
     <div className="flex items-center gap-3 border-b border-line bg-accent/5 px-4 py-2">
       <span className="text-[13px] font-medium text-ink">{t('bulk.selected', { count })}</span>
       <div className="flex items-center gap-1.5">
+        <Button size="sm" variant="primary" onClick={onLaunch} loading={busy}>
+          <Play className="h-3.5 w-3.5" /> {t('bulk.launch')}
+        </Button>
+        <Button size="sm" variant="secondary" onClick={onStop} disabled={busy}>
+          <Square className="h-3.5 w-3.5" /> {t('bulk.stop')}
+        </Button>
+        <span className="mx-1 h-4 w-px bg-line" aria-hidden="true" />
         <Button size="sm" variant="secondary" onClick={() => onAction({ action: 'pin' })}>
           <Pin className="h-3.5 w-3.5" /> {t('bulk.pin')}
         </Button>
