@@ -51,14 +51,36 @@ def _assigned_count(session: Session, asset_id: str) -> int:
     )
 
 
-def _asset_to_dict(session: Session, asset: MediaAsset) -> dict:
+def _assigned_counts(session: Session, asset_ids: list[str]) -> dict[str, int]:
+    if not asset_ids:
+        return {}
+    return {
+        asset_id: int(count)
+        for asset_id, count in session.execute(
+            select(profile_media_assets.c.media_asset_id, func.count())
+            .select_from(profile_media_assets)
+            .join(Profile, Profile.id == profile_media_assets.c.profile_id)
+            .where(
+                profile_media_assets.c.media_asset_id.in_(asset_ids),
+                Profile.deleted_at.is_(None),
+            )
+            .group_by(profile_media_assets.c.media_asset_id)
+        )
+    }
+
+
+def _asset_to_dict(
+    session: Session, asset: MediaAsset, *, assigned_count: int | None = None
+) -> dict:
     return {
         "id": asset.id,
         "name": asset.name,
         "kind": asset.kind,
         "format": asset.format,
         "size_bytes": asset.size_bytes,
-        "assigned_profile_count": _assigned_count(session, asset.id),
+        "assigned_profile_count": (
+            _assigned_count(session, asset.id) if assigned_count is None else assigned_count
+        ),
         "created_at": asset.created_at,
     }
 
@@ -92,7 +114,11 @@ def list_assets(session: Session) -> list[dict]:
     assets = session.scalars(
         select(MediaAsset).order_by(MediaAsset.created_at.desc(), MediaAsset.id)
     ).all()
-    return [_asset_to_dict(session, asset) for asset in assets]
+    counts = _assigned_counts(session, [asset.id for asset in assets])
+    return [
+        _asset_to_dict(session, asset, assigned_count=counts.get(asset.id, 0))
+        for asset in assets
+    ]
 
 
 def create_asset(session: Session, *, name: str, kind: str, media_format: str) -> dict:

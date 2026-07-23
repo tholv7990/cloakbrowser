@@ -30,7 +30,27 @@ def _assigned_count(session: Session, proxy_id: str) -> int:
     return int(session.scalar(select(func.count(Profile.id)).where(Profile.proxy_id == proxy_id)) or 0)
 
 
-def proxy_to_dict(session: Session, proxy: Proxy, store: CredentialStore | None = None) -> dict:
+def _assigned_counts(session: Session, proxy_ids: list[str]) -> dict[str, int]:
+    if not proxy_ids:
+        return {}
+    return {
+        proxy_id: int(count)
+        for proxy_id, count in session.execute(
+            select(Profile.proxy_id, func.count(Profile.id))
+            .where(Profile.proxy_id.in_(proxy_ids))
+            .group_by(Profile.proxy_id)
+        )
+        if proxy_id is not None
+    }
+
+
+def proxy_to_dict(
+    session: Session,
+    proxy: Proxy,
+    store: CredentialStore | None = None,
+    *,
+    assigned_count: int | None = None,
+) -> dict:
     endpoint = "direct" if proxy.scheme == "direct" else f"{proxy.scheme}://{proxy.host}:{proxy.port}"
     username = None
     if store is not None and proxy.credential_ref:
@@ -46,7 +66,9 @@ def proxy_to_dict(session: Session, proxy: Proxy, store: CredentialStore | None 
         "has_password": proxy.credential_ref is not None,
         "masked_endpoint": endpoint,
         "test_before_launch": proxy.test_before_launch,
-        "assigned_profile_count": _assigned_count(session, proxy.id),
+        "assigned_profile_count": (
+            _assigned_count(session, proxy.id) if assigned_count is None else assigned_count
+        ),
         "exit_ip": proxy.exit_ip,
         "country": proxy.country,
         "city": proxy.city,
@@ -69,7 +91,11 @@ def list_proxies(session: Session, store: CredentialStore | None = None) -> list
             select(Proxy).where(Proxy.deleted_at.is_(None)).order_by(Proxy.label, Proxy.id)
         )
     )
-    return [proxy_to_dict(session, proxy, store) for proxy in proxies]
+    counts = _assigned_counts(session, [proxy.id for proxy in proxies])
+    return [
+        proxy_to_dict(session, proxy, store, assigned_count=counts.get(proxy.id, 0))
+        for proxy in proxies
+    ]
 
 
 def create_proxy(session: Session, store: CredentialStore, payload: ProxyWrite) -> Proxy:

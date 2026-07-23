@@ -17,6 +17,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    and_,
     text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -32,6 +33,9 @@ def new_id() -> str:
 
 class Base(DeclarativeBase):
     pass
+
+
+ACTIVE_RUNTIME_STATES = ("queued", "starting", "running", "stopping", "detached")
 
 
 profile_tags = Table(
@@ -225,6 +229,13 @@ class Profile(TimestampMixin, Base):
     runtime_sessions: Mapped[list["RuntimeSession"]] = relationship(
         back_populates="profile", cascade="all, delete-orphan"
     )
+    active_runtime_sessions: Mapped[list["RuntimeSession"]] = relationship(
+        primaryjoin=lambda: and_(
+            Profile.id == RuntimeSession.profile_id,
+            RuntimeSession.state.in_(ACTIVE_RUNTIME_STATES),
+        ),
+        viewonly=True,
+    )
     extensions: Mapped[list["Extension"]] = relationship(
         secondary=profile_extensions, back_populates="profiles"
     )
@@ -234,11 +245,7 @@ class Profile(TimestampMixin, Base):
 
     @property
     def runtime_state(self) -> str:
-        active = {"queued", "starting", "running", "stopping", "detached"}
-        current = next(
-            (runtime for runtime in reversed(self.runtime_sessions) if runtime.state in active),
-            None,
-        )
+        current = next(iter(self.active_runtime_sessions), None)
         return current.state if current is not None else "stopped"
 
 

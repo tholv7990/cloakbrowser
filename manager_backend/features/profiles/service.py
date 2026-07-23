@@ -155,7 +155,7 @@ def create_profile(session: Session, payload: ProfileCreate) -> Profile:
 def get_profile(session: Session, profile_id: str) -> Profile:
     profile = session.scalar(
         select(Profile)
-        .options(selectinload(Profile.tags), selectinload(Profile.runtime_sessions))
+        .options(selectinload(Profile.tags), selectinload(Profile.active_runtime_sessions))
         .where(Profile.id == profile_id)
     )
     if profile is None:
@@ -224,7 +224,7 @@ def list_profiles(
     settings: ManagerSettings | None = None,
 ) -> dict[str, Any]:
     statement = select(Profile).options(
-        selectinload(Profile.tags), selectinload(Profile.runtime_sessions)
+        selectinload(Profile.tags), selectinload(Profile.active_runtime_sessions)
     ).where(Profile.deleted_at.is_(None))
     count_statement = select(func.count(func.distinct(Profile.id))).where(Profile.deleted_at.is_(None))
     conditions = []

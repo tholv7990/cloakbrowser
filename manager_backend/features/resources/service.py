@@ -148,14 +148,14 @@ def _exit_reason(runtime: RuntimeSession) -> str | None:
 
 
 def list_sessions(session: Session, limit: int = 25) -> list[dict[str, Any]]:
-    runtimes = session.scalars(
-        select(RuntimeSession)
+    runtimes = session.execute(
+        select(RuntimeSession, Profile.name)
+        .join(Profile, Profile.id == RuntimeSession.profile_id)
         .order_by(RuntimeSession.created_at.desc(), RuntimeSession.id)
         .limit(limit)
     ).all()
     records: list[dict[str, Any]] = []
-    for runtime in runtimes:
-        profile = session.get(Profile, runtime.profile_id)
+    for runtime, profile_name in runtimes:
         duration = None
         if runtime.started_at is not None and runtime.stopped_at is not None:
             duration = max(0, int((runtime.stopped_at - runtime.started_at).total_seconds()))
@@ -166,7 +166,7 @@ def list_sessions(session: Session, limit: int = 25) -> list[dict[str, Any]]:
             {
                 "id": runtime.id,
                 "profile_id": runtime.profile_id,
-                "profile_name": profile.name if profile is not None else runtime.profile_id,
+                "profile_name": profile_name,
                 "started_at": runtime.started_at or runtime.created_at,
                 "ended_at": runtime.stopped_at,
                 "duration_seconds": duration,
