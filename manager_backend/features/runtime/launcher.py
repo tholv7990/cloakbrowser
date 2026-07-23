@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any, Protocol
@@ -241,6 +242,25 @@ def persistent_context_kwargs(
     return kwargs
 
 
+def _normalize_udd(path: str) -> str:
+    """Canonicalize a user-data-dir for exact, case/separator-insensitive compare."""
+    try:
+        resolved = os.path.realpath(path)
+    except (OSError, ValueError):
+        resolved = path
+    return os.path.normcase(os.path.normpath(resolved))
+
+
+def _cmdline_user_data_dir(cmdline: list[str]) -> str | None:
+    """Extract the exact --user-data-dir value from a process cmdline (or None)."""
+    for index, arg in enumerate(cmdline):
+        if arg.startswith("--user-data-dir="):
+            return arg.split("=", 1)[1]
+        if arg == "--user-data-dir" and index + 1 < len(cmdline):
+            return cmdline[index + 1]
+    return None
+
+
 class _PersistentContextHandle:
     _PROBE_INTERVAL = 2.0
 
@@ -248,7 +268,7 @@ class _PersistentContextHandle:
         self._context = context
         self._closed = False
         self._profile_dir = Path(user_data_dir).parent
-        self._owned_path = user_data_dir.casefold()
+        self._owned_path = _normalize_udd(user_data_dir)
         self.browser_pid: int | None = None
         self.browser_created_at: datetime | None = None
         self._last_probe = 0.0
@@ -269,7 +289,8 @@ class _PersistentContextHandle:
             try:
                 if "chrome" not in (process.info["name"] or "").lower():
                     continue
-                if self._owned_path in " ".join(process.cmdline()).casefold():
+                udd = _cmdline_user_data_dir(process.cmdline())
+                if udd is not None and _normalize_udd(udd) == self._owned_path:
                     self.browser_pid = process.pid
                     self.browser_created_at = datetime.fromtimestamp(
                         process.create_time(), timezone.utc
@@ -278,6 +299,19 @@ class _PersistentContextHandle:
             except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
                 continue
         return False
+
+    def _process_alive(self) -> bool:
+        """True only if OUR exact browser process still runs — verifying the pid's
+        create_time matches, so a reused pid is never mistaken for a live browser."""
+        if self.browser_pid is None or self.browser_created_at is None:
+            return False
+        try:
+            created = datetime.fromtimestamp(
+                psutil.Process(self.browser_pid).create_time(), timezone.utc
+            )
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            return False
+        return created == self.browser_created_at
 
     def _mark_closed(self, *_args: Any) -> None:
         self._closed = True
@@ -344,15 +378,10 @@ class _PersistentContextHandle:
         if now - self._last_probe < self._PROBE_INTERVAL:
             return False
         self._last_probe = now
-        if self.browser_pid is not None:
-            if psutil.pid_exists(self.browser_pid):
-                self._snapshot_session()  # alive: keep the tab list fresh on disk
-                return False
-            self._closed = True
-            return True
-        # Never captured a pid — re-scan; if nothing owns the dir, it's gone.
-        if self._locate_browser():
-            self._snapshot_session()
+        # Alive if our exact process (pid + create_time) still runs; otherwise
+        # re-scan by exact --user-data-dir in case the pid was never captured.
+        if self._process_alive() or self._locate_browser():
+            self._snapshot_session()  # alive: keep the tab list fresh on disk
             return False
         self._closed = True
         return True
