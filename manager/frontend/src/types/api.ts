@@ -630,35 +630,6 @@ export interface CredentialPoolSummary {
   total: number;
 }
 
-export type FactoryJobStatus = 'running' | 'completed' | 'failed' | 'cancelled';
-
-export interface ProfileFactoryItem {
-  id: string;
-  profile_id: string | null;
-  status: string;
-  message: string | null;
-}
-
-export interface ProfileFactoryJob {
-  id: string;
-  status: FactoryJobStatus;
-  quantity: number;
-  name_prefix: string;
-  automation_template_id: string | null;
-  start_automation: boolean;
-  created_count: number;
-  failed_count: number;
-  items: ProfileFactoryItem[];
-  created_at: string;
-}
-
-export interface StartFactoryPayload {
-  quantity: number;
-  name_prefix: string;
-  automation_template_id?: string | null;
-  start_automation: boolean;
-}
-
 // ---------------------------------------------------------------------------
 // Shopify Builder — connect a store, analyze, stage a plan, execute as drafts.
 // Contract: docs/backend-contract-shopify-builder.md. Draft-only: nothing is

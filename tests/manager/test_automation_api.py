@@ -465,29 +465,6 @@ def test_startup_recovery_fails_runs_and_releases_credentials(client, auth_heade
         assert credential.reserved_run_id is None
 
 
-# --- factory ----------------------------------------------------------------
-def test_factory_creates_profiles(client, auth_headers):
-    _setup(client)
-    started = client.post(
-        "/api/v1/automations/factory/jobs",
-        headers=auth_headers,
-        json={"quantity": 2, "name_prefix": "Bot", "start_automation": False},
-    )
-    assert started.status_code == 202, started.text
-    job_id = started.json()["id"]
-
-    deadline = time.time() + 8.0
-    job = client.get(f"/api/v1/automations/factory/jobs/{job_id}").json()
-    while time.time() < deadline and job["status"] == "running":
-        time.sleep(0.05)
-        job = client.get(f"/api/v1/automations/factory/jobs/{job_id}").json()
-    assert job["status"] == "completed"
-    assert job["created_count"] == 2
-    assert all(item["profile_id"] for item in job["items"])
-    # The profiles really exist.
-    assert client.get("/api/v1/profiles", headers=auth_headers).json()["total"] == 2
-
-
 # --- F1: no plaintext fill values / secret variables ------------------------
 def _put_template(client, auth_headers, tid, steps, name="T"):
     return client.put(

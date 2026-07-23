@@ -163,28 +163,3 @@ class CredentialImport(StrictModel):
     text: str = Field(min_length=1, max_length=200_000, json_schema_extra={"writeOnly": True})
 
 
-class ProfileFactoryItemRead(StrictModel):
-    id: str
-    profile_id: str | None
-    status: str
-    message: str | None
-
-
-class ProfileFactoryJobRead(StrictModel):
-    id: str
-    status: Literal["running", "completed", "failed", "cancelled"]
-    quantity: int
-    name_prefix: str
-    automation_template_id: str | None
-    start_automation: bool
-    created_count: int
-    failed_count: int
-    items: list[ProfileFactoryItemRead]
-    created_at: datetime
-
-
-class StartFactoryPayload(StrictModel):
-    quantity: int = Field(ge=1, le=50)
-    name_prefix: str = Field(min_length=1, max_length=120)
-    automation_template_id: str | None = None
-    start_automation: bool = False

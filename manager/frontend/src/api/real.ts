@@ -22,7 +22,6 @@ import type {
   MediaSettings,
   ProductCatalog,
   ProductCsvInspection,
-  ProfileFactoryJob,
   ProxyProvider,
   RuntimeSessionRecord,
   ShopifyStore,
@@ -241,12 +240,6 @@ export const realApi: ApiAdapter = {
       body: { text },
     }),
 
-  listFactoryJobs: () => apiRequest<ProfileFactoryJob[]>('/automations/factory/jobs'),
-  startFactoryJob: (payload) =>
-    apiRequest<ProfileFactoryJob>('/automations/factory/jobs', { method: 'POST', body: payload }),
-  getFactoryJob: (id) => apiRequest<ProfileFactoryJob>(`/automations/factory/jobs/${id}`),
-  cancelFactoryJob: (id) =>
-    apiRequest<ProfileFactoryJob>(`/automations/factory/jobs/${id}/cancel`, { method: 'POST' }),
 
   listStores: () => apiRequest<ShopifyStore[]>('/shopify-builder/stores'),
   connectStore: (payload) =>

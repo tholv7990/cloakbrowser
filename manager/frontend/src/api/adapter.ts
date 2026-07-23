@@ -34,12 +34,10 @@ import type {
   MediaSettings,
   ProductCatalog,
   ProductCsvInspection,
-  ProfileFactoryJob,
   ProxyProvider,
   ProxyProviderConfigPayload,
   RuntimeSessionRecord,
   ShopifyStore,
-  StartFactoryPayload,
   StartRunPayload,
   StoreProfile,
   ThemeLibrary,
@@ -186,10 +184,6 @@ export interface ApiAdapter {
   getCredentialPool(): Promise<CredentialPoolSummary>;
   importCredentials(text: string): Promise<CredentialPoolSummary>;
 
-  listFactoryJobs(): Promise<ProfileFactoryJob[]>;
-  startFactoryJob(payload: StartFactoryPayload): Promise<ProfileFactoryJob>;
-  getFactoryJob(id: string): Promise<ProfileFactoryJob>;
-  cancelFactoryJob(id: string): Promise<ProfileFactoryJob>;
 
   // Shopify Builder — stores / analysis / plans (draft-only)
   listStores(): Promise<ShopifyStore[]>;

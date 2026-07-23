@@ -13,9 +13,7 @@ from .schemas import (
     AutomationTemplateRead,
     CredentialImport,
     CredentialPoolSummary,
-    ProfileFactoryJobRead,
     RecordingCreate,
-    StartFactoryPayload,
     StartRunPayload,
     TemplateWrite,
 )
@@ -125,30 +123,3 @@ def credential_summary(session: SessionDependency):
 @router.post("/credentials/import", response_model=CredentialPoolSummary, operation_id="automation_credentials_import")
 def import_credentials(payload: CredentialImport, request: Request, session: SessionDependency):
     return service.import_credentials(session, request.app.state.credential_store, payload.text)
-
-
-# --- factory ----------------------------------------------------------------
-@router.get("/factory/jobs", response_model=list[ProfileFactoryJobRead], operation_id="automation_factory_list")
-def list_factory_jobs(request: Request, session: SessionDependency):
-    return request.app.state.automation_factory.list_jobs(session)
-
-
-@router.post("/factory/jobs", response_model=ProfileFactoryJobRead, status_code=_ACCEPTED, operation_id="automation_factory_start", dependencies=[Depends(guard_maintenance)])
-def start_factory_job(payload: StartFactoryPayload, request: Request, session: SessionDependency):
-    return request.app.state.automation_factory.start(
-        session,
-        quantity=payload.quantity,
-        name_prefix=payload.name_prefix,
-        automation_template_id=payload.automation_template_id,
-        start_automation=payload.start_automation,
-    )
-
-
-@router.get("/factory/jobs/{job_id}", response_model=ProfileFactoryJobRead, operation_id="automation_factory_get")
-def get_factory_job(job_id: str, request: Request, session: SessionDependency):
-    return request.app.state.automation_factory.get_job(session, job_id)
-
-
-@router.post("/factory/jobs/{job_id}/cancel", response_model=ProfileFactoryJobRead, operation_id="automation_factory_cancel")
-def cancel_factory_job(job_id: str, request: Request, session: SessionDependency):
-    return request.app.state.automation_factory.cancel(session, job_id)

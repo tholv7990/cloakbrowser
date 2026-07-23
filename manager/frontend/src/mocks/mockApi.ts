@@ -27,8 +27,6 @@ import type {
   ProductCatalog,
   ProductCsvInspection,
   ProductRow,
-  ProfileFactoryItem,
-  ProfileFactoryJob,
   ProxyProvider,
   RuntimeSessionRecord,
   SessionExitReason,
@@ -109,7 +107,6 @@ const mockTemplates: AutomationTemplate[] = [
 ];
 const mockRecordings: AutomationRecording[] = [];
 const mockRuns: AutomationRun[] = [];
-const mockFactoryJobs: ProfileFactoryJob[] = [];
 let mockPool: CredentialPoolSummary = { available: 4, reserved: 0, used: 0, failed: 0, total: 4 };
 
 /** gateProfile stalls at the midpoint until continued; failProfile fails at the end until retried. */
@@ -117,7 +114,6 @@ const runSim = new Map<
   string,
   { gateProfile: string | null; gatePassed: boolean; failProfile: string | null }
 >();
-const factoryStart = new Map<string, number>();
 const TERMINAL: AutomationRunItem['status'][] = ['completed', 'failed', 'cancelled'];
 
 function progressRecording(rec: AutomationRecording): void {
@@ -167,20 +163,6 @@ function progressRun(run: AutomationRun): void {
     }
   }
   recomputeRun(run);
-}
-function progressFactory(job: ProfileFactoryJob): void {
-  if (job.status !== 'running') return;
-  const start = factoryStart.get(job.id) ?? Date.parse(job.created_at);
-  const target = Math.min(job.quantity, Math.floor((Date.now() - start) / 1500));
-  for (let i = 0; i < target; i += 1) {
-    const item = job.items[i];
-    if (item && item.status === 'pending') {
-      item.profile_id = newId('prof');
-      item.status = job.start_automation ? 'Setup complete' : 'Ready';
-      job.created_count += 1;
-    }
-  }
-  if (job.created_count >= job.quantity) job.status = 'completed';
 }
 function requireRun(id: string): AutomationRun {
   const run = mockRuns.find((x) => x.id === id);
@@ -1614,53 +1596,6 @@ export const mockApi: ApiAdapter = {
       total: mockPool.total + added,
     };
     return { ...mockPool };
-  },
-
-  async listFactoryJobs(): Promise<ProfileFactoryJob[]> {
-    await delay(60);
-    mockFactoryJobs.forEach(progressFactory);
-    return structuredClone(mockFactoryJobs);
-  },
-  async startFactoryJob(payload): Promise<ProfileFactoryJob> {
-    await delay(140);
-    const items: ProfileFactoryItem[] = Array.from({ length: payload.quantity }, () => ({
-      id: newId('fi'),
-      profile_id: null,
-      status: 'pending',
-      message: null,
-    }));
-    const job: ProfileFactoryJob = {
-      id: newId('fac'),
-      status: 'running',
-      quantity: payload.quantity,
-      name_prefix: payload.name_prefix,
-      automation_template_id: payload.automation_template_id ?? null,
-      start_automation: payload.start_automation,
-      created_count: 0,
-      failed_count: 0,
-      items,
-      created_at: now(),
-    };
-    mockFactoryJobs.unshift(job);
-    factoryStart.set(job.id, Date.now());
-    return structuredClone(job);
-  },
-  async getFactoryJob(id: string): Promise<ProfileFactoryJob> {
-    await delay(40);
-    const job = mockFactoryJobs.find((x) => x.id === id);
-    if (!job) throw new ApiError(404, 'factory_not_found', 'Factory job not found.');
-    progressFactory(job);
-    return structuredClone(job);
-  },
-  async cancelFactoryJob(id: string): Promise<ProfileFactoryJob> {
-    await delay(80);
-    const job = mockFactoryJobs.find((x) => x.id === id);
-    if (!job) throw new ApiError(404, 'factory_not_found', 'Factory job not found.');
-    job.items.forEach((item) => {
-      if (item.status === 'pending') item.status = 'cancelled';
-    });
-    job.status = 'cancelled';
-    return structuredClone(job);
   },
 
   async listStores(): Promise<ShopifyStore[]> {

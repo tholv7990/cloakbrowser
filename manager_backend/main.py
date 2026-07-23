@@ -34,7 +34,6 @@ from .features.proxies.quality import ProxyQualityManager, recover_orphan_qualit
 from .features.backups.service import maybe_auto_backup
 from .features.automation.controller import StubAutomationController
 from .features.automation.coordinator import RunCoordinator, recover_interrupted_runs
-from .features.automation.factory import FactoryCoordinator
 from .features.shopify.clients import HttpOpenAIImageClient, HttpShopifyClient
 from .features.shopify.pipeline import recover_interrupted_plans
 from .features.portability.browser_cookies import CookieContextAdapter
@@ -115,17 +114,11 @@ def create_app(
             application.state.runtime_manager.shutdown()
             application.state.proxy_quality_manager.shutdown()
             # Await workers before disposing the engine — a worker still holding a
-            # DB session must not have the engine pulled out from under it. Drain the
-            # factory first: a factory build can spawn run workers, so runs must be
-            # drained only after the factory can no longer create new ones.
-            factory_clean = application.state.automation_factory.shutdown()
+            # DB session must not have the engine pulled out from under it.
             runs_clean = application.state.automation_runs.shutdown()
-            if not (runs_clean and factory_clean):
+            if not runs_clean:
                 logging.getLogger("manager").warning(
-                    "automation workers did not all finish before engine dispose "
-                    "(runs_clean=%s, factory_clean=%s)",
-                    runs_clean,
-                    factory_clean,
+                    "automation run workers did not all finish before engine dispose"
                 )
             application.state.engine.dispose()
             if diagnostic_shutdown_error is not None:
@@ -178,9 +171,6 @@ def create_app(
         app.state.session_factory,
         app.state.credential_store,
         app.state.automation_controller,
-    )
-    app.state.automation_factory = FactoryCoordinator(
-        app.state.session_factory, app.state.automation_runs
     )
     app.state.shopify_client = HttpShopifyClient()
     app.state.openai_image_client = HttpOpenAIImageClient()

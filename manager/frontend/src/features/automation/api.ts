@@ -5,7 +5,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, queryKeys } from '@/api';
-import type { AutomationStep, StartFactoryPayload, StartRunPayload } from '@/types/api';
+import type { AutomationStep, StartRunPayload } from '@/types/api';
 import { useToast } from '@/components/ui/Toast';
 
 export function useTemplates() {
@@ -132,34 +132,5 @@ export function useImportCredentials() {
     },
     onError: (error) =>
       toast({ title: 'Import failed', description: (error as Error).message, tone: 'danger' }),
-  });
-}
-
-export function useFactoryJobs() {
-  return useQuery({
-    queryKey: queryKeys.automationFactory,
-    queryFn: () => api.listFactoryJobs(),
-    refetchInterval: (query) =>
-      (query.state.data ?? []).some((job) => job.status === 'running') ? 1500 : false,
-    refetchIntervalInBackground: false,
-  });
-}
-
-export function useStartFactoryJob() {
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  return useMutation({
-    mutationFn: (payload: StartFactoryPayload) => api.startFactoryJob(payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['automation', 'factory'] }),
-    onError: (error) =>
-      toast({ title: 'Could not start factory job', description: (error as Error).message, tone: 'danger' }),
-  });
-}
-
-export function useCancelFactoryJob() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => api.cancelFactoryJob(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['automation', 'factory'] }),
   });
 }
