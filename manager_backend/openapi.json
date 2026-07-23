@@ -10821,7 +10821,7 @@
               "disabled"
             ],
             "title": "Webrtc Mode",
-            "default": "direct"
+            "default": "proxy"
           },
           "geolocation_mode": {
             "type": "string",

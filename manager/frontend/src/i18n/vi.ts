@@ -285,6 +285,7 @@ export const vi: Record<keyof typeof en, string> = {
   'editor.stepProgress': 'Bước {current}/{total} — {title}',
   'editor.close': 'Đóng trình sửa',
   'editor.steps': 'Mục',
+  'editor.showAdvanced': 'Cài đặt nâng cao',
   'editor.saveRun': 'Lưu & chạy',
   'editor.tpl.quickStart': 'Tạo nhanh từ mẫu',
   'editor.tpl.hint': 'Điền sẵn mọi thiết lập từ một mẫu đã lưu, sau đó chỉ cần đặt tên.',

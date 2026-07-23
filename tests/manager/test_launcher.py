@@ -317,3 +317,41 @@ def test_headed_runtime_sizes_window_to_spoofed_screen():
         headless=False,
     )
     assert custom["args"] == ["--fingerprint=8200", "--window-size=1366,768"]
+
+
+def test_webrtc_ip_spoofed_to_proxy_only_in_proxy_mode_with_a_proxy():
+    # webrtc_mode="proxy" + a proxy -> spoof the WebRTC IP to the exit IP so the
+    # real IP can't leak via STUN.
+    proxied = persistent_context_kwargs(
+        {
+            "fingerprint_seed": 8200,
+            "fingerprint_preset": "consistent",
+            "proxy_url": "socks5://user:pass@1.2.3.4:1080",
+            "location": {"webrtc_mode": "proxy"},
+        },
+        headless=True,
+    )
+    assert "--fingerprint-webrtc-ip=auto" in proxied["args"]
+
+    # "direct" is an explicit opt-in to the real path -> no spoof flag.
+    direct = persistent_context_kwargs(
+        {
+            "fingerprint_seed": 8200,
+            "fingerprint_preset": "consistent",
+            "proxy_url": "socks5://1.2.3.4:1080",
+            "location": {"webrtc_mode": "direct"},
+        },
+        headless=True,
+    )
+    assert not any(a.startswith("--fingerprint-webrtc-ip") for a in direct["args"])
+
+    # No proxy -> nothing to spoof to, so no flag even in proxy mode.
+    no_proxy = persistent_context_kwargs(
+        {
+            "fingerprint_seed": 8200,
+            "fingerprint_preset": "consistent",
+            "location": {"webrtc_mode": "proxy"},
+        },
+        headless=True,
+    )
+    assert not any(a.startswith("--fingerprint-webrtc-ip") for a in no_proxy["args"])

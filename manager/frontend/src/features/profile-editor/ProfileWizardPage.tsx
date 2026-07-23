@@ -2,7 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FormProvider, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AlertTriangle, BookmarkPlus, Play, Save, Sparkles, Trash2, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  BookmarkPlus,
+  ChevronDown,
+  Play,
+  Save,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { api } from '@/api';
 import { useAppData } from '@/hooks/useAppData';
 import { useProxies } from '@/features/proxies/api';
@@ -11,6 +20,7 @@ import { IconButton } from '@/components/ui/IconButton';
 import { Select } from '@/components/ui/Select';
 import {
   deleteTemplate,
+  isBuiltinTemplate,
   listTemplates,
   saveTemplate,
   type ProfileTemplate,
@@ -31,6 +41,10 @@ import { useCreateProfile, useProfile, useProfileExtensions, useUpdateProfile } 
 import { persistProfileWithExtensions } from './persistence';
 import { useT } from '@/i18n';
 import type { ProfileRead } from '@/types/api';
+
+// Fast create: show only the essentials (name + proxy). Everything else has a
+// safe default and lives behind the "Advanced settings" toggle.
+const ESSENTIAL_STEP_IDS = new Set(['general', 'proxy-location']);
 
 export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
   const t = useT();
@@ -53,6 +67,12 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
 
   const [templates, setTemplates] = useState<ProfileTemplate[]>(() => listTemplates());
   const [appliedTemplateId, setAppliedTemplateId] = useState('');
+  // Edit mode always shows every section; create starts collapsed to essentials.
+  const [showAdvanced, setShowAdvanced] = useState(mode === 'edit');
+  const visibleSteps =
+    mode === 'edit' || showAdvanced
+      ? WIZARD_STEPS
+      : WIZARD_STEPS.filter((step) => ESSENTIAL_STEP_IDS.has(step.id));
 
   const scrollToSection = (id: string) => {
     document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -173,12 +193,16 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
   const persist = async (): Promise<string | null> => {
     const valid = await form.trigger();
     if (!valid) {
-      // Scroll to the first section that has an error.
+      // Scroll to the first section that has an error. If it's an advanced
+      // section still collapsed on create, reveal them first so the error shows.
       const errored = Object.keys(form.formState.errors);
       const firstStep = WIZARD_STEPS.findIndex((_, index) =>
         stepFields[index].some((field) => errored.includes(field as string)),
       );
-      if (firstStep >= 0) scrollToSection(WIZARD_STEPS[firstStep].id);
+      if (firstStep >= 0) {
+        if (!ESSENTIAL_STEP_IDS.has(WIZARD_STEPS[firstStep].id)) setShowAdvanced(true);
+        scrollToSection(WIZARD_STEPS[firstStep].id);
+      }
       return null;
     }
     const values = form.getValues();
@@ -247,7 +271,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
             aria-label={t('editor.steps')}
           >
             <ul className="space-y-0.5">
-              {WIZARD_STEPS.map((wizardStep) => {
+              {visibleSteps.map((wizardStep) => {
                 const active = activeId === wizardStep.id;
                 return (
                   <li key={wizardStep.id}>
@@ -297,7 +321,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
                     <Button type="button" variant="secondary" size="sm" onClick={saveAsTemplate}>
                       <BookmarkPlus className="h-3.5 w-3.5" /> {t('editor.tpl.save')}
                     </Button>
-                    {appliedTemplateId && (
+                    {appliedTemplateId && !isBuiltinTemplate(appliedTemplateId) && (
                       <Button
                         type="button"
                         variant="ghost"
@@ -310,7 +334,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
                   </div>
                 </div>
               )}
-              {WIZARD_STEPS.map((wizardStep) => {
+              {visibleSteps.map((wizardStep) => {
                 const Section = wizardStep.Component;
                 return (
                   <section key={wizardStep.id} id={`sec-${wizardStep.id}`} className="scroll-mt-4">
@@ -324,6 +348,15 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
                   </section>
                 );
               })}
+              {mode === 'create' && !showAdvanced && (
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanced(true)}
+                  className="flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-line py-2.5 text-[13px] font-medium text-ink-muted hover:bg-surface-sunken"
+                >
+                  <ChevronDown className="h-4 w-4" /> {t('editor.showAdvanced')}
+                </button>
+              )}
             </div>
           </div>
         </div>

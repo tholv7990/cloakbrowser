@@ -37,7 +37,7 @@ class LocationSettings(StrictModel):
     geo_mode: Literal["proxy", "manual", "system"] = "proxy"
     locale: str | None = None
     timezone: str | None = None
-    webrtc_mode: Literal["proxy", "direct", "disabled"] = "direct"
+    webrtc_mode: Literal["proxy", "direct", "disabled"] = "proxy"
     geolocation_mode: Literal["proxy", "manual", "ask", "block"] = "ask"
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)

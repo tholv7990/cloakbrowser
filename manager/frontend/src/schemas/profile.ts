@@ -142,7 +142,7 @@ export function defaultWizardValues(overrides?: Partial<ProfileWizardValues>): P
     geo_mode: 'proxy',
     locale: 'en-US',
     timezone: 'America/New_York',
-    webrtc_mode: 'direct',
+    webrtc_mode: 'proxy',
     geolocation_mode: 'ask',
     latitude: '',
     longitude: '',

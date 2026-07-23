@@ -278,6 +278,13 @@ def persistent_context_kwargs(
     args = [f"--fingerprint={snapshot['fingerprint_seed']}"]
     if not headless:  # headed runtime only — not the cookie/diagnostic utility launches
         args.append(_window_size_arg(snapshot.get("window") or {}))
+    # WebRTC leak guard: when the profile routes WebRTC through its proxy, spoof
+    # the WebRTC IP to the proxy exit IP so the real IP can't leak via STUN.
+    # cloakbrowser resolves "auto" -> exit IP (and drops the flag if there is no
+    # proxy). Without this the field is dead config and WebRTC exposes the host IP.
+    location = snapshot.get("location") or {}
+    if snapshot.get("proxy_url") and location.get("webrtc_mode", "proxy") == "proxy":
+        args.append("--fingerprint-webrtc-ip=auto")
     kwargs = {
         "headless": headless,
         "fingerprint_preset": snapshot["fingerprint_preset"],

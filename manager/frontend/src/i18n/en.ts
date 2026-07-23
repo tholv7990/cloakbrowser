@@ -281,6 +281,7 @@ export const en = {
   'editor.stepProgress': 'Step {current} of {total} — {title}',
   'editor.close': 'Close editor',
   'editor.steps': 'Sections',
+  'editor.showAdvanced': 'Advanced settings',
   'editor.saveRun': 'Save & run',
   'editor.tpl.quickStart': 'Quick start from a template',
   'editor.tpl.hint': 'Pre-fill every setting from a saved template, then just set a name.',
