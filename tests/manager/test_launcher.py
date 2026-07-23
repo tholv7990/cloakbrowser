@@ -129,28 +129,38 @@ def _search(prefs):
     )
 
 
-def test_seed_default_search_engine_creates_and_preserves(tmp_path):
+def test_seed_default_search_engine_heals_existing_profiles(tmp_path):
     udd = tmp_path / "user-data"
-    prefs = udd / "Default" / "Preferences"
+    default = udd / "Default"
+    default.mkdir(parents=True)
+    prefs = default / "Preferences"
+    secure = default / "Secure Preferences"
 
-    # Fresh profile -> Google is seeded.
+    # Brand-new profile (no Preferences yet) -> left to initial_preferences.
     seed_default_search_engine(udd)
-    assert _search(json.loads(prefs.read_text(encoding="utf-8"))) == "Google"
+    assert not prefs.exists()
 
-    # A search engine the user already chose is never overwritten.
+    # Existing profile with prefs but no provider -> healed: provider seeded and
+    # Secure Preferences dropped so Chromium re-baselines its tracked-pref MACs
+    # (otherwise the seeded value is reset as tampering).
+    prefs.write_text(json.dumps({"some_key": 1}), encoding="utf-8")
+    secure.write_text(json.dumps({"protection": {"macs": {}}}), encoding="utf-8")
+    seed_default_search_engine(udd)
+    restored = json.loads(prefs.read_text(encoding="utf-8"))
+    assert restored["some_key"] == 1  # other prefs preserved
+    assert _search(restored) == "Google"
+    assert not secure.exists()
+
+    # A provider already present (healed, or user-chosen) is never overwritten,
+    # and Secure Preferences is left untouched (one-time heal).
     prefs.write_text(
         json.dumps({"default_search_provider_data": {"template_url_data": {"short_name": "Bing"}}}),
         encoding="utf-8",
     )
+    secure.write_text(json.dumps({"protection": {"macs": {}}}), encoding="utf-8")
     seed_default_search_engine(udd)
     assert _search(json.loads(prefs.read_text(encoding="utf-8"))) == "Bing"
-
-    # An existing profile with other prefs but no search engine gets one added.
-    prefs.write_text(json.dumps({"some_key": 1}), encoding="utf-8")
-    seed_default_search_engine(udd)
-    restored = json.loads(prefs.read_text(encoding="utf-8"))
-    assert restored["some_key"] == 1
-    assert _search(restored) == "Google"
+    assert secure.exists()
 
 
 def test_urls_to_open_restores_saved_session_over_startup(tmp_path):

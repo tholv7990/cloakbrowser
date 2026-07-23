@@ -93,24 +93,6 @@ def profile_launch_snapshot(
 _SESSION_FILE = "last-session.json"
 _INTERNAL_URL_PREFIXES = ("about:", "chrome:", "chrome-extension:", "devtools:", "edge:")
 
-# A fresh CloakBrowser profile ships with no default search engine, so the
-# address bar treats plain text as a hostname ("test" -> http://test/) instead
-# of searching. Seed Google so it behaves like normal Chrome.
-_DEFAULT_SEARCH_PREFS = {
-    "default_search_provider_data": {
-        "template_url_data": {
-            "short_name": "Google",
-            "keyword": "google.com",
-            "url": "https://www.google.com/search?q={searchTerms}",
-            "suggestions_url": "https://www.google.com/complete/search?client=chrome&q={searchTerms}",
-            "favicon_url": "https://www.google.com/favicon.ico",
-            "prepopulate_id": 1,
-            "safe_for_autoreplace": True,
-        }
-    }
-}
-
-
 # The stealth binary ships with NO prepopulated search engines, so the omnibox
 # has no search fallback and types plain text as a hostname ("test" -> http://test/).
 # The default search provider is a *protected* Chromium pref (HMAC-guarded in
@@ -161,23 +143,28 @@ def ensure_initial_preferences(binary_dir: Path) -> None:
 
 
 def seed_default_search_engine(user_data_dir: Path) -> None:
-    """Ensure the profile has a default search engine (Google) before launch.
+    """Heal an EXISTING profile that has no default search engine.
 
-    Applies to new profiles and to existing ones that never got one; leaves a
-    search engine the user has already chosen untouched. Written before launch,
-    so the profile is not running and the file is not locked.
+    New profiles get Google from the binary's `initial_preferences` at first run.
+    A profile that predates that (already ran, still no provider) is healed once
+    here: seed the provider into `Preferences` and drop `Secure Preferences` so
+    Chromium re-baselines its tracked-pref MACs and trusts the seeded value
+    instead of resetting it as tampering. Only pref-level state resets (extensions
+    re-load at launch; homepage/pinned re-baseline) — cookies, logins and history
+    are separate files and are untouched. Runs before launch (files unlocked) and
+    is a one-time no-op once a provider exists. Never raises.
     """
-    prefs = user_data_dir / "Default" / "Preferences"
+    default = user_data_dir / "Default"
+    prefs = default / "Preferences"
     try:
-        if prefs.exists():
-            data = json.loads(prefs.read_text(encoding="utf-8"))
-            if not isinstance(data, dict) or "default_search_provider_data" in data:
-                return
-            data.update(_DEFAULT_SEARCH_PREFS)
-        else:
-            prefs.parent.mkdir(parents=True, exist_ok=True)
-            data = dict(_DEFAULT_SEARCH_PREFS)
+        if not prefs.exists():
+            return  # brand-new profile -> initial_preferences seeds it at first run
+        data = json.loads(prefs.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or data.get("default_search_provider_data"):
+            return  # already has a provider (healed, or user-chosen) -> leave it
+        data["default_search_provider_data"] = {"template_url_data": _SEARCH_TEMPLATE_URL_DATA}
         prefs.write_text(json.dumps(data), encoding="utf-8")
+        (default / "Secure Preferences").unlink(missing_ok=True)
     except (OSError, ValueError):
         pass  # a bad seed must never block a launch
 
