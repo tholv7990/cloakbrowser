@@ -62,11 +62,31 @@ Rust (`rustup`), Tauri CLI (`npm i -g @tauri-apps/cli`), `pip install pyinstalle
 - **Readiness.** `main.rs` has a TODO to poll `/api/v1/health` (or let the SPA retry)
   before the UI expects the API.
 - **Restart.** `main.rs` has a TODO to respawn the sidecar on unexpected exit.
-- **Updater.** `tauri.conf.json` points the updater at `/updates/latest`; the cloud
-  endpoint must return **Tauri's** update-manifest JSON shape (a small adapter over
-  the existing signed release row) and the `pubkey` must be the Tauri minisign key.
-- **Signing (Phase 4).** Authenticode-sign the NSIS installer + exe; add the
-  preserve-or-delete-profiles uninstall page.
+## Phase 4 — signing, updater, uninstall (wired)
+
+- **Updater endpoint (done).** The cloud exposes `GET /updates/tauri/{target}/{current_version}`
+  returning Tauri v2's dynamic-update JSON (`version`, `pub_date`, `url`, `signature`,
+  `notes`) or **204** when up to date — a small adapter over the signed release row.
+  `tauri.conf.json` points `plugins.updater.endpoints` at it. Set `pubkey` to your
+  **Tauri minisign public key**, and store the installer's minisign signature in the
+  release row's `signature` (publish via `updates.publish_release`). Generate the
+  updater keypair with `tauri signer generate`.
+- **Authenticode signing (config in place, needs a cert).** `bundle.windows` sets
+  `certificateThumbprint` / `digestAlgorithm` (sha256) / `timestampUrl`. Install your
+  OV/EV cert in the Windows store and replace the thumbprint; `tauri build` then signs
+  the exe + NSIS installer. (Alternatively use a `signCommand` for an HSM/cloud signer.)
+- **Preserve/delete uninstall (done).** `src-tauri/nsis-hooks.nsh`
+  (`bundle.windows.nsis.installerHooks`) adds a separate uninstall prompt — default
+  **Keep** — that only removes `%LOCALAPPDATA%\Plasma` on explicit Yes; a legacy
+  `CloakBrowser\Manager` root is never touched.
+
+## Still to verify
+
+- **WebView origin** — confirm the real Windows origin and keep `PLASMA_ALLOWED_ORIGIN`
+  in sync (see `main.rs`).
+- **Readiness / restart** — the `main.rs` TODOs (health-gate before UI, respawn on exit).
+- **Minimum-supported-version** — the release row carries `min_supported_version`; wire
+  a client check (or a server 426) to force-update clients below it.
 
 ## Not bundled / not weakened
 

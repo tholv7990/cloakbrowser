@@ -55,3 +55,27 @@ def get_latest_release(session, *, channel: str) -> models.UpdateRelease | None:
         .where(models.UpdateRelease.channel == channel)
         .order_by(models.UpdateRelease.published_at.desc())
     ).first()
+
+
+def _parse_version(value: str) -> tuple[int, ...]:
+    parts = []
+    for segment in value.lstrip("vV").split("."):
+        digits = "".join(ch for ch in segment if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts) or (0,)
+
+
+def is_newer(candidate: str, current: str) -> bool:
+    """Numeric-dotted version compare (pre-release tags ignored for v1)."""
+    return _parse_version(candidate) > _parse_version(current)
+
+
+def tauri_manifest(release: models.UpdateRelease) -> dict:
+    """Map a release row to Tauri v2's dynamic-update JSON shape."""
+    return {
+        "version": release.version,
+        "pub_date": release.published_at.isoformat(),
+        "url": release.artifact_url,
+        "signature": release.signature,  # Tauri minisign signature of the installer
+        "notes": "",
+    }
