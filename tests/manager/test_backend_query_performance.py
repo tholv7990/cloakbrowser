@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+import sqlite3
 from typing import Iterator
 
 from sqlalchemy import Engine, create_engine, event
@@ -11,6 +12,8 @@ from manager_backend.features.media.service import list_assets
 from manager_backend.features.profiles.service import list_profiles
 from manager_backend.features.proxies.service import list_proxies
 from manager_backend.features.resources.service import list_sessions
+from manager_backend.features.resources import service as resource_service
+from manager_backend.features.runtime.snapshots import load_latest_runtimes
 from manager_backend.models import (
     Base,
     MediaAsset,
@@ -179,4 +182,89 @@ def test_session_history_uses_constant_statement_count() -> None:
             rows = list_sessions(session, 100)
 
     assert len(rows) == 100
+    assert len(statements) <= 2
+
+
+def test_latest_runtime_snapshot_uses_bounded_sqlite_work() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        profiles = [_profile(index) for index in range(100)]
+        session.add_all(profiles)
+        session.flush()
+        for runtime_index in range(100):
+            session.add_all(
+                [
+                    RuntimeSession(
+                        profile_id=profile.id,
+                        state="stopped",
+                        last_message="stopped",
+                        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc)
+                        + timedelta(minutes=runtime_index),
+                    )
+                    for profile in profiles
+                ]
+            )
+        session.commit()
+        session.expunge_all()
+
+        callbacks = 0
+
+        def count_vm_steps() -> int:
+            nonlocal callbacks
+            callbacks += 1
+            return 0
+
+        raw = session.connection().connection.driver_connection
+        assert isinstance(raw, sqlite3.Connection)
+        raw.set_progress_handler(count_vm_steps, 100)
+        try:
+            runtimes, _ = load_latest_runtimes(session)
+        finally:
+            raw.set_progress_handler(None, 0)
+
+    assert len(runtimes) == 100
+    assert callbacks < 2_000
+
+
+def test_resource_snapshot_uses_constant_profile_lookup_queries(monkeypatch) -> None:
+    engine = _engine()
+
+    class Process:
+        def __init__(self, pid: int) -> None:
+            self.pid = pid
+
+        def cpu_percent(self, interval=None) -> float:
+            return 1.0
+
+        def memory_info(self):
+            return type("Memory", (), {"rss": 1024})()
+
+        def is_running(self) -> bool:
+            return True
+
+    monkeypatch.setattr(resource_service, "_cache", None)
+    monkeypatch.setattr(resource_service, "_tree", lambda pid: [Process(pid)])
+
+    with Session(engine) as session:
+        profiles = [_profile(index) for index in range(100)]
+        session.add_all(profiles)
+        session.flush()
+        session.add_all(
+            [
+                RuntimeSession(
+                    profile_id=profile.id,
+                    state="running",
+                    last_message="running",
+                    browser_pid=10_000 + index,
+                )
+                for index, profile in enumerate(profiles)
+            ]
+        )
+        session.commit()
+        session.expunge_all()
+
+        with statement_counter(engine) as statements:
+            snapshot = resource_service.build_snapshot(session)
+
+    assert len(snapshot["profiles"]) == 100
     assert len(statements) <= 2

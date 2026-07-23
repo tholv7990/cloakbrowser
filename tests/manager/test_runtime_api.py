@@ -327,6 +327,45 @@ def test_runtime_snapshot_emits_when_only_running_count_changes(client, auth_hea
     assert changed["running_session_count"] == 2
 
 
+def test_runtime_snapshot_contains_only_latest_session_per_profile(client, auth_headers):
+    with client.app.state.session_factory() as session:
+        for profile_index in range(10):
+            profile = Profile(
+                name=f"history-{profile_index}",
+                fingerprint_seed=f"{profile_index + 8000:020x}",
+                fingerprint_config_hash="a" * 64,
+            )
+            session.add(profile)
+            session.flush()
+            session.add_all(
+                [
+                    RuntimeSession(
+                        profile_id=profile.id,
+                        state="stopped",
+                        last_message=f"stopped-{runtime_index}",
+                    )
+                    for runtime_index in range(100)
+                ]
+            )
+        session.commit()
+
+    with client.websocket_connect(
+        "/api/v1/events",
+        headers={"Origin": "http://127.0.0.1:5173"},
+    ) as socket:
+        snapshot = socket.receive_json()
+
+    with client.app.state.engine.connect() as connection:
+        profile_ids = {
+            profile_id
+            for profile_id, in connection.exec_driver_sql(
+                "SELECT id FROM profiles WHERE name LIKE 'history-%'"
+            )
+        }
+    assert len(snapshot["runtimes"]) == 10
+    assert {runtime["profile_id"] for runtime in snapshot["runtimes"]} == profile_ids
+
+
 def test_runtime_events_require_cookie_and_exact_origin(client, auth_headers):
     client.app.state.runtime_manager = RuntimeManager(
         client.app.state.session_factory,

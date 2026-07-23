@@ -182,6 +182,7 @@ class Profile(TimestampMixin, Base):
             "user_agent_mode IN ('automatic', 'custom')",
             name="ck_profiles_user_agent_mode",
         ),
+        Index("ix_profiles_proxy_id", "proxy_id"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -356,6 +357,16 @@ class RuntimeSession(Base):
                 "state IN ('queued','starting','running','stopping','detached')"
             ),
         ),
+        Index(
+            "ix_runtime_sessions_profile_created_at",
+            "profile_id",
+            "created_at",
+        ),
+        Index(
+            "ix_runtime_sessions_created_at_id",
+            "created_at",
+            "id",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -465,6 +476,11 @@ profile_media_assets = Table(
         String(36),
         ForeignKey("media_assets.id", ondelete="CASCADE"),
         primary_key=True,
+    ),
+    Index(
+        "ix_profile_media_assets_media_profile",
+        "media_asset_id",
+        "profile_id",
     ),
 )
 

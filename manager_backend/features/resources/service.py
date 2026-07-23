@@ -89,12 +89,17 @@ def build_snapshot(session: Session) -> dict[str, Any]:
         }
         backend = _summarize([_backend_proc], logical)
 
-        runtimes = session.scalars(
-            select(RuntimeSession).where(RuntimeSession.state.in_(ACTIVE_STATES))
+        runtimes = session.execute(
+            select(RuntimeSession, Profile.name)
+            .join(Profile, Profile.id == RuntimeSession.profile_id)
+            .where(
+                RuntimeSession.state.in_(ACTIVE_STATES),
+                Profile.deleted_at.is_(None),
+            )
         ).all()
         profile_rows: list[dict[str, Any]] = []
         all_browser: dict[int, psutil.Process] = {}
-        for runtime in runtimes:
+        for runtime, profile_name in runtimes:
             if runtime.browser_pid is None:
                 continue
             procs = _tree(runtime.browser_pid)
@@ -102,12 +107,11 @@ def build_snapshot(session: Session) -> dict[str, Any]:
                 continue
             for proc in procs:
                 all_browser[proc.pid] = proc
-            profile = session.get(Profile, runtime.profile_id)
             profile_rows.append(
                 {
                     **_summarize(procs, logical),
                     "profile_id": runtime.profile_id,
-                    "profile_name": profile.name if profile is not None else runtime.profile_id,
+                    "profile_name": profile_name,
                     "runtime_state": runtime.state,
                 }
             )
