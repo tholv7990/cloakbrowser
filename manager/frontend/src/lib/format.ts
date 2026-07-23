@@ -52,6 +52,15 @@ export function formatPercent(ratio: number | null | undefined): string {
   return `${Math.round(ratio * 100)}%`;
 }
 
+/** ISO 3166-1 alpha-2 country code -> flag emoji ("US" -> "🇺🇸"). Empty string
+ *  for anything that isn't a two-letter code, so callers can fall back. */
+export function countryFlag(code: string | null | undefined): string {
+  if (!code || !/^[a-zA-Z]{2}$/.test(code)) return '';
+  return String.fromCodePoint(
+    ...[...code.toUpperCase()].map((letter) => 0x1f1e6 + letter.charCodeAt(0) - 65),
+  );
+}
+
 export function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);

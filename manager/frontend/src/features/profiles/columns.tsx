@@ -6,7 +6,7 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { IconButton } from '@/components/ui/IconButton';
 import { Badge } from '@/components/ui/Badge';
 import { ProxyHealthDot, ReputationBadge, RuntimeBadge } from '@/components/domain/StatusBadges';
-import { relativeTime } from '@/lib/format';
+import { countryFlag, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { StartStopButton } from './StartStopButton';
 import { ProfileRowActions, type RowDialog } from './ProfileRowActions';
@@ -131,7 +131,18 @@ export function buildColumns(
               <>
                 <div className="flex items-center gap-2">
                   <span className="text-[13px] text-ink group-hover:text-accent">
-                    {proxy.country ?? proxy.scheme.toUpperCase()}
+                    {proxy.country ? (
+                      <>
+                        {countryFlag(proxy.country) && (
+                          <span className="mr-1" aria-hidden="true">
+                            {countryFlag(proxy.country)}
+                          </span>
+                        )}
+                        {proxy.country}
+                      </>
+                    ) : (
+                      proxy.scheme.toUpperCase()
+                    )}
                   </span>
                   <ProxyHealthDot health={proxyHealth(proxy)} />
                 </div>
