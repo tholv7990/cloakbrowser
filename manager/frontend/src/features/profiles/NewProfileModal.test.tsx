@@ -54,8 +54,8 @@ describe('NewProfileModal', () => {
       .find((el) => within(el).queryByRole('option', { name: /^socks5$/i }));
     if (!typeSelect) throw new Error('proxy type select not found');
     await user.selectOptions(typeSelect, 'socks5');
-    await user.type(screen.getByPlaceholderText(/host or host/i), '1.2.3.4');
-    await user.type(screen.getByPlaceholderText('1080'), '9000');
+    // Paste a full proxy string into the paste line; it fills host/port/creds.
+    await user.type(screen.getByPlaceholderText('host:port:user:pass'), '1.2.3.4:9000:user:pass');
     await user.click(screen.getByRole('button', { name: /^create$/i }));
 
     await waitFor(() => expect(mockStore.proxies.length).toBe(proxiesBefore + 1), { timeout: 3000 });

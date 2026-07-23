@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Settings2, Sparkles, XCircle, Zap } from 'lucide-react';
+import { Settings2, Sparkles, XCircle, Zap } from 'lucide-react';
 import type { Folder, ProxyProviderId, ProxyQuickTest, ProxyScheme } from '@/types/api';
 import { api } from '@/api';
 import { useT } from '@/i18n';
@@ -12,10 +12,10 @@ import { Field } from '@/components/ui/Field';
 import { Input, Textarea } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Badge } from '@/components/ui/Badge';
-import { countryFlag, formatLatency } from '@/lib/format';
 import { defaultWizardValues, wizardValuesToPayload } from '@/schemas/profile';
 import { parseProxyText, proxySchemes } from '@/schemas/proxy';
 import { useProxyProviders, useQuickTestAdhoc } from '@/features/proxies/api';
+import { ProxyQuickResult } from '@/features/proxies/ProxyResultViews';
 import { ProvidersDialog } from '@/features/proxies/ProvidersDialog';
 import { listTemplates } from '@/features/profile-editor/profileTemplates';
 
@@ -347,9 +347,10 @@ export function NewProfileModal({
 }
 
 /**
- * Inline single-proxy form (BitBrowser style): pick the transport, fill
- * host/port/creds — or paste a full `host:port:user:pass` line into Host to
- * auto-split — and Check it before creating. The chosen scheme is what actually
+ * Inline single-proxy form (BitBrowser style), stacked one control per row:
+ * Type → a paste line → the parsed host/port → the parsed user/pass. Pasting a
+ * full `host:port:user:pass` (or `scheme://user:pass@host:port`) into the paste
+ * line fills the fields below, which stay editable. The chosen scheme is what
  * gets saved, so a SOCKS5 proxy is tested and launched as SOCKS5 (not http).
  */
 function ProxyOneForm({ value, onChange }: { value: OneProxy; onChange: (v: OneProxy) => void }) {
@@ -357,10 +358,14 @@ function ProxyOneForm({ value, onChange }: { value: OneProxy; onChange: (v: OneP
   const test = useQuickTestAdhoc();
   const [result, setResult] = useState<ProxyQuickTest | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pasteText, setPasteText] = useState('');
 
   const set = (patch: Partial<OneProxy>) => onChange({ ...value, ...patch });
 
-  const onHost = (raw: string) => {
+  // The paste line fills the parsed fields below (keeping the current scheme
+  // unless the pasted string carries its own scheme://).
+  const onPaste = (raw: string) => {
+    setPasteText(raw);
     const parsed = parseProxyText(raw);
     if (parsed?.host && parsed.port) {
       onChange({
@@ -370,8 +375,6 @@ function ProxyOneForm({ value, onChange }: { value: OneProxy; onChange: (v: OneP
         username: parsed.username,
         password: parsed.password,
       });
-    } else {
-      set({ host: raw });
     }
   };
 
@@ -396,21 +399,24 @@ function ProxyOneForm({ value, onChange }: { value: OneProxy; onChange: (v: OneP
 
   return (
     <div className="space-y-2.5 rounded-md border border-line bg-surface-sunken p-3">
-      <div className="grid grid-cols-[110px_1fr_88px] gap-2">
-        <Field label={t('new.proxyType')}>
-          <Select
-            value={value.scheme}
-            onChange={(e) => set({ scheme: e.target.value as ProxyScheme })}
-            options={schemeOptions}
-          />
-        </Field>
+      <Field label={t('new.proxyType')}>
+        <Select
+          value={value.scheme}
+          onChange={(e) => set({ scheme: e.target.value as ProxyScheme })}
+          options={schemeOptions}
+        />
+      </Field>
+      <Field label={t('new.proxyPaste')} hint={t('new.proxyPasteHint')}>
+        <Input
+          value={pasteText}
+          onChange={(e) => onPaste(e.target.value)}
+          placeholder="host:port:user:pass"
+          className="font-mono text-[12px]"
+        />
+      </Field>
+      <div className="grid grid-cols-[1fr_96px] gap-2">
         <Field label={t('pxd.host')}>
-          <Input
-            value={value.host}
-            onChange={(e) => onHost(e.target.value)}
-            placeholder="host or host:port:user:pass"
-            className="font-mono text-[12px]"
-          />
+          <Input value={value.host} onChange={(e) => set({ host: e.target.value })} placeholder="proxy.example" mono />
         </Field>
         <Field label={t('pxd.port')}>
           <Input
@@ -427,12 +433,7 @@ function ProxyOneForm({ value, onChange }: { value: OneProxy; onChange: (v: OneP
           <Input value={value.username} onChange={(e) => set({ username: e.target.value })} autoComplete="off" />
         </Field>
         <Field label={t('auth.password')}>
-          <Input
-            type="password"
-            value={value.password}
-            onChange={(e) => set({ password: e.target.value })}
-            autoComplete="new-password"
-          />
+          <Input value={value.password} onChange={(e) => set({ password: e.target.value })} autoComplete="off" mono />
         </Field>
       </div>
       <div className="flex items-center gap-2">
@@ -446,37 +447,7 @@ function ProxyOneForm({ value, onChange }: { value: OneProxy; onChange: (v: OneP
           <XCircle className="h-3.5 w-3.5" /> {error}
         </p>
       )}
-      {result && <OneProxyResult result={result} />}
-    </div>
-  );
-}
-
-/** Compact one-line result for the inline check (IP · flag country · latency). */
-function OneProxyResult({ result }: { result: ProxyQuickTest }) {
-  const t = useT();
-  if (!result.ok) {
-    return (
-      <p className="flex items-center gap-1.5 text-2xs text-danger">
-        <XCircle className="h-3.5 w-3.5" /> {t('new.proxyUnreachable')}
-        {result.error ? ` · ${result.error}` : ''}
-      </p>
-    );
-  }
-  const flag = countryFlag(result.country);
-  const place = [result.city, result.country_name ?? result.country].filter(Boolean).join(', ');
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-success/30 bg-success/10 px-2.5 py-2 text-2xs">
-      <span className="flex items-center gap-1 font-medium text-success">
-        <CheckCircle2 className="h-3.5 w-3.5" /> {t('new.proxyReachable')}
-      </span>
-      {result.exit_ip && <span className="data text-ink">{result.exit_ip}</span>}
-      {place && (
-        <span className="text-ink-muted">
-          {flag ? `${flag} ` : ''}
-          {place}
-        </span>
-      )}
-      <span className="ml-auto text-ink-faint">{t('pxr.median', { latency: formatLatency(result.latency_ms) })}</span>
+      {result && <ProxyQuickResult result={result} />}
     </div>
   );
 }
