@@ -469,6 +469,7 @@ export const en = {
   'pxd.desc': 'Reusable across profiles. Passwords are write-only and never returned.',
   'pxd.save': 'Save changes',
   'pxd.create': 'Create proxy',
+  'pxd.removeProxy': 'Remove proxy',
   'pxd.mode': 'Mode',
   'pxd.pasteParse': 'Paste & parse',
   'pxd.parseHint': 'Accepts scheme://user:pass@host:port and host:port:user:pass.',

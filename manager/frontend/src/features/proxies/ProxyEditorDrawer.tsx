@@ -38,12 +38,16 @@ export function ProxyEditorDrawer({
   proxy,
   onClose,
   onSaved,
+  onRemove,
   defaultLabel = '',
 }: {
   open: boolean;
   proxy: Proxy | null;
   onClose: () => void;
   onSaved?: (proxy: Proxy) => void;
+  /** When set, shows a "Remove proxy" action (e.g. set a profile back to
+   *  direct/no-proxy) in the footer. */
+  onRemove?: () => void;
   /** Pre-fill the label for a NEW proxy (e.g. the profile's name when adding
    *  a proxy from the profile form). Ignored when editing an existing proxy. */
   defaultLabel?: string;
@@ -130,6 +134,11 @@ export function ProxyEditorDrawer({
       description={t('pxd.desc')}
       footer={
         <>
+          {onRemove && (
+            <Button variant="ghost" className="mr-auto text-danger" onClick={onRemove}>
+              {t('pxd.removeProxy')}
+            </Button>
+          )}
           <Button variant="ghost" onClick={onClose}>
             {t('common.close')}
           </Button>

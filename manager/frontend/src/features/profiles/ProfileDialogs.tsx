@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Download, ExternalLink, Pencil, Plus } from 'lucide-react';
+import { Download, ExternalLink } from 'lucide-react';
 import type { CookieFormat, Folder, ProfileView, Proxy, ProfileUpdatePayload } from '@/types/api';
 import { api } from '@/api';
 import { useT } from '@/i18n';
@@ -14,8 +14,8 @@ import { Badge } from '@/components/ui/Badge';
 import { LoadingBlock, EmptyState, ErrorState } from '@/components/ui/states';
 import { useToast } from '@/components/ui/Toast';
 import { relativeTime } from '@/lib/format';
-import { useProxyReports, useQuickTest } from '@/features/proxies/api';
-import { ProxyQualityReportView, ProxyQuickResult } from '@/features/proxies/ProxyResultViews';
+import { useProxyReports } from '@/features/proxies/api';
+import { ProxyQualityReportView } from '@/features/proxies/ProxyResultViews';
 import { ProxyEditorDrawer } from '@/features/proxies/ProxyEditorDrawer';
 import type { RowDialog } from './ProfileRowActions';
 import {
@@ -79,7 +79,6 @@ export function ProfileDialogs({
   });
   const regenerate = useRegenerateFingerprint();
   const trash = useMoveToTrash();
-  const quickTest = useQuickTest();
 
   const patchProfile = useMutation({
     mutationFn: (patch: ProfileUpdatePayload) => api.updateProfile(id!, patch),
@@ -99,25 +98,17 @@ export function ProfileDialogs({
   });
 
   const [folderId, setFolderId] = useState('');
-  const [proxyId, setProxyId] = useState('');
   const [cookieFormat, setCookieFormat] = useState<CookieFormat>('playwright');
   const [cookieContent, setCookieContent] = useState('');
-  const [proxyEditor, setProxyEditor] = useState<{ open: boolean; proxy: Proxy | null }>({
-    open: false,
-    proxy: null,
-  });
 
   useEffect(() => {
     if (!dialog) return;
     setFolderId(dialog.profile.folder_id ?? '');
-    setProxyId(dialog.profile.proxy?.id ?? '');
     setCookieFormat('playwright');
     setCookieContent('');
     setLogsPage(1);
     setLogsPageSize(20);
-    setProxyEditor({ open: false, proxy: null });
     importCookies.reset();
-    quickTest.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dialog?.type, dialog?.profile.id]);
 
@@ -197,99 +188,31 @@ export function ProfileDialogs({
   }
 
   if (type === 'assign-proxy') {
-    const selectedProxy = proxies.find((p) => p.id === proxyId) ?? null;
-    const multiAssigned = selectedProxy && selectedProxy.assigned_profile_count > 1;
+    // Click the proxy → open the proxy form directly (BitBrowser-style): edit the
+    // profile's current proxy, or fill a fresh one that is assigned on save.
+    const assigned = proxies.find((p) => p.id === profile.proxy?.id) ?? null;
     return (
-      <Modal
+      <ProxyEditorDrawer
         open
+        proxy={assigned}
+        defaultLabel={profile.name}
         onClose={onClose}
-        title={t('dlg.assignProxy.title')}
-        description={profile.name}
-        footer={
-          <>
-            <Button variant="ghost" onClick={onClose}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="primary"
-              loading={patchProfile.isPending}
-              onClick={() =>
+        onSaved={(saved) =>
+          patchProfile.mutate({
+            expected_updated_at: profile.read.updated_at,
+            proxy_id: saved.id,
+          })
+        }
+        onRemove={
+          profile.proxy?.id
+            ? () =>
                 patchProfile.mutate({
                   expected_updated_at: profile.read.updated_at,
-                  proxy_id: proxyId || null,
+                  proxy_id: null,
                 })
-              }
-            >
-              {t('dlg.assign')}
-            </Button>
-          </>
+            : undefined
         }
-      >
-        <div className="space-y-3">
-          <Field label={t('dlg.reusableProxy')}>
-            <div className="flex items-center gap-2">
-              <Select
-                className="flex-1"
-                value={proxyId}
-                onChange={(e) => setProxyId(e.target.value)}
-                options={[
-                  { value: '', label: t('editor.directNoProxy') },
-                  ...proxies.map((p) => ({
-                    value: p.id,
-                    label: `${p.label} · ${p.masked_endpoint}`,
-                  })),
-                ]}
-              />
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={!selectedProxy}
-                onClick={() =>
-                  selectedProxy && setProxyEditor({ open: true, proxy: selectedProxy })
-                }
-              >
-                <Pencil className="h-3.5 w-3.5" /> {t('common.edit')}
-              </Button>
-            </div>
-          </Field>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setProxyEditor({ open: true, proxy: null })}
-          >
-            <Plus className="h-3.5 w-3.5" /> {t('dlg.addNewProxy')}
-          </Button>
-          {multiAssigned && (
-            <p className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-2.5 text-2xs text-warning">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              {t('dlg.proxyMultiWarn', { count: selectedProxy!.assigned_profile_count })}
-            </p>
-          )}
-          {selectedProxy && selectedProxy.scheme !== 'direct' && (
-            <div>
-              <Button
-                variant="secondary"
-                size="sm"
-                loading={quickTest.isPending}
-                onClick={() => quickTest.mutate(selectedProxy.id)}
-              >
-                {t('dlg.quickTestThis')}
-              </Button>
-              {quickTest.data && (
-                <div className="mt-3">
-                  <ProxyQuickResult result={quickTest.data} />
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-        <ProxyEditorDrawer
-          open={proxyEditor.open}
-          proxy={proxyEditor.proxy}
-          onClose={() => setProxyEditor({ open: false, proxy: null })}
-          onSaved={(saved) => setProxyId(saved.id)}
-        />
-      </Modal>
+      />
     );
   }
 

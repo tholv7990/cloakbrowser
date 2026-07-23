@@ -74,6 +74,21 @@ describe('ProfileDialogs', () => {
     );
   });
 
+  it('opens the proxy form directly for assign-proxy (no intermediate dialog)', async () => {
+    renderWithProviders(
+      <ProfileDialogs
+        dialog={{ type: 'assign-proxy', profile: profileView() }}
+        onClose={() => undefined}
+        folders={mockStore.folders}
+        proxies={mockStore.proxies}
+      />,
+    );
+    // The editable proxy form is on screen immediately — no "Assign proxy" picker,
+    // no "Add new proxy" step to click through first.
+    expect(await screen.findByPlaceholderText(/residential/i)).toBeInTheDocument();
+    expect(screen.queryByText(/add new proxy/i)).not.toBeInTheDocument();
+  });
+
   it('reports rejected cookies separately from skipped cookies', async () => {
     const user = userEvent.setup();
     renderWithProviders(

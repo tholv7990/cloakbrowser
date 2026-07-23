@@ -473,6 +473,7 @@ export const vi: Record<keyof typeof en, string> = {
   'pxd.desc': 'Dùng lại được giữa các hồ sơ. Mật khẩu chỉ ghi và không bao giờ trả về.',
   'pxd.save': 'Lưu thay đổi',
   'pxd.create': 'Tạo proxy',
+  'pxd.removeProxy': 'Gỡ proxy',
   'pxd.mode': 'Chế độ',
   'pxd.pasteParse': 'Dán & phân tích',
   'pxd.parseHint': 'Chấp nhận scheme://user:pass@host:port và host:port:user:pass.',
