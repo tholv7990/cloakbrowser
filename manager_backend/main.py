@@ -13,10 +13,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api import api_router
 from .auth.routes import router as auth_router
 from .config import ManagerSettings
-from .db import create_engine_for, create_session_factory, ensure_performance_indexes
+from .db import apply_schema, create_engine_for, create_session_factory
 from .errors import install_error_handlers
 from .maintenance import MaintenanceGate
-from .models import Base
 from .dependencies import require_authenticated_session
 from .features.runtime.manager import RuntimeManager
 from .features.runtime.reconcile import cleanup_stale_locks, reconcile_runtimes
@@ -129,8 +128,7 @@ def create_app(
     app.state.settings_store = SettingsStore(resolved.data_root / "settings.json")
     app.state.install_token = resolved.resolved_install_token()
     app.state.engine = create_engine_for(resolved)
-    Base.metadata.create_all(app.state.engine)
-    ensure_performance_indexes(app.state.engine)
+    apply_schema(app.state.engine, resolved.data_root)
     app.state.session_factory = create_session_factory(app.state.engine)
     # Serializes a destructive backup-restore against every worker-spawning /
     # state-changing endpoint (they take a gate operation; restore takes it

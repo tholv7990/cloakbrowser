@@ -173,3 +173,28 @@ def test_app_startup_applies_pending_migrations(tmp_path, monkeypatch):
     app.state.engine.dispose()
 
     assert "ix_profiles_proxy_id" in indexes
+
+
+def test_app_startup_builds_and_stamps_a_fresh_database(tmp_path):
+    settings = ManagerSettings(
+        data_root=tmp_path / "fresh-manager",
+        install_token="test-local-token",
+        auto_backup_enabled=False,
+    )
+    app = create_app(settings)
+
+    with app.state.engine.connect() as connection:
+        tables = {
+            name
+            for name, in connection.exec_driver_sql(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        version = connection.exec_driver_sql(
+            "SELECT version_num FROM alembic_version"
+        ).scalar()
+    app.state.engine.dispose()
+
+    # A fresh DB is built and stamped at head, so future migrations apply to it.
+    assert "profiles" in tables
+    assert version == "0015_performance_indexes"

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine, event, inspect
 from sqlalchemy.orm import Session, sessionmaker
 
 from .config import ManagerSettings
@@ -54,6 +56,51 @@ def ensure_performance_indexes(engine: Engine) -> None:
     with engine.begin() as connection:
         for index in indexes:
             index.create(connection, checkfirst=True)
+
+
+@contextmanager
+def _alembic_config(data_root: Path) -> Iterator["object"]:
+    """Alembic config pinned to this database (env.py reads CLOAK_MANAGER_DATA_ROOT).
+
+    The env var is set for the duration of the migration only and restored after,
+    so running against one database never leaks its data root to other callers.
+    """
+    from alembic.config import Config
+
+    here = Path(__file__).resolve().parent
+    previous = os.environ.get("CLOAK_MANAGER_DATA_ROOT")
+    os.environ["CLOAK_MANAGER_DATA_ROOT"] = str(data_root)
+    try:
+        config = Config(str(here / "alembic.ini"))
+        config.set_main_option("script_location", str(here / "migrations"))
+        yield config
+    finally:
+        if previous is None:
+            os.environ.pop("CLOAK_MANAGER_DATA_ROOT", None)
+        else:
+            os.environ["CLOAK_MANAGER_DATA_ROOT"] = previous
+
+
+def apply_schema(engine: Engine, data_root: Path) -> None:
+    """Bring the database to the latest schema, with Alembic owning *evolution*.
+
+    - An already-managed database is upgraded to head, so column/table changes in
+      new migrations actually apply (plain create_all cannot ALTER existing tables
+      — the class of bug this replaces).
+    - A brand-new (or legacy create_all) database is built from the models and
+      stamped at head. This keeps fresh builds instant — the test suite creates a
+      database per case — while still marking it managed so future migrations run.
+    """
+    from alembic import command
+    from .models import Base
+
+    with _alembic_config(data_root) as config:
+        if inspect(engine).has_table("alembic_version"):
+            command.upgrade(config, "head")
+        else:
+            Base.metadata.create_all(engine)
+            ensure_performance_indexes(engine)
+            command.stamp(config, "head")
 
 
 @contextmanager
