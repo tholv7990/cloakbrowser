@@ -204,20 +204,28 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
   const [pasteProxy, setPasteProxy] = useState('');
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [checkResult, setCheckResult] = useState<ProxyQuickTest | null>(null);
+  const [checkError, setCheckError] = useState<string | null>(null);
   const createProxy = useCreateProxy();
   const quickTest = useQuickTest();
 
-  // Clear a stale check result when the selected proxy changes.
-  useEffect(() => setCheckResult(null), [proxyId]);
+  // Note: the check is cleared explicitly on Remove and at the start of each run
+  // — not via a proxyId effect, which would race (and wipe) the auto-check that
+  // fires right after adding a proxy.
 
-  const checkProxy = async () => {
-    if (!proxyId) return;
+  // Run a quick check against a proxy id and surface the outcome — including
+  // failures, which must never be swallowed silently.
+  const runCheck = async (id: string) => {
     setCheckResult(null);
+    setCheckError(null);
     try {
-      setCheckResult(await quickTest.mutateAsync(proxyId));
-    } catch {
-      // Failures surface as ok:false in the result; nothing else to do here.
+      setCheckResult(await quickTest.mutateAsync(id));
+    } catch (error) {
+      setCheckError((error as Error).message || t('editor.quickProxyFailed'));
     }
+  };
+
+  const checkProxy = () => {
+    if (proxyId) runCheck(proxyId);
   };
 
   const quickAddProxy = async () => {
@@ -239,6 +247,7 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
       setValue('proxy_id', created.id, { shouldValidate: true });
       setPasteProxy('');
       setPasteError(null);
+      runCheck(created.id); // add + check in one step; result shows below
     } catch {
       setPasteError(t('editor.quickProxyFailed'));
     }
@@ -326,12 +335,21 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => setValue('proxy_id', '', { shouldValidate: true })}
+                onClick={() => {
+                  setValue('proxy_id', '', { shouldValidate: true });
+                  setCheckResult(null);
+                  setCheckError(null);
+                }}
               >
                 {t('common.remove')}
               </Button>
             </div>
           </div>
+          {checkError && (
+            <p className="rounded-md border border-danger/30 bg-danger/10 p-2.5 text-2xs text-danger">
+              {checkError}
+            </p>
+          )}
           {checkResult && <ProxyQuickResult result={checkResult} />}
         </div>
       )}

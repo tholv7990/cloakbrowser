@@ -1,8 +1,9 @@
 import { FormProvider, useForm, useWatch } from 'react-hook-form';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/utils';
+import { mockApi } from '@/mocks/mockApi';
 import { mockStore } from '@/mocks/store';
 import { useProxies } from '@/features/proxies/api';
 import { defaultWizardValues, type ProfileWizardValues } from '@/schemas/profile';
@@ -60,6 +61,16 @@ describe('quick-add proxy from the profile form', () => {
     await user.click(check);
     // The geo result renders inline (reachable badge from the mock quick test).
     await waitFor(() => expect(screen.getByText(/reachable/i)).toBeInTheDocument());
+  });
+
+  it('surfaces a check failure instead of failing silently', async () => {
+    vi.spyOn(mockApi, 'quickTestProxy').mockRejectedValueOnce(new Error('Proxy unreachable'));
+    const user = userEvent.setup();
+    renderWithProviders(<Harness />);
+    await user.type(screen.getByPlaceholderText(/host:port:user:pass/i), '203.0.113.9:1080:bob:secret');
+    // Adding auto-runs the check; a failed check must show, not vanish.
+    await user.click(screen.getByRole('button', { name: /add & use/i }));
+    expect(await screen.findByText(/proxy unreachable/i)).toBeInTheDocument();
   });
 
   it('shows an error for an unparseable proxy without creating one', async () => {
