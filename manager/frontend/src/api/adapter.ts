@@ -60,6 +60,7 @@ import type {
   ProxyQualityReport,
   ProxyQuickTest,
   ProxyWritePayload,
+  ProxyTestParams,
   ResourceSnapshot,
   Settings,
   Tag,
@@ -136,6 +137,7 @@ export interface ApiAdapter {
   deleteProxy(id: string): Promise<{ ok: boolean }>;
   parseProxy(raw: string): Promise<ParsedProxy>;
   quickTestProxy(id: string): Promise<ProxyQuickTest>;
+  quickTestProxyAdhoc(params: ProxyTestParams): Promise<ProxyQuickTest>;
   qualityTestProxy(id: string): Promise<ProxyQualityReport>;
   getProxyReports(id: string): Promise<ProxyQualityReport[]>;
 

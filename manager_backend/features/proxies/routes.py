@@ -14,9 +14,11 @@ from .schemas import (
     ProxyQuickTestRead,
     ProxyQualityReportRead,
     ProxyRead,
+    ProxyTestRequest,
     ProxyWrite,
 )
 from .service import (
+    build_proxy_url,
     create_proxy,
     delete_proxy,
     get_proxy,
@@ -77,17 +79,10 @@ def delete(proxy_id: str, request: Request, session: SessionDependency) -> Respo
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/proxies/{proxy_id}/quick-test", response_model=ProxyQuickTestRead)
-def quick_test(proxy_id: str, request: Request, session: SessionDependency):
-    proxy = get_proxy(session, proxy_id)
-    proxy_url = resolve_proxy_url(session, request.app.state.credential_store, proxy_id)
-    if proxy_url is None:
-        raise ManagerError(
-            "proxy_test_not_applicable", "Direct connections do not require a proxy test.", 422
-        )
-    try:
-        result = request.app.state.proxy_quick_tester.run(proxy_url, timeout_seconds=20)
-    except ProxyTestFailure as error:
+def _quick_test_payload(result, error: str | None) -> dict:
+    """Single source of truth for the quick-test response shape, shared by the
+    saved-proxy and ad-hoc endpoints so their geo fields can't drift apart."""
+    if result is None:
         return {
             "ok": False,
             "connectivity": False,
@@ -104,9 +99,8 @@ def quick_test(proxy_id: str, request: Request, session: SessionDependency):
             "asn": None,
             "organization": None,
             "checked_at": datetime.now(timezone.utc),
-            "error": error.category,
+            "error": error,
         }
-    cache_quick_test(session, proxy, result)
     return {
         "ok": True,
         "connectivity": True,
@@ -125,6 +119,40 @@ def quick_test(proxy_id: str, request: Request, session: SessionDependency):
         "checked_at": result.checked_at,
         "error": None,
     }
+
+
+@router.post("/proxies/test", response_model=ProxyQuickTestRead)
+def quick_test_adhoc(payload: ProxyTestRequest, request: Request):
+    # Test typed values before the proxy is saved. Credentials build a transient
+    # connection URL only — nothing here is persisted, cached, or logged.
+    proxy_url = build_proxy_url(
+        payload.scheme, payload.host, payload.port, payload.username, payload.password
+    )
+    if proxy_url is None:
+        raise ManagerError(
+            "proxy_test_not_applicable", "Direct connections do not require a proxy test.", 422
+        )
+    try:
+        result = request.app.state.proxy_quick_tester.run(proxy_url, timeout_seconds=20)
+    except ProxyTestFailure as error:
+        return _quick_test_payload(None, error.category)
+    return _quick_test_payload(result, None)
+
+
+@router.post("/proxies/{proxy_id}/quick-test", response_model=ProxyQuickTestRead)
+def quick_test(proxy_id: str, request: Request, session: SessionDependency):
+    proxy = get_proxy(session, proxy_id)
+    proxy_url = resolve_proxy_url(session, request.app.state.credential_store, proxy_id)
+    if proxy_url is None:
+        raise ManagerError(
+            "proxy_test_not_applicable", "Direct connections do not require a proxy test.", 422
+        )
+    try:
+        result = request.app.state.proxy_quick_tester.run(proxy_url, timeout_seconds=20)
+    except ProxyTestFailure as error:
+        return _quick_test_payload(None, error.category)
+    cache_quick_test(session, proxy, result)
+    return _quick_test_payload(result, None)
 
 
 @router.post(

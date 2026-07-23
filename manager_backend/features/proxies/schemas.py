@@ -66,6 +66,33 @@ class ProxyRead(StrictModel):
     updated_at: datetime
 
 
+class ProxyTestRequest(StrictModel):
+    """Ad-hoc connectivity test on typed values, before the proxy is saved.
+
+    Credentials are used only to build a transient connection URL for the test;
+    they are never persisted, cached, or logged.
+    """
+
+    scheme: ProxyScheme
+    host: str = Field(default="", max_length=255)
+    port: int | None = Field(default=None, ge=1, le=65535)
+    username: str | None = Field(default=None, max_length=200, json_schema_extra={"writeOnly": True})
+    password: str | None = Field(default=None, max_length=500, json_schema_extra={"writeOnly": True})
+
+    @model_validator(mode="after")
+    def validate_endpoint(self):
+        self.host = self.host.strip().casefold()
+        supplied = self.username is not None or self.password is not None
+        if supplied and (not self.username or not self.password):
+            raise ValueError("username and password must be supplied together")
+        if self.scheme == "direct":
+            if self.host or self.port is not None or supplied:
+                raise ValueError("direct mode cannot have an endpoint or credentials")
+        elif not self.host or self.port is None or any(c.isspace() for c in self.host):
+            raise ValueError("proxy host and port are required")
+        return self
+
+
 class ProxyParseRequest(StrictModel):
     raw: str = Field(min_length=1, max_length=2000, json_schema_extra={"writeOnly": True})
 

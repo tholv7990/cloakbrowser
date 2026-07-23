@@ -3552,6 +3552,72 @@
         }
       }
     },
+    "/api/v1/proxies/test": {
+      "post": {
+        "summary": "Quick Test Adhoc",
+        "operationId": "quick_test_adhoc_api_v1_proxies_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProxyTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProxyQuickTestRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      }
+    },
     "/api/v1/proxies/{proxy_id}/quick-test": {
       "post": {
         "summary": "Quick Test",
@@ -12900,6 +12966,73 @@
           "updated_at"
         ],
         "title": "ProxyRead"
+      },
+      "ProxyTestRequest": {
+        "properties": {
+          "scheme": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "http",
+              "https",
+              "socks5",
+              "socks5h"
+            ],
+            "title": "Scheme"
+          },
+          "host": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Host",
+            "default": ""
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 65535.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username",
+            "writeOnly": true
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password",
+            "writeOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scheme"
+        ],
+        "title": "ProxyTestRequest",
+        "description": "Ad-hoc connectivity test on typed values, before the proxy is saved.\n\nCredentials are used only to build a transient connection URL for the test;\nthey are never persisted, cached, or logged."
       },
       "ProxyWrite": {
         "properties": {

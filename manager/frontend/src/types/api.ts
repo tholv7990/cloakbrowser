@@ -333,6 +333,16 @@ export interface ProxyWritePayload {
   test_before_launch: boolean;
 }
 
+/** Ad-hoc quick test of typed proxy values before the proxy is saved. */
+export interface ProxyTestParams {
+  scheme: ProxyScheme;
+  host: string;
+  port: number | null;
+  username?: string | null;
+  /** Write-only; used only to build the transient test connection. */
+  password?: string | null;
+}
+
 export interface CookieImportPayload {
   format: CookieFormat;
   content: string;

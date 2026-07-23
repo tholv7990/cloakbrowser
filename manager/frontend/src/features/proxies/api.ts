@@ -3,6 +3,7 @@ import { api, queryKeys } from '@/api';
 import type {
   GenerateProxiesPayload,
   ProxyProviderConfigPayload,
+  ProxyTestParams,
   ProxyWritePayload,
 } from '@/types/api';
 import { useToast } from '@/components/ui/Toast';
@@ -96,6 +97,11 @@ export function useQuickTest() {
     mutationFn: (id: string) => api.quickTestProxy(id),
     onSuccess: invalidate,
   });
+}
+
+/** Test typed proxy values before saving. Nothing is persisted, so no invalidation. */
+export function useQuickTestAdhoc() {
+  return useMutation({ mutationFn: (params: ProxyTestParams) => api.quickTestProxyAdhoc(params) });
 }
 
 export function useQualityTest() {

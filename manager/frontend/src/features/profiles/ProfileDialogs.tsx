@@ -196,6 +196,7 @@ export function ProfileDialogs({
         open
         proxy={assigned}
         defaultLabel={profile.name}
+        submitLabel={assigned ? undefined : t('pxd.addToProfile')}
         onClose={onClose}
         onSaved={(saved) =>
           patchProfile.mutate({

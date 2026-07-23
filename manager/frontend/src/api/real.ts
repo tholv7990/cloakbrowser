@@ -45,6 +45,7 @@ import type {
   ProxyQualityReport,
   ProxyQuickTest,
   ProxyWritePayload,
+  ProxyTestParams,
   ResourceSnapshot,
   Settings,
   Tag,
@@ -156,6 +157,8 @@ export const realApi: ApiAdapter = {
   parseProxy: (raw) => apiRequest<ParsedProxy>('/proxies/parse', { method: 'POST', body: { raw } }),
   quickTestProxy: (id) =>
     apiRequest<ProxyQuickTest>(`/proxies/${id}/quick-test`, { method: 'POST' }),
+  quickTestProxyAdhoc: (params: ProxyTestParams) =>
+    apiRequest<ProxyQuickTest>('/proxies/test', { method: 'POST', body: params }),
   qualityTestProxy: (id) =>
     apiRequest<ProxyQualityReport>(`/proxies/${id}/quality-test`, { method: 'POST' }),
   getProxyReports: (id) => apiRequest<ProxyQualityReport[]>(`/proxies/${id}/reports`),

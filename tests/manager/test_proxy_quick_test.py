@@ -105,6 +105,65 @@ def test_quick_test_returns_and_caches_only_safe_results(client, auth_headers):
     assert cached["latency_ms"] == 184
 
 
+def test_adhoc_quick_test_uses_typed_values_without_persisting(client, auth_headers):
+    class Tester:
+        def __init__(self):
+            self.received = None
+
+        def run(self, proxy_url, timeout_seconds=20):
+            self.received = (proxy_url, timeout_seconds)
+            return QuickTestResult(
+                exit_ip="74.0.96.143",
+                exit_ip_matches=True,
+                latency_ms=184,
+                country="US",
+                country_name="United States",
+                city="Dallas",
+                zip_code="75201",
+                timezone="America/Chicago",
+                latitude=32.7767,
+                longitude=-96.797,
+                asn="AS212238",
+                organization="Datacamp Limited",
+                checked_at=datetime(2026, 7, 21, tzinfo=timezone.utc),
+            )
+
+    tester = Tester()
+    client.app.state.proxy_quick_tester = tester
+    before = client.get("/api/v1/proxies", headers=auth_headers).json()
+    response = client.post(
+        "/api/v1/proxies/test",
+        headers=auth_headers,
+        json={
+            "scheme": "socks5",
+            "host": "198.51.100.25",
+            "port": 50101,
+            "username": "typed-user",
+            "password": "typed-pass",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True and body["exit_ip"] == "74.0.96.143"
+    # Typed creds go into the transient connection URL...
+    assert "typed-user" in tester.received[0] and "typed-pass" in tester.received[0]
+    # ...but never come back in the response.
+    assert "typed-user" not in str(body) and "typed-pass" not in str(body)
+    # Nothing is persisted — the proxy list is unchanged.
+    after = client.get("/api/v1/proxies", headers=auth_headers).json()
+    assert len(after) == len(before)
+
+
+def test_adhoc_quick_test_rejects_direct(client, auth_headers):
+    response = client.post(
+        "/api/v1/proxies/test",
+        headers=auth_headers,
+        json={"scheme": "direct", "host": "", "port": None},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "proxy_test_not_applicable"
+
+
 def test_quick_test_maps_transport_failure_to_safe_category(client, auth_headers):
     client.app.state.credential_store = MemoryCredentialStore()
 

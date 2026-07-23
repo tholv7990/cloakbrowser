@@ -51,6 +51,7 @@ import type {
   Proxy,
   ProxyQualityReport,
   ProxyQuickTest,
+  ProxyTestParams,
   ProxyScheme,
   ProxyWritePayload,
   ResourceSnapshot,
@@ -1186,6 +1187,23 @@ export const mockApi: ApiAdapter = {
       report_id: null,
     });
     return result;
+  },
+  async quickTestProxyAdhoc(params: ProxyTestParams): Promise<ProxyQuickTest> {
+    await delay(240);
+    // Ad-hoc: no saved proxy, so synthesize a result from the typed endpoint.
+    return buildQuickResult({
+      scheme: params.scheme,
+      host: params.host,
+      port: params.port,
+      reputation: null,
+      exit_ip: null,
+      latency_ms: null,
+      country: null,
+      city: null,
+      timezone: null,
+      asn: null,
+      organization: null,
+    } as unknown as Proxy);
   },
   async qualityTestProxy(id: string): Promise<ProxyQualityReport> {
     const proxy = mockStore.requireProxy(id);

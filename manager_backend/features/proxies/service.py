@@ -171,17 +171,33 @@ def delete_proxy(session: Session, store: CredentialStore, proxy_id: str) -> Non
         store.delete(reference)
 
 
-def resolve_proxy_url(session: Session, store: CredentialStore, proxy_id: str) -> str | None:
-    proxy = get_proxy(session, proxy_id)
-    if proxy.scheme == "direct":
+def build_proxy_url(
+    scheme: str,
+    host: str,
+    port: int | None,
+    username: str | None = None,
+    password: str | None = None,
+) -> str | None:
+    """Assemble a connection URL. Returns None for direct (no-proxy) mode.
+
+    Kept transient by callers: never persisted or logged when it carries creds.
+    """
+    if scheme == "direct":
         return None
-    credential = store.get(proxy.credential_ref) if proxy.credential_ref else None
-    authority = f"{proxy.host}:{proxy.port}"
-    if credential is not None:
+    authority = f"{host}:{port}"
+    if username:
         from urllib.parse import quote
 
-        authority = f"{quote(credential.username, safe='')}:{quote(credential.password, safe='')}@{authority}"
-    return f"{proxy.scheme}://{authority}"
+        authority = f"{quote(username, safe='')}:{quote(password or '', safe='')}@{authority}"
+    return f"{scheme}://{authority}"
+
+
+def resolve_proxy_url(session: Session, store: CredentialStore, proxy_id: str) -> str | None:
+    proxy = get_proxy(session, proxy_id)
+    credential = store.get(proxy.credential_ref) if proxy.credential_ref else None
+    username = credential.username if credential is not None else None
+    password = credential.password if credential is not None else None
+    return build_proxy_url(proxy.scheme, proxy.host, proxy.port, username, password)
 
 
 def cache_quick_test(session: Session, proxy: Proxy, result: QuickTestResult) -> None:

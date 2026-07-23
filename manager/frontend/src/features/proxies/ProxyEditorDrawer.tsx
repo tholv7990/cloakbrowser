@@ -17,7 +17,13 @@ import {
   toProxyPayload,
   type ProxyFormValues,
 } from '@/schemas/proxy';
-import { useCreateProxy, useQualityTest, useQuickTest, useUpdateProxy } from './api';
+import {
+  useCreateProxy,
+  useQualityTest,
+  useQuickTest,
+  useQuickTestAdhoc,
+  useUpdateProxy,
+} from './api';
 import { ProxyQualityReportView, ProxyQuickResult } from './ProxyResultViews';
 import { ProxyTestProgress } from './ProxyTestProgress';
 
@@ -40,6 +46,7 @@ export function ProxyEditorDrawer({
   onSaved,
   onRemove,
   defaultLabel = '',
+  submitLabel,
 }: {
   open: boolean;
   proxy: Proxy | null;
@@ -51,6 +58,8 @@ export function ProxyEditorDrawer({
   /** Pre-fill the label for a NEW proxy (e.g. the profile's name when adding
    *  a proxy from the profile form). Ignored when editing an existing proxy. */
   defaultLabel?: string;
+  /** Override the primary button label (e.g. "Add to profile"). */
+  submitLabel?: string;
 }) {
   const t = useT();
   const [current, setCurrent] = useState<Proxy | null>(proxy);
@@ -61,6 +70,7 @@ export function ProxyEditorDrawer({
   const createProxy = useCreateProxy();
   const updateProxy = useUpdateProxy();
   const quickTest = useQuickTest();
+  const quickAdhoc = useQuickTestAdhoc();
   const qualityTest = useQualityTest();
 
   const form = useForm<ProxyFormValues>({
@@ -112,10 +122,22 @@ export function ProxyEditorDrawer({
   });
 
   const runQuick = async () => {
-    if (!current) return;
     setQuickResult(null);
-    const result = await quickTest.mutateAsync(current.id);
-    setQuickResult(result);
+    if (current) {
+      setQuickResult(await quickTest.mutateAsync(current.id));
+      return;
+    }
+    // Not saved yet — test exactly what's typed (button is gated on a valid form).
+    const values = proxyFormSchema.parse(form.getValues());
+    setQuickResult(
+      await quickAdhoc.mutateAsync({
+        scheme: values.scheme,
+        host: values.host,
+        port: values.port,
+        username: values.username || null,
+        password: values.password || null,
+      }),
+    );
   };
   const runQuality = async () => {
     if (!current) return;
@@ -148,7 +170,7 @@ export function ProxyEditorDrawer({
             loading={saving}
             disabled={!formState.isValid}
           >
-            {t(current ? 'pxd.save' : 'pxd.create')}
+            {submitLabel ?? t(current ? 'pxd.save' : 'pxd.create')}
           </Button>
         </>
       }
@@ -242,8 +264,8 @@ export function ProxyEditorDrawer({
               variant="secondary"
               size="sm"
               onClick={runQuick}
-              disabled={!current}
-              loading={quickTest.isPending}
+              disabled={!formState.isValid}
+              loading={quickTest.isPending || quickAdhoc.isPending}
             >
               <Zap className="h-3.5 w-3.5" /> {t('pxd.quickTest')}
             </Button>
