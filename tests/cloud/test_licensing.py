@@ -170,6 +170,19 @@ def test_bad_key_states_are_rejected(session_factory, status, expired, expected)
     assert error.value.code == expected
 
 
+def test_expiring_key_stamps_trial_end_claim(session_factory):
+    expires_at = utc_now() + timedelta(days=30)
+    ctx = _setup(session_factory, expires_at=expires_at)
+    result = _redeem(session_factory, ctx, ctx["device_a"])
+    assert result.claims["trial_end"] == int(expires_at.timestamp())
+
+
+def test_non_expiring_key_has_no_trial_end(session_factory):
+    ctx = _setup(session_factory)  # default expires_at=None (non-trial key)
+    result = _redeem(session_factory, ctx, ctx["device_a"])
+    assert "trial_end" not in result.claims
+
+
 def _refresh(session_factory, device_id):
     with session_factory() as session:
         result = refresh_entitlement(

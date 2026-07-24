@@ -82,8 +82,9 @@ def _build_claims(
     now: datetime,
     expires_at: datetime,
     grace_deadline: datetime,
+    trial_end: datetime | None = None,
 ) -> dict:
-    return {
+    claims = {
         "jti": entitlement_id,
         "sub": user_id,
         "device_id": device_id,
@@ -98,6 +99,9 @@ def _build_claims(
         "offline_grace_deadline": int(grace_deadline.timestamp()),
         "entitlement_version": ENTITLEMENT_VERSION,
     }
+    if trial_end is not None:
+        claims["trial_end"] = int(trial_end.timestamp())
+    return claims
 
 
 def _issue_entitlement(
@@ -136,6 +140,7 @@ def _issue_entitlement(
         now=now,
         expires_at=expires_at,
         grace_deadline=grace_deadline,
+        trial_end=ensure_aware_utc(key.expires_at),
     )
     return sign_entitlement(claims, private_key), entitlement, claims
 
