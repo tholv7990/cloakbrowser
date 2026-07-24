@@ -1,8 +1,11 @@
 /** Live backend adapter — maps ApiAdapter calls onto the REST contract (§13). */
 import type {
+  AccountActivateRequest,
+  AccountStatus,
   AppBootstrap,
   AppVersion,
   AuthStatus,
+  LicenseStatus,
   AiImageSettings,
   AutomationRecording,
   AutomationRun,
@@ -66,6 +69,15 @@ export const realApi: ApiAdapter = {
   authLock: () => apiRequest('/auth/lock', { method: 'POST' }),
   authChangePassword: (payload: ChangePasswordRequest) =>
     apiRequest('/auth/change-password', { method: 'POST', body: payload }),
+
+  licenseStatus: () => apiRequest<LicenseStatus>('/license'),
+  accountStatus: () => apiRequest<AccountStatus>('/account'),
+  accountLogin: (payload: EmailPasswordRequest) =>
+    apiRequest<AccountStatus>('/account/login', { method: 'POST', body: payload }),
+  accountActivate: (payload: AccountActivateRequest) =>
+    apiRequest<LicenseStatus>('/account/activate', { method: 'POST', body: payload }),
+  accountRefresh: () => apiRequest<LicenseStatus>('/account/refresh', { method: 'POST' }),
+  accountLogout: () => apiRequest<AccountStatus>('/account/logout', { method: 'POST' }),
 
   health: () => apiRequest('/health'),
   bootstrap: () => apiRequest<AppBootstrap>('/app/bootstrap'),

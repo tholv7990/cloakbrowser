@@ -899,6 +899,27 @@ export const en = {
   'auth.locked': 'The manager is locked. Sign in to continue.',
   'auth.signOut': 'Sign out',
 
+  // Cloud account + license (the LicenseGate)
+  'account.checking': 'Checking your license…',
+  'account.heroTitle': 'Your Plasma license',
+  'account.heroSubtext':
+    'Sign in and activate a key to unlock profile launches. Your license is verified on this machine and works offline between checks.',
+  'account.required': 'Required',
+  'account.signIn': 'Sign in',
+  'account.signInTitle': 'Sign in to Plasma',
+  'account.signInSubtitle': 'Use your Plasma account to activate this device.',
+  'account.activate': 'Activate',
+  'account.activateTitle': 'Activate Plasma',
+  'account.activateSubtitle': 'Enter your activation key to unlock this device.',
+  'account.expiredTitle': 'Your license has expired',
+  'account.expiredSubtitle': 'Renew or enter a new activation key to keep launching profiles.',
+  'account.invalidTitle': 'License problem',
+  'account.invalidSubtitle': 'We could not verify your license. Enter a valid activation key.',
+  'account.keyLabel': 'Activation key',
+  'account.keyHint': 'The key you received when you purchased Plasma.',
+  'account.signedInAs': 'Signed in as {email}',
+  'account.signOut': 'Sign out',
+
   'nav.extensions': 'Extensions',
   'title.extensions': 'Extensions',
   'common.copy': 'Copy',

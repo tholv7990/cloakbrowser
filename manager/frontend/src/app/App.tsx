@@ -6,6 +6,7 @@ import { ThemeManager } from './ThemeManager';
 import { RealtimeProvider } from '@/realtime/RealtimeProvider';
 import { ToastProvider } from '@/components/ui/Toast';
 import { AuthGate } from '@/features/auth/AuthGate';
+import { LicenseGate } from '@/features/account/LicenseGate';
 
 const queryClient = createQueryClient();
 
@@ -15,9 +16,11 @@ export function App() {
       <ToastProvider>
         <ThemeManager />
         <AuthGate>
-          <RealtimeProvider>
-            <RouterProvider router={router} />
-          </RealtimeProvider>
+          <LicenseGate>
+            <RealtimeProvider>
+              <RouterProvider router={router} />
+            </RealtimeProvider>
+          </LicenseGate>
         </AuthGate>
       </ToastProvider>
     </QueryClientProvider>

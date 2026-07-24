@@ -6,7 +6,10 @@
 import type {
   AppBootstrap,
   AppVersion,
+  AccountActivateRequest,
+  AccountStatus,
   AuthStatus,
+  LicenseStatus,
   AiImageSettings,
   AutomationRecording,
   AutomationRun,
@@ -76,6 +79,14 @@ export interface ApiAdapter {
   authLogout(): Promise<{ ok: boolean }>;
   authLock(): Promise<{ ok: boolean }>;
   authChangePassword(payload: ChangePasswordRequest): Promise<{ ok: boolean }>;
+
+  // Cloud account + license (only enforced in licensed builds; 'disabled' otherwise)
+  licenseStatus(): Promise<LicenseStatus>;
+  accountStatus(): Promise<AccountStatus>;
+  accountLogin(payload: EmailPasswordRequest): Promise<AccountStatus>;
+  accountActivate(payload: AccountActivateRequest): Promise<LicenseStatus>;
+  accountRefresh(): Promise<LicenseStatus>;
+  accountLogout(): Promise<AccountStatus>;
 
   // Application
   health(): Promise<{ ok: boolean }>;

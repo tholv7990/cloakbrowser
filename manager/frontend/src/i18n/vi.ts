@@ -904,6 +904,27 @@ export const vi: Record<keyof typeof en, string> = {
   'auth.locked': 'Trình quản lý đang bị khóa. Đăng nhập để tiếp tục.',
   'auth.signOut': 'Đăng xuất',
 
+  // Tài khoản đám mây + giấy phép (LicenseGate)
+  'account.checking': 'Đang kiểm tra giấy phép…',
+  'account.heroTitle': 'Giấy phép Plasma của bạn',
+  'account.heroSubtext':
+    'Đăng nhập và kích hoạt khóa để mở khóa việc khởi chạy hồ sơ. Giấy phép được xác minh trên máy này và hoạt động ngoại tuyến giữa các lần kiểm tra.',
+  'account.required': 'Bắt buộc',
+  'account.signIn': 'Đăng nhập',
+  'account.signInTitle': 'Đăng nhập Plasma',
+  'account.signInSubtitle': 'Dùng tài khoản Plasma để kích hoạt thiết bị này.',
+  'account.activate': 'Kích hoạt',
+  'account.activateTitle': 'Kích hoạt Plasma',
+  'account.activateSubtitle': 'Nhập khóa kích hoạt để mở khóa thiết bị này.',
+  'account.expiredTitle': 'Giấy phép đã hết hạn',
+  'account.expiredSubtitle': 'Gia hạn hoặc nhập khóa kích hoạt mới để tiếp tục khởi chạy hồ sơ.',
+  'account.invalidTitle': 'Sự cố giấy phép',
+  'account.invalidSubtitle': 'Không thể xác minh giấy phép. Vui lòng nhập khóa kích hoạt hợp lệ.',
+  'account.keyLabel': 'Khóa kích hoạt',
+  'account.keyHint': 'Khóa bạn nhận được khi mua Plasma.',
+  'account.signedInAs': 'Đã đăng nhập với {email}',
+  'account.signOut': 'Đăng xuất',
+
   'nav.extensions': 'Tiện ích',
   'title.extensions': 'Tiện ích',
   'common.copy': 'Sao chép',

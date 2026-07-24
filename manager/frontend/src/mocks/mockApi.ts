@@ -1,8 +1,11 @@
 /** Mock backend adapter. Fully exercises the UI without a live server. */
 import type {
+  AccountActivateRequest,
+  AccountStatus,
   AppBootstrap,
   AppVersion,
   AuthStatus,
+  LicenseStatus,
   AiImageSettings,
   AutomationRecording,
   AutomationRun,
@@ -546,6 +549,43 @@ export const mockApi: ApiAdapter = {
     await delay(140);
     setCsrfToken(null);
     return { ok: true };
+  },
+
+  // Mock mode is a free/local build: enforcement is off, so the gate is a pass-through.
+  async licenseStatus(): Promise<LicenseStatus> {
+    await delay(40);
+    return mockStore.license;
+  },
+  async accountStatus(): Promise<AccountStatus> {
+    await delay(40);
+    return mockStore.account;
+  },
+  async accountLogin(payload: EmailPasswordRequest): Promise<AccountStatus> {
+    await delay(120);
+    mockStore.account = { cloud_configured: true, signed_in: true, email: payload.email };
+    return mockStore.account;
+  },
+  async accountActivate(_payload: AccountActivateRequest): Promise<LicenseStatus> {
+    await delay(160);
+    mockStore.license = {
+      state: 'active',
+      allowed: true,
+      plan: 'pro',
+      features: ['media'],
+      expires_at: null,
+      grace_deadline: null,
+      detail: null,
+    };
+    return mockStore.license;
+  },
+  async accountRefresh(): Promise<LicenseStatus> {
+    await delay(80);
+    return mockStore.license;
+  },
+  async accountLogout(): Promise<AccountStatus> {
+    await delay(80);
+    mockStore.account = { cloud_configured: true, signed_in: false, email: null };
+    return mockStore.account;
   },
 
   async health() {

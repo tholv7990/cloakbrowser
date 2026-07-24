@@ -411,6 +411,34 @@ export interface EmailPasswordRequest {
   password: string;
 }
 
+/** Cloud account (license) sign-in state — separate from the local owner login. */
+export interface AccountStatus {
+  cloud_configured: boolean;
+  signed_in: boolean;
+  email: string | null;
+}
+
+/** Offline-verified license state reported by the local backend. */
+export interface LicenseStatus {
+  state:
+    | 'disabled'
+    | 'active'
+    | 'grace'
+    | 'unlicensed'
+    | 'expired'
+    | 'invalid';
+  allowed: boolean;
+  plan: string | null;
+  features: string[];
+  expires_at: number | null;
+  grace_deadline: number | null;
+  detail: string | null;
+}
+
+export interface AccountActivateRequest {
+  activation_key: string;
+}
+
 export interface ChangePasswordRequest {
   current_password: string;
   new_password: string;

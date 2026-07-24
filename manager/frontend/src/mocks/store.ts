@@ -4,9 +4,11 @@
  * drives the UI in mock mode exactly as against a live backend.
  */
 import type {
+  AccountStatus,
   DiagnosticRun,
   Extension,
   Folder,
+  LicenseStatus,
   ProfileRead,
   Proxy,
   ProxyQualityReport,
@@ -14,6 +16,21 @@ import type {
   Tag,
   WorkflowStatus,
 } from '@/types/api';
+
+const DISABLED_LICENSE: LicenseStatus = {
+  state: 'disabled',
+  allowed: true,
+  plan: null,
+  features: [],
+  expires_at: null,
+  grace_deadline: null,
+  detail: null,
+};
+const SIGNED_OUT_ACCOUNT: AccountStatus = {
+  cloud_configured: false,
+  signed_in: false,
+  email: null,
+};
 import type { AppEvent, EventName } from '@/types/events';
 import { ApiError } from '@/api/http';
 import * as fixtures from './data';
@@ -54,6 +71,8 @@ class MockStore {
   reports: ProxyQualityReport[] = [];
   settings: Settings = clone(fixtures.settings);
   owner: Owner = { setupRequired: false, email: fixtures.ownerEmail, loggedOut: true };
+  license: LicenseStatus = { ...DISABLED_LICENSE };
+  account: AccountStatus = { ...SIGNED_OUT_ACCOUNT };
 
   private listeners = new Set<Listener>();
   private sequence = 0;
@@ -74,6 +93,8 @@ class MockStore {
     this.reports = clone(fixtures.qualityReports);
     this.settings = clone(fixtures.settings);
     this.owner = { setupRequired: false, email: fixtures.ownerEmail, loggedOut: true };
+    this.license = { ...DISABLED_LICENSE };
+    this.account = { ...SIGNED_OUT_ACCOUNT };
     this.sequence = 0;
   }
 
