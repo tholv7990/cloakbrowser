@@ -89,7 +89,9 @@ export function SynchronizePage() {
           <h2 className="mb-2 text-[13px] font-medium text-ink-muted">
             {t('synchronize.running')}
           </h2>
-          {running.length === 0 ? (
+          {profilesQuery.isPending ? (
+            <p className="p-4 text-sm text-ink-muted">{t('synchronize.loading')}</p>
+          ) : running.length === 0 ? (
             <p className="p-4 text-sm text-ink-muted">{t('synchronize.noRunning')}</p>
           ) : (
             <ul className="space-y-1">

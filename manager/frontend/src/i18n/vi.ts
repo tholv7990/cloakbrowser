@@ -1032,6 +1032,7 @@ export const vi: Record<keyof typeof en, string> = {
   'synchronize.title': 'Đồng bộ',
   'synchronize.subtitle': 'Sắp xếp cửa sổ của các hồ sơ đang chạy trên một màn hình.',
   'synchronize.running': 'Hồ sơ đang chạy',
+  'synchronize.loading': 'Đang tải hồ sơ…',
   'synchronize.noRunning': 'Không có hồ sơ đang chạy. Hãy khởi chạy một hồ sơ để sắp xếp cửa sổ.',
   'synchronize.monitor': 'Màn hình',
   'synchronize.layout': 'Bố cục',

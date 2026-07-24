@@ -10,7 +10,7 @@ from ...models import RuntimeSession
 from ...config import ManagerSettings
 from ...errors import ManagerError
 from .logs import append_profile_log
-from .service import transition_runtime
+from .service import set_runtime_message, transition_runtime
 from .timing import StartTimer
 
 
@@ -73,6 +73,17 @@ class ProfileWorker(threading.Thread):
             if runtime is not None:
                 transition_runtime(session, runtime, state, message=message)
 
+    def _progress(self, message: str) -> None:
+        """Best-effort status-line update during a slow launch stage (no state
+        change). A status update must never crash the launch."""
+        try:
+            with self._session_factory() as session:
+                runtime = session.get(RuntimeSession, self.runtime_id)
+                if runtime is not None:
+                    set_runtime_message(session, runtime, message)
+        except Exception:
+            pass
+
     def _start_close_watcher(self, handle: Any) -> None:
         """Immediate finalization: a watcher thread blocks until the browser
         process exits, then wakes the run loop through its command queue — instead
@@ -132,6 +143,13 @@ class ProfileWorker(threading.Thread):
     def run(self) -> None:
         handle = None
         try:
+            # Enter "starting" up front so a (possibly slow) proxy check reports a
+            # real status line. A direct / no-proxy profile checks nothing, so it
+            # skips straight to launching.
+            has_proxy = bool(self.snapshot.get("proxy_id"))
+            self._transition(
+                "starting", "Testing proxy…" if has_proxy else "Launching browser…"
+            )
             with self._timer.stage("proxy_preflight"):
                 self.snapshot["proxy_url"] = self._proxy_preflight(self.snapshot)
             # Time spent parked on the launch semaphore (other launches ahead) is
@@ -141,7 +159,7 @@ class ProfileWorker(threading.Thread):
             with self._timer.stage("launch_gate_wait"):
                 self._launch_semaphore.acquire()
             try:
-                self._transition("starting")
+                self._progress("Launching browser…")
                 with self._timer.stage("browser_launch"):
                     handle = self._launcher.launch(self.snapshot)
                 self._record_browser_ownership(handle)

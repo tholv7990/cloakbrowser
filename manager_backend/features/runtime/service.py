@@ -100,3 +100,14 @@ def transition_runtime(
     session.commit()
     session.refresh(runtime)
     return runtime
+
+
+def set_runtime_message(
+    session: Session, runtime: RuntimeSession, message: str
+) -> RuntimeSession:
+    """Update just the human-readable status line (no state change), so a slow
+    launch stage can report progress without a state transition."""
+    runtime.last_message = message
+    session.commit()
+    session.refresh(runtime)
+    return runtime

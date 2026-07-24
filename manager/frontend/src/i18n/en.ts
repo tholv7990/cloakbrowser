@@ -1028,6 +1028,7 @@ export const en = {
   'synchronize.title': 'Synchronize',
   'synchronize.subtitle': 'Arrange the windows of your running profiles across a monitor.',
   'synchronize.running': 'Running profiles',
+  'synchronize.loading': 'Loading profiles…',
   'synchronize.noRunning': 'No running profiles. Launch a profile to arrange its window.',
   'synchronize.monitor': 'Monitor',
   'synchronize.layout': 'Layout',
