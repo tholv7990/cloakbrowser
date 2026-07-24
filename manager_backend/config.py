@@ -77,6 +77,17 @@ class ManagerSettings(BaseModel):
     entitlement_pubkey: str | None = Field(
         default_factory=lambda: os.environ.get("PLASMA_ENTITLEMENT_PUBKEY") or None
     )
+    # Base URL of the Plasma cloud (login / license). None -> account features are
+    # disabled (a purely local/free build). Set PLASMA_CLOUD_URL for licensed builds.
+    cloud_base_url: str | None = Field(
+        default_factory=lambda: os.environ.get("PLASMA_CLOUD_URL") or None
+    )
+    # How often the desktop re-fetches the signed entitlement so revocation/expiry
+    # bites within a day even on a long-running session (short entitlement TTL means
+    # a dead key stops re-issuing here). Only runs when signed in + cloud configured.
+    entitlement_refresh_interval_seconds: int = Field(
+        default=6 * 3600, ge=300, le=7 * 24 * 3600
+    )
     auto_backup_enabled: bool = True
     max_concurrent_launches: int = Field(default=2, ge=1, le=8)
     max_concurrent_diagnostics: int = Field(default=2, ge=1, le=8)

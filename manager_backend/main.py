@@ -19,6 +19,9 @@ from .maintenance import MaintenanceGate
 from .dependencies import require_authenticated_session
 from .features.runtime.manager import RuntimeManager
 from .features.license.service import make_license_gate
+from .features.account.service import AccountService
+from .features.account.secrets import KeyringSecretStore
+from .features.account.refresher import start_entitlement_refresher
 from .features.runtime.reconcile import cleanup_stale_locks, reconcile_runtimes
 from .features.runtime.routes import runtime_to_dict
 from .features.runtime.snapshots import RuntimeSnapshotCache
@@ -185,6 +188,15 @@ def create_app(
         ),
         license_gate=make_license_gate(resolved),
     )
+    app.state.account_service = AccountService(
+        resolved, secret_store=KeyringSecretStore()
+    )
+    # Keep the entitlement fresh in the background (no-op until signed in + configured).
+    if resolved.cloud_base_url:
+        start_entitlement_refresher(
+            lambda: app.state.account_service,
+            interval_seconds=resolved.entitlement_refresh_interval_seconds,
+        )
     app.state.login_failures = {}
     app.add_middleware(
         CORSMiddleware,
