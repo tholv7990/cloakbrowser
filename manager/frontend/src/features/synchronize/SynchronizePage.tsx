@@ -8,8 +8,10 @@ import { useMonitors, useArrangeWindows } from './api';
 export function SynchronizePage() {
   const t = useT();
   const profilesQuery = useQuery({
-    queryKey: queryKeys.profiles({ page: 1, page_size: 200 }),
-    queryFn: () => api.listProfiles({ page: 1, page_size: 200 }),
+    // page_size is capped at 100 by the backend (a bigger value 422s and the list
+    // comes back empty) — 100 is plenty of profiles to tile.
+    queryKey: queryKeys.profiles({ page: 1, page_size: 100 }),
+    queryFn: () => api.listProfiles({ page: 1, page_size: 100 }),
     // Keep the list current as profiles start/stop while this page is open.
     refetchInterval: 3000,
   });
