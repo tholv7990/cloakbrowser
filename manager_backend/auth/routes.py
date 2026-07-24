@@ -72,6 +72,14 @@ def _set_session_cookie(request: Request, response: Response, issued: IssuedSess
     )
 
 
+def _clear_session_cookies(request: Request, response: Response) -> None:
+    """Delete the session/CSRF cookies with the same SameSite/Secure policy they
+    were set with, so set and clear stay consistent (desktop = None/Secure)."""
+    samesite, secure = _cookie_policy(request.app.state.settings.allowed_origin)
+    for name in (SESSION_COOKIE, CSRF_COOKIE):
+        response.delete_cookie(name, path="/", samesite=samesite, secure=secure)
+
+
 def _session_read(owner: Owner, issued: IssuedSession) -> OwnerSessionRead:
     return OwnerSessionRead(
         email=owner.email,
@@ -144,29 +152,30 @@ def current_session(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(
+    request: Request,
     response: Response,
     db: Session = Depends(get_session),
     validated: ValidatedSession = Depends(require_authenticated_session),
 ) -> None:
     revoke_session(db, validated.record)
-    response.delete_cookie(SESSION_COOKIE, path="/", samesite="strict")
-    response.delete_cookie(CSRF_COOKIE, path="/", samesite="strict")
+    _clear_session_cookies(request, response)
 
 
 @router.post("/lock", status_code=status.HTTP_204_NO_CONTENT)
 def lock(
+    request: Request,
     response: Response,
     db: Session = Depends(get_session),
     validated: ValidatedSession = Depends(require_authenticated_session),
 ) -> None:
     revoke_all_sessions(db, validated.owner.id)
-    response.delete_cookie(SESSION_COOKIE, path="/", samesite="strict")
-    response.delete_cookie(CSRF_COOKIE, path="/", samesite="strict")
+    _clear_session_cookies(request, response)
 
 
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
 def change_password(
     payload: ChangePasswordRequest,
+    request: Request,
     response: Response,
     db: Session = Depends(get_session),
     validated: ValidatedSession = Depends(require_authenticated_session),
@@ -178,5 +187,4 @@ def change_password(
     owner.password_changed_at = utc_now()
     db.commit()
     revoke_all_sessions(db, owner.id)
-    response.delete_cookie(SESSION_COOKIE, path="/", samesite="strict")
-    response.delete_cookie(CSRF_COOKIE, path="/", samesite="strict")
+    _clear_session_cookies(request, response)
