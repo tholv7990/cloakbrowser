@@ -1,7 +1,9 @@
 import { Check, CircleAlert, TriangleAlert, X } from 'lucide-react';
 import type { AlignmentFinding, ProxyQualityReport, ProxyQuickTest } from '@/types/api';
 import { Badge, type Tone } from '@/components/ui/Badge';
-import { countryFlag, formatLatency, formatPercent } from '@/lib/format';
+import type { ReactNode } from 'react';
+import { formatLatency, formatPercent } from '@/lib/format';
+import { CountryFlag } from '@/components/CountryFlag';
 import { cn } from '@/lib/cn';
 import { useT, type TranslationKey } from '@/i18n';
 
@@ -11,7 +13,7 @@ function KeyVal({
   mono,
 }: {
   label: string;
-  value: string | null | undefined;
+  value: ReactNode;
   mono?: boolean;
 }) {
   return (
@@ -61,9 +63,14 @@ export function ProxyQuickResult({ result }: { result: ProxyQuickTest }) {
         <KeyVal
           label={t('pxr.country')}
           value={
-            countryFlag(result.country)
-              ? `${countryFlag(result.country)} ${result.country_name ?? result.country}`
-              : (result.country_name ?? result.country)
+            result.country ? (
+              <span className="inline-flex items-center gap-1.5">
+                <CountryFlag code={result.country} />
+                {result.country_name ?? result.country}
+              </span>
+            ) : (
+              (result.country_name ?? result.country)
+            )
           }
         />
         <KeyVal label={t('pxr.zip')} value={result.zip_code} />
@@ -178,9 +185,14 @@ export function ProxyQualityReportView({ report }: { report: ProxyQualityReport 
         <KeyVal
           label={t('pxr.country')}
           value={
-            countryFlag(report.country)
-              ? `${countryFlag(report.country)} ${report.country}`
-              : report.country
+            report.country ? (
+              <span className="inline-flex items-center gap-1.5">
+                <CountryFlag code={report.country} />
+                {report.country}
+              </span>
+            ) : (
+              report.country
+            )
           }
         />
         <KeyVal label={t('pxr.city')} value={report.city} />

@@ -8,6 +8,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/states';
 import { ReputationBadge } from '@/components/domain/StatusBadges';
 import { formatLatency, formatPercent, relativeTime } from '@/lib/format';
+import { CountryFlag } from '@/components/CountryFlag';
 import { useT, type TranslationKey } from '@/i18n';
 import { useDeleteProxy, useProxies, useQuickTest } from './api';
 import { ProvidersDialog } from './ProvidersDialog';
@@ -110,9 +111,15 @@ export function ProxiesPage() {
                     {proxy.exit_ip ?? '—'}
                   </td>
                   <td className="px-3 py-2 text-[12px] text-ink-muted">
-                    {proxy.country
-                      ? `${proxy.country}${proxy.city ? ` · ${proxy.city}` : ''}`
-                      : '—'}
+                    {proxy.country ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <CountryFlag code={proxy.country} />
+                        {proxy.country}
+                        {proxy.city ? ` · ${proxy.city}` : ''}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
                   </td>
                   <td className="px-3 py-2 text-[12px] text-ink-muted">
                     {proxy.proxy_type

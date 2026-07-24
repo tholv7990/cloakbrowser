@@ -6,7 +6,8 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { IconButton } from '@/components/ui/IconButton';
 import { Badge } from '@/components/ui/Badge';
 import { ProxyHealthDot, ReputationBadge, RuntimeBadge } from '@/components/domain/StatusBadges';
-import { countryFlag, relativeTime } from '@/lib/format';
+import { relativeTime } from '@/lib/format';
+import { CountryFlag } from '@/components/CountryFlag';
 import { cn } from '@/lib/cn';
 import { StartStopButton } from './StartStopButton';
 import { ProfileRowActions, type RowDialog } from './ProfileRowActions';
@@ -133,11 +134,7 @@ export function buildColumns(
                   <span className="text-[13px] text-ink group-hover:text-accent">
                     {proxy.country ? (
                       <>
-                        {countryFlag(proxy.country) && (
-                          <span className="mr-1" aria-hidden="true">
-                            {countryFlag(proxy.country)}
-                          </span>
-                        )}
+                        <CountryFlag code={proxy.country} className="mr-1" />
                         {proxy.country}
                       </>
                     ) : (
