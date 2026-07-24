@@ -4,7 +4,7 @@
 signed entitlement:
 
 1. HMAC the key and look up its row **FOR UPDATE** (row lock on Postgres; a no-op
-   on SQLite, so a Postgres-backed concurrency test is a follow-up).
+   on SQLite — the row lock is exercised by ``tests/cloud/test_postgres_concurrency.py``).
 2. Reject invalid / suspended / revoked / expired keys.
 3. If this (key, device) already redeemed → **re-issue** the entitlement without
    consuming another use (idempotent retry).

@@ -184,21 +184,28 @@ def rotate_refresh(
 ) -> IssuedTokens:
     now = now or utc_now()
     row = session.execute(
-        select(models.Session).where(
-            models.Session.refresh_token_hash == hash_token(raw_refresh)
-        )
+        select(models.Session)
+        .where(models.Session.refresh_token_hash == hash_token(raw_refresh))
+        .with_for_update()
     ).scalar_one_or_none()
     if row is None:
         raise AuthError("invalid_refresh")
 
     # Reuse: a rotated or revoked row's token was presented → revoke the whole
     # family (the legitimate holder and the thief both lose access; re-login needed).
+    # FOR UPDATE above serializes two simultaneous presentations of the same token, so
+    # the loser is caught as reuse instead of both rotating a fresh child.
     if row.rotated_at is not None or row.revoked_at is not None:
         session.execute(
             update(models.Session)
             .where(models.Session.family_id == row.family_id)
             .values(revoked_at=now, reuse_detected_at=now)
         )
+        # Persist the containment NOW: the AuthError below unwinds to the route, whose
+        # request session then rolls back — a revoke left pending would be lost, so the
+        # stolen-token family would stay alive. Commit on THIS session (which holds the
+        # FOR UPDATE lock, so no self-deadlock); nothing else is pending here.
+        session.commit()
         raise AuthError("refresh_reuse")
 
     if ensure_aware_utc(row.expires_at) <= now:

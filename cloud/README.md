@@ -54,7 +54,11 @@ docker compose -f cloud/docker-compose.yml --env-file cloud/.env up -d --build
 ## Tests
 
 ```bash
-python -m pytest tests/cloud -q      # 53 tests: schema, licensing, auth, devices, API
+python -m pytest tests/cloud -q      # schema, licensing, auth, devices, oauth, updates, API
+
+# Real-concurrency tests (row locks, reuse detection) need a Postgres — otherwise skipped:
+CLOUD_TEST_DATABASE_URL=postgresql+psycopg2://postgres:pg@127.0.0.1:5432/postgres \
+  python -m pytest tests/cloud/test_postgres_concurrency.py -q
 ```
 
 ## Endpoints (v1)
@@ -62,11 +66,13 @@ python -m pytest tests/cloud -q      # 53 tests: schema, licensing, auth, device
 - **Auth:** `POST /auth/register` · `/auth/verify-email` · `/auth/token` (direct login +
   device attach) · `/auth/token/refresh` · `/auth/logout` · `/auth/logout-all` ·
   `/auth/password-reset/request` · `/auth/password-reset/confirm`
-- **OAuth PKCE:** `POST /oauth/authorize` (hosted login page → code) · `POST /oauth/token`
+- **OAuth PKCE:** `GET /oauth/login` (hosted sign-in page) · `POST /oauth/authorize`
+  (credentials + PKCE challenge → code; loopback `redirect_uri` only) · `POST /oauth/token`
   (code + PKCE verifier + device → tokens)
 - **Devices:** `GET /devices` · `POST /devices/{id}/revoke`
 - **Licensing:** `POST /activation/redeem` · `POST /entitlement/refresh`
-- **Updates:** `GET /updates/latest?channel=stable|beta` (public, signed manifest)
+- **Updates:** `GET /updates/latest?channel=stable|beta` (public, signed manifest) ·
+  `GET /updates/tauri/{target}/{current_version}` (Tauri dynamic-update JSON / 204)
 - `GET /health`
 
 Login is rate-limited with lockout (`auth_throttle`). Admin key issuance:
@@ -74,7 +80,4 @@ Login is rate-limited with lockout (`auth_throttle`). Admin key issuance:
 
 ## Not yet wired (next)
 
-- The **hosted HTML login page** that drives `/oauth/authorize` (the JSON flow exists +
-  is tested; the page is a thin UI over it).
-- MFA/passkeys, Sentry error reporting, broader audit-event coverage, a Postgres-backed
-  concurrency test for redeem row-locking. See the repo backlog.
+- MFA/passkeys, Sentry error reporting, broader audit-event coverage. See the repo backlog.

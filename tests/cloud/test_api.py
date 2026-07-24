@@ -117,10 +117,18 @@ def test_refresh_rotation_and_reuse_is_blocked(ctx):
 
     rotated = client.post("/auth/token/refresh", json={"refresh_token": tokens["refresh_token"]})
     assert rotated.status_code == 200
+    current = rotated.json()["refresh_token"]
     # Replaying the old refresh is reuse -> 401.
     replay = client.post("/auth/token/refresh", json={"refresh_token": tokens["refresh_token"]})
     assert replay.status_code == 401
     assert replay.json()["error"] == "refresh_reuse"
+
+    # Containment must PERSIST through the API: the reuse-revoke is committed even
+    # though the request raises + rolls back, so the current live token is now dead
+    # too. (Regression: it was previously rolled back and stayed valid.)
+    contained = client.post("/auth/token/refresh", json={"refresh_token": current})
+    assert contained.status_code == 401
+    assert contained.json()["error"] == "refresh_reuse"
 
 
 def test_protected_routes_require_a_valid_bearer(ctx):
