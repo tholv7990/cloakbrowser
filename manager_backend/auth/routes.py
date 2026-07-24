@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from urllib.parse import urlparse
+
 from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -33,14 +35,31 @@ from .sessions import (
 
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
+
+
+def _cookie_policy(allowed_origin: str) -> tuple[str, bool]:
+    """(SameSite, Secure) for the session/CSRF cookies, keyed off the UI origin.
+
+    The packaged desktop serves the UI from http://tauri.localhost while the API
+    binds http://127.0.0.1 — a *different site*. A SameSite=Strict cookie is never
+    sent on the webview's cross-site API calls, so login works but every later call
+    401s. Cross-site requires SameSite=None, which requires Secure; Chromium treats
+    127.0.0.1 as a secure context, so Secure rides plain-http loopback. The browser
+    dev flow is same-origin (Vite proxy) and keeps the stricter Strict."""
+    host = (urlparse(allowed_origin).hostname or "").lower()
+    if host in ("127.0.0.1", "localhost"):  # same-origin dev flow
+        return "strict", allowed_origin.startswith("https://")
+    return "none", True  # cross-site desktop webview
+
+
 def _set_session_cookie(request: Request, response: Response, issued: IssuedSession) -> None:
-    secure = request.app.state.settings.allowed_origin.startswith("https://")
+    samesite, secure = _cookie_policy(request.app.state.settings.allowed_origin)
     response.set_cookie(
         SESSION_COOKIE,
         issued.token,
         httponly=True,
         secure=secure,
-        samesite="strict",
+        samesite=samesite,
         path="/",
     )
     response.set_cookie(
@@ -48,7 +67,7 @@ def _set_session_cookie(request: Request, response: Response, issued: IssuedSess
         issued.csrf_token,
         httponly=False,
         secure=secure,
-        samesite="strict",
+        samesite=samesite,
         path="/",
     )
 
