@@ -147,6 +147,13 @@ export const vi: Record<keyof typeof en, string> = {
   'col.noStatus': 'Không có trạng thái',
   'col.crashed': 'Đã sập',
 
+  // Friendly labels for backend runtime status codes (see columns.tsx).
+  'runtimeMsg.proxyUnavailable': 'Proxy không khả dụng',
+  'runtimeMsg.proxyLost': 'Mất kết nối proxy',
+  'runtimeMsg.browserCrashed': 'Trình duyệt gặp sự cố',
+  'runtimeMsg.browserLaunchFailed': 'Không thể khởi động trình duyệt',
+  'runtimeMsg.sessionEnded': 'Phiên đã kết thúc (ứng dụng khởi động lại)',
+
   'runtime.start': 'Chạy',
   'runtime.stop': 'Dừng',
 

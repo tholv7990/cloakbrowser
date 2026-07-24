@@ -207,7 +207,24 @@ export function buildColumns(
       header: () => t('col.message'),
       cell: ({ row }) => {
         const isError = row.original.runtime_state === 'crashed';
-        const message = row.original.runtime_message ?? (isError ? t('col.crashed') : '—');
+        // The backend records terse status codes as the runtime message; show a
+        // friendly label for the known ones and pass everything else (already
+        // human-readable, e.g. "Testing proxy…", "running") through unchanged.
+        const codeLabels: Record<string, TranslationKey> = {
+          proxy_preflight_failed: 'runtimeMsg.proxyUnavailable',
+          proxy_lost: 'runtimeMsg.proxyLost',
+          browser_crashed: 'runtimeMsg.browserCrashed',
+          browser_launch_failed: 'runtimeMsg.browserLaunchFailed',
+          manager_restarted: 'runtimeMsg.sessionEnded',
+        };
+        const raw = row.original.runtime_message;
+        const message = raw
+          ? codeLabels[raw]
+            ? t(codeLabels[raw])
+            : raw
+          : isError
+            ? t('col.crashed')
+            : '—';
         return (
           <div className="flex flex-col gap-1">
             <RuntimeBadge state={row.original.runtime_state} />

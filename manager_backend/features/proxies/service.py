@@ -385,7 +385,10 @@ def build_proxy_preflight(session_factory, store: CredentialStore, tester):
             used_cached_result = result is not None
             try:
                 if result is None:
-                    result = tester.run_fast(proxy_url, timeout_seconds=5)
+                    # 3s (was 5s): fail a dead/degraded proxy faster so the launch
+                    # doesn't hang. A healthy proxy answers well under this; a very
+                    # slow-but-working proxy can bump it back up if needed.
+                    result = tester.run_fast(proxy_url, timeout_seconds=3)
             except ProxyTestFailure:
                 raise ManagerError(
                     "proxy_preflight_failed",

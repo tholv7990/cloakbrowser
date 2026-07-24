@@ -145,6 +145,13 @@ export const en = {
   'col.noStatus': 'No status',
   'col.crashed': 'Crashed',
 
+  // Friendly labels for backend runtime status codes (see columns.tsx).
+  'runtimeMsg.proxyUnavailable': 'Proxy unavailable',
+  'runtimeMsg.proxyLost': 'Proxy connection lost',
+  'runtimeMsg.browserCrashed': 'Browser crashed',
+  'runtimeMsg.browserLaunchFailed': "Couldn't start the browser",
+  'runtimeMsg.sessionEnded': 'Session ended (app restarted)',
+
   'runtime.start': 'Start',
   'runtime.stop': 'Stop',
 
