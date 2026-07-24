@@ -4,6 +4,7 @@ import {
   FolderClosed,
   Gauge,
   Clapperboard,
+  LayoutGrid,
   PanelLeftClose,
   PanelLeftOpen,
   Puzzle,
@@ -23,6 +24,7 @@ import { cn } from '@/lib/cn';
 const NAV: { to: string; key: TranslationKey; icon: typeof Users; cap?: keyof AppCapabilities }[] =
   [
     { to: '/profiles', key: 'nav.profiles', icon: Users },
+    { to: '/synchronize', key: 'nav.synchronize', icon: LayoutGrid },
     { to: '/folders', key: 'nav.folders', icon: FolderClosed, cap: 'catalogs' },
     { to: '/extensions', key: 'nav.extensions', icon: Puzzle, cap: 'profiles' },
     { to: '/automation', key: 'nav.automation', icon: Workflow, cap: 'automation' },

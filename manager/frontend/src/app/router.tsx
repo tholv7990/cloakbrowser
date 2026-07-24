@@ -11,6 +11,7 @@ import { AutomationPage } from '@/features/automation/AutomationPage';
 import { ShopifyPage } from '@/features/shopify/ShopifyPage';
 import { MediaPage } from '@/features/media/MediaPage';
 import { SettingsPage } from '@/features/settings/SettingsPage';
+import { SynchronizePage } from '@/features/synchronize/SynchronizePage';
 import { EmptyState } from '@/components/ui/states';
 import { useCapabilities } from '@/hooks/useAppData';
 import type { AppCapabilities } from '@/types/api';
@@ -48,6 +49,7 @@ export const router = createBrowserRouter([
       { path: 'profiles', element: <ProfilesPage /> },
       { path: 'profiles/new', element: <ProfileWizardPage mode="create" /> },
       { path: 'profiles/:id/edit', element: <ProfileWizardPage mode="edit" /> },
+      { path: 'synchronize', element: <SynchronizePage /> },
       {
         path: 'folders',
         element: (
