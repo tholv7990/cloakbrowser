@@ -64,3 +64,22 @@ def test_flag_off_keeps_the_dev_workflow_tokenless(tmp_path):
         headers = _login(client)
         # No Bearer token, flag off → the existing session model still works.
         assert client.get("/api/v1/profiles", headers=headers).status_code == 200
+
+
+def test_cors_preflight_allows_the_authorization_header(tmp_path):
+    """The desktop webview sends `Authorization: Bearer <local-token>` on every request,
+    which makes even a GET a CORS-preflighted request. If the preflight doesn't allow the
+    `authorization` header the webview blocks the call and the UI shows
+    'Cannot reach the manager backend'. Regression test for that bug."""
+    with TestClient(_app(True, tmp_path)) as client:
+        resp = client.options(
+            "/api/v1/auth/login",
+            headers={
+                "Origin": ORIGIN,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization,content-type,x-csrf-token",
+            },
+        )
+        assert resp.status_code == 200
+        allowed = resp.headers.get("access-control-allow-headers", "").lower()
+        assert "authorization" in allowed

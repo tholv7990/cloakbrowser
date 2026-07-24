@@ -204,7 +204,10 @@ def create_app(
         allow_origins=[resolved.allowed_origin],
         allow_credentials=True,
         allow_methods=["*"] ,
-        allow_headers=["Content-Type", "X-CSRF-Token"],
+        # Authorization: the desktop webview sends the per-install Bearer token on
+        # every request (cross-origin from http://tauri.localhost), which makes even a
+        # GET preflighted — omit it and the browser blocks every call ("cannot reach").
+        allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
     )
     install_error_handlers(app)
     app.include_router(auth_router)
