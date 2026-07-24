@@ -10,7 +10,11 @@ from __future__ import annotations
 
 import os
 
-from .main import create_app
+# Absolute (not relative): PyInstaller freezes this file as the __main__ entry, which
+# has no parent package, so `from .main` raises "attempted relative import with no known
+# parent package". The spec bundles manager_backend as a package (pathex + submodules),
+# so the absolute import resolves both frozen and via `python -m manager_backend.serve`.
+from manager_backend.main import create_app
 
 
 def main() -> None:
