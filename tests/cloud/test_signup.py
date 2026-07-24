@@ -5,11 +5,14 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from cloud import models
+from cloud.app import create_app
 from cloud.config import generate_test_settings
 from cloud.db import Base, create_engine_for, create_session_factory
+from cloud.email import RecordingEmailSender
 from cloud.entitlements import public_key_to_b64, verify_entitlement
 from cloud.features.auth.service import AuthError, signup_trial
 
@@ -73,3 +76,51 @@ def test_signup_duplicate_email_rejected(session_factory):
                 device_public_key=pub2, device_signature=sig2, settings=settings, now=NOW,
             )
     assert error.value.code == "email_taken"
+
+
+def _app(session_factory):
+    settings = generate_test_settings()
+    app = create_app(settings, session_factory=session_factory, email_sender=RecordingEmailSender())
+    return TestClient(app), settings
+
+
+def test_signup_endpoint_returns_session_and_trial_entitlement(session_factory):
+    client, settings = _app(session_factory)
+    pub, sig = _device()
+    resp = client.post(
+        "/auth/signup",
+        json={
+            "email": "web@example.com",
+            "password": "correct horse battery staple",
+            "device_public_key": pub,
+            "device_signature": sig,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["access_token"] and body["refresh_token"]
+    claims = verify_entitlement(body["entitlement_token"], settings.signing_public_key)
+    assert claims["plan"] == "trial" and "trial_end" in claims
+
+
+def test_signup_endpoint_rejects_short_password(session_factory):
+    client, _ = _app(session_factory)
+    pub, sig = _device()
+    resp = client.post(
+        "/auth/signup",
+        json={"email": "x@example.com", "password": "short", "device_public_key": pub, "device_signature": sig},
+    )
+    assert resp.status_code == 422
+
+
+def test_signup_endpoint_duplicate_email(session_factory):
+    client, _ = _app(session_factory)
+    pub, sig = _device()
+    payload = {"email": "dupe@example.com", "password": "correct horse battery staple",
+               "device_public_key": pub, "device_signature": sig}
+    assert client.post("/auth/signup", json=payload).status_code == 200
+    pub2, sig2 = _device()
+    payload2 = {**payload, "device_public_key": pub2, "device_signature": sig2}
+    resp = client.post("/auth/signup", json=payload2)
+    assert resp.status_code >= 400
+    assert resp.json()["error"] == "email_taken"

@@ -11,6 +11,7 @@ from ...config import CloudSettings
 from ...deps import get_session, get_settings, require_access
 from ...errors import CloudError
 from ...features.devices import service as devices
+from ...licensing import RedeemError
 from ...schemas import (
     LogoutRequest,
     MessageResponse,
@@ -18,6 +19,8 @@ from ...schemas import (
     PasswordResetRequest,
     RefreshRequest,
     RegisterRequest,
+    SignupRequest,
+    SignupResponse,
     TokenRequest,
     TokenResponse,
     VerifyEmailRequest,
@@ -103,6 +106,33 @@ def token(
         access_token=issued.access_token,
         refresh_token=issued.refresh_token,
         expires_in=int(settings.access_ttl.total_seconds()),
+    )
+
+
+@router.post("/signup", response_model=SignupResponse)
+def signup(
+    body: SignupRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+    settings: CloudSettings = Depends(get_settings),
+) -> SignupResponse:
+    try:
+        result = auth.signup_trial(
+            session,
+            email=body.email,
+            password=body.password,
+            device_public_key=body.device_public_key,
+            device_signature=body.device_signature,
+            device_name=body.device_name,
+            settings=settings,
+        )
+    except (auth.AuthError, devices.DeviceError, RedeemError) as error:
+        raise CloudError(error.code) from error
+    return SignupResponse(
+        access_token=result.tokens.access_token,
+        refresh_token=result.tokens.refresh_token,
+        expires_in=int(settings.access_ttl.total_seconds()),
+        entitlement_token=result.entitlement_token,
     )
 
 

@@ -32,6 +32,25 @@ class TokenRequest(StrictModel):
     device_name: str = Field(default="Windows PC", max_length=120)
 
 
+class SignupRequest(StrictModel):
+    """Register an ACTIVE trial account + attach the device in one call. The device
+    proves possession by signing the canonical challenge for its public key."""
+
+    email: EmailStr
+    password: str = Field(min_length=12, max_length=1024)
+    device_public_key: str = Field(min_length=1, max_length=128)
+    device_signature: str = Field(min_length=1, max_length=128)
+    device_name: str = Field(default="Plasma Desktop", max_length=120)
+
+
+class SignupResponse(StrictModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    entitlement_token: str
+
+
 class AuthorizeRequest(StrictModel):
     """The hosted login page posts credentials + the PKCE challenge here."""
 
