@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { KeyRound, LogIn, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { LogoMark } from '@/components/Logo';
@@ -15,6 +16,7 @@ import {
   useAccountActivate,
   useAccountLogin,
   useAccountLogout,
+  useAccountRegister,
 } from './api';
 
 /**
@@ -67,7 +69,7 @@ export function LicenseScreen({ license }: { license: LicenseStatus }) {
           ) : account.data?.signed_in ? (
             <ActivatePanel license={license} email={account.data.email} />
           ) : (
-            <SignInPanel license={license} />
+            <SignedOut license={license} />
           )}
         </div>
       </div>
@@ -223,6 +225,112 @@ function PanelHeading({
         <h1 className="font-display text-lg font-semibold text-ink">{t(titleKey)}</h1>
       </div>
       <p className="text-[13px] leading-relaxed text-ink-muted">{t(subtitleKey)}</p>
+    </div>
+  );
+}
+
+function SignedOut({ license }: { license: LicenseStatus }) {
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const t = useT();
+  return mode === 'signin' ? (
+    <div className="space-y-3">
+      <SignInPanel license={license} />
+      <button
+        type="button"
+        className="w-full text-center text-2xs font-medium text-ink-muted transition hover:text-ink"
+        onClick={() => setMode('signup')}
+      >
+        {t('account.needAccount')}
+      </button>
+    </div>
+  ) : (
+    <SignUpPanel license={license} onSwitch={() => setMode('signin')} />
+  );
+}
+
+interface SignUpValues {
+  email: string;
+  password: string;
+  confirm: string;
+}
+
+export function SignUpPanel({
+  license,
+  onSwitch,
+}: {
+  license: LicenseStatus;
+  onSwitch: () => void;
+}) {
+  const t = useT();
+  const registerMut = useAccountRegister();
+  const {
+    register,
+    handleSubmit,
+    watch,
+    formState: { errors },
+  } = useForm<SignUpValues>({ defaultValues: { email: '', password: '', confirm: '' } });
+
+  const onSubmit = handleSubmit((values) =>
+    registerMut.mutate({ email: values.email, password: values.password }),
+  );
+  const serverError = registerMut.error as ApiError | null;
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-line bg-surface p-6 shadow-panel">
+        <div className="mb-4">
+          <div className="mb-1.5 flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-accent" />
+            <h1 className="font-display text-lg font-semibold text-ink">{t('account.signUpTitle')}</h1>
+          </div>
+          <p className="text-[13px] leading-relaxed text-ink-muted">{t('account.signUpSubtitle')}</p>
+        </div>
+        <form onSubmit={onSubmit} className="space-y-3">
+          <Field label={t('auth.email')} error={errors.email && t('account.required')}>
+            <Input
+              type="email"
+              autoComplete="username"
+              autoFocus
+              aria-label={t('auth.email')}
+              {...register('email', { required: true })}
+              invalid={Boolean(errors.email)}
+            />
+          </Field>
+          <Field
+            label={t('auth.password')}
+            hint={t('auth.passwordHint')}
+            error={errors.password && t('auth.passwordHint')}
+          >
+            <Input
+              type="password"
+              autoComplete="new-password"
+              aria-label={t('auth.password')}
+              {...register('password', { required: true, minLength: 12 })}
+              invalid={Boolean(errors.password)}
+            />
+          </Field>
+          <Field label={t('auth.confirmPassword')} error={errors.confirm && t('auth.mismatch')}>
+            <Input
+              type="password"
+              autoComplete="new-password"
+              aria-label={t('auth.confirmPassword')}
+              {...register('confirm', { validate: (value) => value === watch('password') })}
+              invalid={Boolean(errors.confirm)}
+            />
+          </Field>
+          {serverError && <p className="text-2xs text-danger">{serverError.message}</p>}
+          <Button type="submit" variant="primary" className="w-full" loading={registerMut.isPending}>
+            {t('account.signUp')}
+          </Button>
+        </form>
+      </div>
+      <button
+        type="button"
+        className="w-full text-center text-2xs font-medium text-ink-muted transition hover:text-ink"
+        onClick={onSwitch}
+      >
+        {t('account.haveAccount')}
+      </button>
     </div>
   );
 }

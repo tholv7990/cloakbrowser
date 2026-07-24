@@ -932,6 +932,12 @@ export const en = {
   'account.keyHint': 'The key you received when you purchased Plasma.',
   'account.signedInAs': 'Signed in as {email}',
   'account.signOut': 'Sign out',
+  'account.signUp': 'Create account',
+  'account.signUpTitle': 'Start your 30-day trial',
+  'account.signUpSubtitle':
+    'Create a Plasma account — no card required. Your trial unlocks profile launches for 30 days.',
+  'account.needAccount': 'New to Plasma? Start a 30-day free trial',
+  'account.haveAccount': 'Already have an account? Sign in',
 
   'nav.extensions': 'Extensions',
   'title.extensions': 'Extensions',

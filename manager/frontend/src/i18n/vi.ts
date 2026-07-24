@@ -937,6 +937,12 @@ export const vi: Record<keyof typeof en, string> = {
   'account.keyHint': 'Khóa bạn nhận được khi mua Plasma.',
   'account.signedInAs': 'Đã đăng nhập với {email}',
   'account.signOut': 'Đăng xuất',
+  'account.signUp': 'Tạo tài khoản',
+  'account.signUpTitle': 'Bắt đầu dùng thử 30 ngày',
+  'account.signUpSubtitle':
+    'Tạo tài khoản Plasma — không cần thẻ. Bản dùng thử mở khóa khởi chạy hồ sơ trong 30 ngày.',
+  'account.needAccount': 'Mới dùng Plasma? Bắt đầu dùng thử miễn phí 30 ngày',
+  'account.haveAccount': 'Đã có tài khoản? Đăng nhập',
 
   'nav.extensions': 'Tiện ích',
   'title.extensions': 'Tiện ích',
