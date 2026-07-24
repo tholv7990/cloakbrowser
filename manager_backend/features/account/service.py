@@ -40,6 +40,7 @@ _CLOUD_ERRORS = {
     "key_expired": ("That activation key has expired.", 403),
     "key_exhausted": ("That activation key has no uses left.", 409),
     "not_entitled": ("No active license for this device.", 403),
+    "email_taken": ("An account with this email already exists.", 409),
 }
 
 
@@ -127,6 +128,17 @@ class AccountService:
         self._secrets.put(REFRESH_REF, tokens["refresh_token"])
         self._save_state({"email": email})
         return self.status()
+
+    def register(self, *, email: str, password: str) -> LicenseStatus:
+        client = self._client()
+        device = get_or_create_device(self._secrets)
+        try:
+            result = client.register(email=email, password=password, device=device)
+        except CloudClientError as error:
+            raise _manager_error(error) from error
+        self._secrets.put(REFRESH_REF, result["refresh_token"])
+        self._save_state({"email": email})
+        return license_service.install_entitlement(self._settings, result["entitlement_token"])
 
     def activate(self, *, activation_key: str) -> LicenseStatus:
         access = self._fresh_access()

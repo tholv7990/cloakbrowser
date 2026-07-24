@@ -172,3 +172,20 @@ def test_routes_login_activate_reflect_in_license(cloud, tmp_path):
         )
         assert activate.status_code == 200 and activate.json()["state"] == "active"
         assert client.get("/api/v1/license", headers=headers).json()["state"] == "active"
+
+
+def test_register_creates_trial_and_unlocks(cloud, account):
+    svc, settings = account
+    status = svc.register(email="fresh@example.com", password="correct horse battery staple")
+    assert status.state == "active" and status.allowed
+    assert status.trial_end is not None
+    assert svc.status().signed_in is True
+    assert license_service.evaluate_license(settings).state == "active"
+
+
+def test_register_duplicate_email_is_safe_error(cloud, account):
+    svc, _ = account
+    svc.register(email="taken@example.com", password="correct horse battery staple")
+    with pytest.raises(ManagerError) as err:
+        svc.register(email="taken@example.com", password="correct horse battery staple")
+    assert err.value.code == "cloud_email_taken"

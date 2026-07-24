@@ -56,6 +56,20 @@ class CloudClient:
             },
         )
 
+    def register(self, *, email: str, password: str, device: DeviceIdentity) -> dict:
+        """Create a trial account + attach this device -> {access_token,
+        refresh_token, expires_in, entitlement_token}."""
+        return self._post(
+            "/auth/signup",
+            {
+                "email": email,
+                "password": password,
+                "device_public_key": device.public_key_b64,
+                "device_signature": device.signature_b64(),
+                "device_name": "Plasma Desktop",
+            },
+        )
+
     def refresh_session(self, *, refresh_token: str) -> dict:
         """Rotate the refresh token -> a fresh {access_token, refresh_token, ...}."""
         return self._post("/auth/token/refresh", {"refresh_token": refresh_token})

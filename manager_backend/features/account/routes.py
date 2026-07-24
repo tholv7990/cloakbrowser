@@ -8,7 +8,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 
 from ..license.schemas import LicenseStatusRead
-from .schemas import AccountStatusRead, ActivateRequest, LoginRequest
+from .schemas import AccountStatusRead, ActivateRequest, LoginRequest, RegisterRequest
 
 router = APIRouter(prefix="/account", tags=["account"])
 
@@ -26,6 +26,13 @@ def account_status(request: Request) -> AccountStatusRead:
 def login(request: Request, payload: LoginRequest) -> AccountStatusRead:
     status = _service(request).login(email=str(payload.email), password=payload.password)
     return AccountStatusRead.of(status)
+
+
+@router.post("/register", response_model=LicenseStatusRead, operation_id="account_register")
+def register(request: Request, payload: RegisterRequest) -> LicenseStatusRead:
+    return LicenseStatusRead.of(
+        _service(request).register(email=str(payload.email), password=payload.password)
+    )
 
 
 @router.post("/activate", response_model=LicenseStatusRead, operation_id="account_activate")

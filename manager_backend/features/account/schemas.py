@@ -26,6 +26,13 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=1024)
 
 
+class RegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    password: str = Field(min_length=12, max_length=1024)
+
+
 class ActivateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
