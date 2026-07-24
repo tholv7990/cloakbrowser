@@ -37,6 +37,7 @@ _HTML = (
     "<input id='t' style='width:400px;height:40px;font-size:20px'>"
     "<button id='b' style='position:absolute;left:100px;top:120px;width:200px;height:80px' "
     "onclick='window.__c=(window.__c||0)+1'>CLICK</button>"
+    "<div style='height:4000px'></div>"  # tall enough that scrolling is possible
     "</body>"
 )
 
@@ -211,10 +212,15 @@ async def test_control_window_mirrors_navigation_clicks_and_typing(two_profiles,
 
             await fpage2.wait_for_selector("#b", timeout=30000)
             ccdp2 = await cpage2.context.new_cdp_session(cpage2)
-            await _click(ccdp2, cpage2, "#b")
-            assert await _until(lambda: _truthy(fpage2.evaluate("window.__c||0"))), (
-                "click in the second tab did not mirror"
-            )
+
+            # A freshly opened control tab needs one poll tick to arm its capture,
+            # so click until it registers rather than racing that first tick.
+            async def _clicked_through() -> bool:
+                await _click(ccdp2, cpage2, "#b")
+                await asyncio.sleep(0.3)
+                return bool(await fpage2.evaluate("window.__c||0"))
+
+            assert await _until(_clicked_through), "click in the second tab did not mirror"
             # The first tab must not have received the second tab's click.
             assert await fpage.evaluate("window.__c||0") == 1
 
@@ -230,6 +236,15 @@ async def test_control_window_mirrors_navigation_clicks_and_typing(two_profiles,
             await cpage2.close()
             assert await _until(lambda: _resolved(len(_open(fctx)) == 1)), (
                 f"follower still has {len(_open(fctx))} tabs after the control closed one"
+            )
+
+            # 7. Scrolling mirrors (wheel events were replayed but never asserted).
+            await ccdp.send(
+                "Input.dispatchMouseEvent",
+                {"type": "mouseWheel", "x": 200, "y": 200, "deltaX": 0, "deltaY": 600},
+            )
+            assert await _until(lambda: _truthy(fpage.evaluate("window.scrollY > 0"))), (
+                "scrolling did not mirror to the follower"
             )
 
             await control.close()
