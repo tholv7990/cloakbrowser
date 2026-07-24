@@ -5,9 +5,8 @@ description = "Plasma desktop shell"
 edition = "2021"
 rust-version = "1.77"
 
-[lib]
-name = "plasma_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Desktop-only binary crate: everything lives in src/main.rs, so there is no [lib]
+# target (the mobile-style staticlib/cdylib lib isn't needed for a Windows build).
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

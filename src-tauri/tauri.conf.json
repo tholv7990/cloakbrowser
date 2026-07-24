@@ -27,11 +27,10 @@
     ],
     "externalBin": ["binaries/plasma-backend"],
     "windows": {
-      "certificateThumbprint": "REPLACE_WITH_AUTHENTICODE_CERT_THUMBPRINT",
       "digestAlgorithm": "sha256",
       "timestampUrl": "http://timestamp.digicert.com",
       "nsis": {
-        "installMode": "perUser",
+        "installMode": "currentUser",
         "installerHooks": "nsis-hooks.nsh"
       }
     }
