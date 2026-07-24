@@ -104,9 +104,13 @@ def arrange_windows(
     return [r for r in results if r is not None]
 
 
+_SWP_NOSIZE = 0x0001
+_SWP_NOMOVE = 0x0002
 _SWP_NOZORDER = 0x0004
 _SWP_NOACTIVATE = 0x0010
 _SW_RESTORE = 9
+_HWND_TOPMOST = -1
+_HWND_NOTOPMOST = -2
 _MONITORINFOF_PRIMARY = 0x1
 
 
@@ -178,13 +182,22 @@ class WindowManager:
 
             x, y, w, h = rect
             user32 = ctypes.windll.user32
-            user32.ShowWindow(hwnd, _SW_RESTORE)  # un-maximize before positioning
-            return bool(
-                user32.SetWindowPos(
-                    hwnd, 0, int(x), int(y), int(w), int(h),
-                    _SWP_NOZORDER | _SWP_NOACTIVATE,
-                )
+            user32.ShowWindow(hwnd, _SW_RESTORE)  # un-minimize / un-maximize first
+            # Position AND raise to the front, so tiled profiles are actually
+            # visible instead of keeping their old z-order behind the manager /
+            # other apps. The topmost -> not-topmost toggle forces the window
+            # above others without stealing keyboard focus (SWP_NOACTIVATE).
+            # HWND_TOPMOST/HWND_NOTOPMOST are (HWND)-1 / -2 — wrap in c_void_p so
+            # ctypes passes the full pointer-width value, not a truncated 32-bit int.
+            ok = user32.SetWindowPos(
+                hwnd, ctypes.c_void_p(_HWND_TOPMOST),
+                int(x), int(y), int(w), int(h), _SWP_NOACTIVATE,
             )
+            user32.SetWindowPos(
+                hwnd, ctypes.c_void_p(_HWND_NOTOPMOST), 0, 0, 0, 0,
+                _SWP_NOACTIVATE | _SWP_NOMOVE | _SWP_NOSIZE,
+            )
+            return bool(ok)
         except Exception:
             return False
 
