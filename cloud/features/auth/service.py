@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -20,8 +20,10 @@ from ...config import CloudSettings
 from ...db import ensure_aware_utc, utc_now
 from ... import audit, models
 from ...keys import normalize_email
+from ...licensing import redeem_key
 from ...passwords import hash_password, needs_rehash, verify_password
 from ...tokens import generate_refresh_token, hash_token, mint_access_token
+from ..devices.service import register_device
 
 AUTH_ERRORS = frozenset(
     {
@@ -106,6 +108,107 @@ def verify_email(session, *, raw_token: str, now: datetime | None = None) -> mod
         user.status = "active"
     session.flush()
     return user
+
+
+# --- trial signup ---------------------------------------------------------------
+
+TRIAL_PLAN_ID = "trial"
+TRIAL_DAYS = 30
+
+
+def ensure_trial_plan(session) -> models.Plan:
+    """Get-or-create the trial plan (idempotent; safe on a fresh DB and across
+    concurrent signups). Reused instead of a seed migration so signup is
+    self-contained."""
+    plan = session.get(models.Plan, TRIAL_PLAN_ID)
+    if plan is not None:
+        return plan
+    plan = models.Plan(
+        id=TRIAL_PLAN_ID, name="Trial", max_devices=1, max_profiles=50,
+        max_sessions=5, features={},
+    )
+    session.add(plan)
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()  # a concurrent signup created it first
+        plan = session.get(models.Plan, TRIAL_PLAN_ID)
+    return plan
+
+
+@dataclass
+class SignupResult:
+    tokens: IssuedTokens
+    entitlement_token: str
+
+
+def signup_trial(
+    session,
+    *,
+    email: str,
+    password: str,
+    device_public_key: str,
+    device_signature: str,
+    device_name: str = "Plasma Desktop",
+    settings: CloudSettings,
+    now: datetime | None = None,
+    trial_days: int = TRIAL_DAYS,
+) -> SignupResult:
+    """Register an ACTIVE account (no email verification), grant a `trial_days`
+    trial license, attach the device, and redeem the key — all in one transaction.
+    Returns the session tokens + the signed trial entitlement."""
+    # Imported lazily: cloud.admin imports this module at top level
+    # (`from .features.auth import service as auth`), so a top-level
+    # `from ...admin import issue_key` here would be a circular import that only
+    # fails when cloud.admin happens to be the first of the two modules imported
+    # (e.g. the full test suite via tests/cloud/test_admin.py) — order-dependent
+    # breakage. Deferring the import to call time sidesteps it entirely.
+    from ...admin import issue_key
+
+    now = now or utc_now()
+    user = models.User(
+        email=normalize_email(email),
+        password_hash=hash_password(password),
+        status="active",
+    )
+    session.add(user)
+    try:
+        session.flush()
+    except IntegrityError as error:
+        session.rollback()
+        raise AuthError("email_taken") from error
+
+    ensure_trial_plan(session)
+    display, _key = issue_key(
+        session,
+        plan_id=TRIAL_PLAN_ID,
+        pepper=settings.activation_pepper,
+        max_uses=1,
+        expires_at=now + timedelta(days=trial_days),
+        created_by="system",
+    )
+    # Canonical device possession challenge — mirrors auth/routes.device_challenge.
+    device = register_device(
+        session,
+        user=user,
+        public_key_b64=device_public_key,
+        challenge=f"plasma-device:{device_public_key}",
+        signature_b64=device_signature,
+        name=device_name,
+    )
+    issued = create_session(session, user=user, device=device, settings=settings, now=now)
+    redeemed = redeem_key(
+        session,
+        raw_key=display,
+        user_id=user.id,
+        device_id=device.id,
+        pepper=settings.activation_pepper,
+        private_key=settings.signing_private_key,
+        now=now,
+        ttl=settings.entitlement_ttl,
+        grace=settings.offline_grace,
+    )
+    return SignupResult(tokens=issued, entitlement_token=redeemed.token)
 
 
 # --- authentication -----------------------------------------------------------
