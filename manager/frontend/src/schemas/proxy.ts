@@ -75,14 +75,18 @@ export const proxyFormSchema = z
 export type ProxyFormValues = z.input<typeof proxyFormSchema>;
 
 export function toProxyPayload(values: z.output<typeof proxyFormSchema>): ProxyWritePayload {
+  const isDirect = values.scheme === 'direct';
   return {
     label: values.label,
     scheme: values.scheme,
-    host: values.scheme === 'direct' ? '' : values.host,
-    port: values.scheme === 'direct' ? null : values.port,
-    username: values.username || null,
+    host: isDirect ? '' : values.host,
+    port: isDirect ? null : values.port,
+    // Direct mode forbids credentials server-side. When editing a proxy that HAD a
+    // username/password, the hidden fields keep their old values — clear them for
+    // direct, or the backend rejects the endpoint/credentials with a 422.
+    username: isDirect ? null : values.username || null,
     // Only send a password when the user typed one (write-only field).
-    password: values.password ? values.password : undefined,
+    password: isDirect ? undefined : values.password ? values.password : undefined,
     test_before_launch: values.test_before_launch,
   };
 }
