@@ -32,14 +32,18 @@ _CAPTURE_JS = """
   const q = [];
   window.__q = q;
   const s = (o) => { if (q.length < 500) q.push(o); };  // bounded: never grow unboundedly
-  const m = (t) => (e) => s({kind:'mouse',type:t,x:e.clientX,y:e.clientY,button:e.button});
+  // CDP modifier bitmask: Alt=1, Ctrl=2, Meta=4, Shift=8.
+  const mod = (e) => (e.altKey?1:0)|(e.ctrlKey?2:0)|(e.metaKey?4:0)|(e.shiftKey?8:0);
+  const m = (t) => (e) => s({kind:'mouse',type:t,x:e.clientX,y:e.clientY,button:e.button,mod:mod(e)});
   addEventListener('pointerdown', m('mousePressed'), true);
   addEventListener('pointerup', m('mouseReleased'), true);
-  const k = (t) => (e) => s({kind:'key',type:t,key:e.key,code:e.code,keyCode:e.keyCode,text:(t==='keyDown'&&e.key.length===1?e.key:'')});
+  const k = (t) => (e) => s({kind:'key',type:t,key:e.key,code:e.code,keyCode:e.keyCode,mod:mod(e),text:(t==='keyDown'&&e.key.length===1?e.key:'')});
   addEventListener('keydown', k('keyDown'), true);
   addEventListener('keyup', k('keyUp'), true);
   addEventListener('wheel', (e) => s({kind:'wheel',x:e.clientX,y:e.clientY,dx:e.deltaX,dy:e.deltaY}), true);
-  window.__drain = () => JSON.stringify(q.splice(0, q.length));
+  // `v` reports whether this tab is the one on screen, so followers can switch to
+  // the same tab the user switched to.
+  window.__drain = () => JSON.stringify({v: !document.hidden, e: q.splice(0, q.length)});
   return 'installed';
 })()
 """
@@ -67,6 +71,7 @@ def translate_event(event: dict) -> list[tuple[str, dict]]:
                 "y": float(event.get("y", 0)),
                 "button": _BUTTONS.get(event.get("button", 0), "left"),
                 "clickCount": 1,
+                "modifiers": int(event.get("mod") or 0),
             },
         )]
     if kind == "key":
@@ -78,6 +83,8 @@ def translate_event(event: dict) -> list[tuple[str, dict]]:
             "key": event.get("key", ""),
             "code": event.get("code", ""),
             "windowsVirtualKeyCode": int(event.get("keyCode") or 0),
+            # Without modifiers a follower misses Shift/Ctrl combos (Ctrl+A, Ctrl+V).
+            "modifiers": int(event.get("mod") or 0),
         }
         text = event.get("text")
         if text:  # printable char: makes the keystroke actually type
@@ -198,7 +205,8 @@ class InputSyncService:
         )
         return context_id
 
-    async def _drain(self, ccdp: Any, context_id: int) -> list[dict]:
+    async def _drain(self, ccdp: Any, context_id: int) -> tuple[bool, list[dict]]:
+        """(is this tab on screen, buffered events) from a control tab."""
         result = await ccdp.send(
             "Runtime.evaluate",
             {
@@ -208,9 +216,20 @@ class InputSyncService:
             },
         )
         try:
-            return json.loads(result.get("result", {}).get("value") or "[]")
-        except (ValueError, TypeError):
-            return []
+            payload = json.loads(result.get("result", {}).get("value") or "{}")
+            return bool(payload.get("v")), list(payload.get("e") or [])
+        except (ValueError, TypeError, AttributeError):
+            return False, []
+
+    async def _activate_tab(self, index: int, follower_ctxs: list[Any]) -> None:
+        """Show the same-numbered tab in every follower window."""
+        for context in follower_ctxs:
+            pages = _open_pages(context)
+            if index < len(pages):
+                try:
+                    await pages[index].bring_to_front()
+                except Exception:
+                    pass
 
     async def _ensure_armed(self, page: Any, tabs: dict, control_ctx: Any,
                             follower_ctxs: list[Any]) -> dict | None:
@@ -240,22 +259,33 @@ class InputSyncService:
             entry["stale"] = False
         return entry
 
-    async def _reconcile_tabs(self, control_pages: list, follower_ctxs: list[Any]) -> None:
-        """Keep each follower's tab count equal to the control's, so tab N on the
-        control always maps to tab N on every follower. Opening a tab in the control
-        opens one in each follower; closing one closes the extras."""
-        wanted = len(control_pages)
+    async def _mirror_tab_count(
+        self, control_count: int, previous: int, follower_ctxs: list[Any]
+    ) -> int:
+        """Mirror *changes* to the control's tab count — open a tab in the control and
+        each follower opens one; close one and each follower closes its extra.
+
+        Deliberately not "keep the counts equal": enforcing equality every tick
+        re-opened any tab the user closed in a follower window, which made closing a
+        synced profile impossible.
+        """
+        if control_count == previous:
+            return previous
+        delta = control_count - previous
         for context in follower_ctxs:
+            browser = context.browser
+            if browser is not None and not browser.is_connected():
+                continue  # that follower is gone; don't resurrect it
             try:
-                pages = _open_pages(context)
-                while len(pages) < wanted:
-                    await context.new_page()
-                    pages = _open_pages(context)
-                while len(pages) > wanted and len(pages) > 1:
-                    await pages[-1].close()
-                    pages = _open_pages(context)
+                if delta > 0:
+                    for _ in range(delta):
+                        await context.new_page()
+                else:
+                    for page in _open_pages(context)[control_count:]:
+                        await page.close()
             except Exception:
-                pass  # a follower that races us is retried on the next tick
+                pass  # a follower that races us is retried on the next change
+        return control_count
 
     async def _follower_cdp(self, page: Any, cache: dict) -> Any:
         session = cache.get(page)
@@ -268,10 +298,8 @@ class InputSyncService:
         from playwright.async_api import async_playwright
 
         pw = await async_playwright().start()
-        conns: list[Any] = []
         try:
             control = await pw.chromium.connect_over_cdp(control_endpoint)
-            conns.append(control)
             control_ctx = _main_context(control)
             if control_ctx is None or not _open_pages(control_ctx):
                 raise RuntimeError("control_has_no_page")
@@ -279,13 +307,14 @@ class InputSyncService:
             follower_ctxs: list[Any] = []
             for endpoint in follower_endpoints:
                 browser = await pw.chromium.connect_over_cdp(endpoint)
-                conns.append(browser)
                 context = _main_context(browser)
                 if context is not None:
                     follower_ctxs.append(context)
 
             tabs: dict = {}  # control page -> capture state
             follower_sessions: dict = {}  # follower page -> cdp session
+            active_index: int | None = None  # control tab currently on screen
+            tab_count = len(_open_pages(control_ctx))
 
             await self._ensure_armed(
                 _open_pages(control_ctx)[0], tabs, control_ctx, follower_ctxs
@@ -300,11 +329,23 @@ class InputSyncService:
                 except asyncio.TimeoutError:
                     pass
 
-                control_pages = _open_pages(control_ctx)[: self._MAX_TABS]
-                if not control_pages:
-                    continue
-                await self._reconcile_tabs(control_pages, follower_ctxs)
+                # The synced windows are gone (profile stopped, or the user closed
+                # the last tab) — end the session so it stops reporting itself as
+                # active and the UI can offer Start again.
+                if not control.is_connected() or not _open_pages(control_ctx):
+                    break
+                if not any(
+                    context.browser is not None and context.browser.is_connected()
+                    for context in follower_ctxs
+                ):
+                    break
 
+                control_pages = _open_pages(control_ctx)[: self._MAX_TABS]
+                tab_count = await self._mirror_tab_count(
+                    len(control_pages), tab_count, follower_ctxs
+                )
+
+                visible_index: int | None = None
                 for index, page in enumerate(control_pages):
                     try:
                         entry = await self._ensure_armed(
@@ -313,23 +354,32 @@ class InputSyncService:
                     except Exception:
                         continue  # document still settling; retry next tick
                     try:
-                        events = await self._drain(entry["cdp"], entry["context_id"])
+                        visible, events = await self._drain(
+                            entry["cdp"], entry["context_id"]
+                        )
                     except Exception:
                         # Context destroyed under us (a navigation raced the drain) —
                         # re-arm next tick rather than ending the session.
                         entry["stale"] = True
                         continue
+                    if visible:
+                        visible_index = index
                     for event in events:
                         await self._fanout(event, index, follower_ctxs, follower_sessions)
+
+                # The user switched tabs in the control -> show the same tab in every
+                # follower. Without this the follower still *receives* the mirrored
+                # input on the right tab, but keeps displaying the old one.
+                if visible_index is not None and visible_index != active_index:
+                    active_index = visible_index
+                    await self._activate_tab(active_index, follower_ctxs)
         except Exception as error:  # noqa: BLE001 — surface to the awaiting caller
             if not ready.done():
                 ready.set_exception(error)
         finally:
-            for browser in conns:
-                try:
-                    await browser.close()
-                except Exception:
-                    pass
+            # Deliberately no browser.close(): these are the user's live profile
+            # windows, connected to over CDP, not browsers we launched. Stopping the
+            # driver drops our connections and leaves every profile running.
             try:
                 await pw.stop()
             except Exception:

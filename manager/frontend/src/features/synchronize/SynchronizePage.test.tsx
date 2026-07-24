@@ -88,6 +88,31 @@ describe('SynchronizePage', () => {
         follower_profile_ids: ['p3'], // p1 excluded — a control never follows itself
       }),
     );
-    expect(await screen.findByRole('button', { name: /stop sync/i })).toBeInTheDocument();
+    // Once syncing, Stop becomes the available action and Start is locked out.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /stop sync/i })).toBeEnabled(),
+    );
+    expect(screen.getByRole('button', { name: /start sync/i })).toBeDisabled();
+  });
+
+  it('offers a disabled Start when nothing is running, even if a session lingers', async () => {
+    // Every profile stopped. The backend ends the session on its own, but until
+    // that status poll lands the button must not strand on "Stop sync".
+    vi.spyOn(api, 'listProfiles').mockResolvedValue({
+      items: [{ id: 'p1', name: 'Alpha', runtime_state: 'stopped' }],
+      total: 1,
+    } as never);
+    vi.spyOn(api, 'getSyncStatus').mockResolvedValue({
+      active: true,
+      control_profile_id: 'p1',
+      follower_profile_ids: ['p3'],
+    });
+
+    renderPage();
+
+    // Both actions stay visible so it is obvious which is available; with nothing
+    // running neither can be used, and Stop must not look like the live state.
+    expect(await screen.findByRole('button', { name: /start sync/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /stop sync/i })).toBeDisabled();
   });
 });

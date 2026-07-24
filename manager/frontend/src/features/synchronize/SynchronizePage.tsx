@@ -58,22 +58,40 @@ export function SynchronizePage() {
       setMonitorId((monitors.find((m) => m.is_primary) ?? monitors[0]).id);
     }
   }, [monitorsQuery.data, monitorId]);
+  // Drop a control selection whose profile stopped, so Start can't be armed with a
+  // profile that is no longer running.
+  useEffect(() => {
+    if (controlId && !running.some((p) => p.id === controlId)) setControlId('');
+  }, [running, controlId]);
 
   const chosenIds = running.filter((p) => selected[p.id]).map((p) => p.id);
   // Followers are the selected profiles minus the control window itself.
   const followerIds = chosenIds.filter((id) => id !== controlId);
-  const isSyncing = syncStatus.data?.active ?? false;
+  // With nothing running there is nothing to sync, so never offer Stop — the
+  // backend ends the session on its own once the synced windows are gone, and this
+  // keeps the button from stranding on "Stop sync" until that status poll lands.
+  const isSyncing = (syncStatus.data?.active ?? false) && running.length > 0;
 
-  async function onToggleSync() {
-    if (isSyncing) {
-      await stopSync.mutateAsync();
-      return;
-    }
-    if (!controlId || !followerIds.length) return;
+  const canStart = !isSyncing && !!controlId && followerIds.length > 0;
+
+  async function onStartSync() {
+    if (!canStart) return;
     await startSync.mutateAsync({
       control_profile_id: controlId,
       follower_profile_ids: followerIds,
     });
+  }
+
+  async function onStopSync() {
+    if (!isSyncing) return;
+    await stopSync.mutateAsync();
+  }
+
+  /** What this profile is doing right now, in the user's terms. */
+  function statusLabel(id: string): string {
+    if (isSyncing && id === controlId) return t('sync.control');
+    if (isSyncing && followerIds.includes(id)) return t('sync.following');
+    return t('sync.running');
   }
 
   async function onTile() {
@@ -105,8 +123,40 @@ export function SynchronizePage() {
     <div className="flex h-full flex-col gap-4 p-6">
       <header>
         <h1 className="text-lg font-semibold text-ink">{t('synchronize.title')}</h1>
-        <p className="text-sm text-ink-muted">{t('synchronize.subtitle')}</p>
+        <p className="text-sm text-ink-muted">{t('sync.desc')}</p>
       </header>
+
+      {/* The primary actions sit at the top, both always visible, so it is obvious
+          which one is available rather than one button changing meaning. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={onStartSync}
+          disabled={!canStart || startSync.isPending}
+          className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+        >
+          {t('sync.start')}
+        </button>
+        <button
+          type="button"
+          onClick={onStopSync}
+          disabled={!isSyncing || stopSync.isPending}
+          className="rounded-md bg-danger px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+        >
+          {t('sync.stop')}
+        </button>
+        <span className="ml-1 text-xs text-ink-muted">
+          {t('sync.selected', { count: chosenIds.length })}
+        </span>
+        {isSyncing && (
+          <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent">
+            {t('sync.activeCount', { count: followerIds.length })}
+          </span>
+        )}
+        {startSync.isError && (
+          <span className="text-xs text-danger">{t('sync.failed')}</span>
+        )}
+      </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
         {/* Running profiles */}
@@ -119,38 +169,62 @@ export function SynchronizePage() {
           ) : running.length === 0 ? (
             <p className="p-4 text-sm text-ink-muted">{t('synchronize.noRunning')}</p>
           ) : (
-            <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto">
-              {running.map((p) => (
-                <li key={p.id} className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5">
-                  <label className="flex min-w-0 items-center gap-2 text-sm text-ink">
-                    <input
-                      type="checkbox"
-                      checked={!!selected[p.id]}
-                      onChange={(e) =>
-                        setSelected((s) => ({ ...s, [p.id]: e.target.checked }))
-                      }
-                    />
-                    <span className="truncate">{p.name}</span>
-                  </label>
-                  <div className="flex shrink-0 items-center gap-3">
-                    {resultLabel(p.id) && (
-                      <span className="text-xs text-ink-muted">{resultLabel(p.id)}</span>
-                    )}
-                    {/* Which window you drive; the rest follow it. */}
-                    <label className="flex items-center gap-1 text-xs text-ink-muted">
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-surface">
+                  <tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-ink-faint">
+                    <th className="w-8 px-2 py-1.5">
                       <input
-                        type="radio"
-                        name="sync-control"
-                        checked={controlId === p.id}
-                        disabled={isSyncing}
-                        onChange={() => setControlId(p.id)}
+                        type="checkbox"
+                        aria-label={t('sync.selectAll')}
+                        checked={running.every((p) => selected[p.id])}
+                        onChange={(e) =>
+                          setSelected(
+                            Object.fromEntries(running.map((p) => [p.id, e.target.checked])),
+                          )
+                        }
                       />
-                      {t('sync.control')}
-                    </label>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                    </th>
+                    <th className="px-2 py-1.5 font-medium">{t('sync.colProfile')}</th>
+                    <th className="px-2 py-1.5 font-medium">{t('sync.colStatus')}</th>
+                    <th className="w-24 px-2 py-1.5 font-medium">{t('sync.control')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {running.map((p) => (
+                    <tr key={p.id} className="border-b border-line/50 last:border-0">
+                      <td className="px-2 py-2">
+                        <input
+                          type="checkbox"
+                          aria-label={p.name}
+                          checked={!!selected[p.id]}
+                          onChange={(e) =>
+                            setSelected((s) => ({ ...s, [p.id]: e.target.checked }))
+                          }
+                        />
+                      </td>
+                      <td className="max-w-0 truncate px-2 py-2 text-ink">{p.name}</td>
+                      <td className="px-2 py-2 text-xs text-ink-muted">
+                        {statusLabel(p.id)}
+                        {resultLabel(p.id) && (
+                          <span className="ml-2 text-ink-faint">{resultLabel(p.id)}</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
+                          type="radio"
+                          name="sync-control"
+                          aria-label={`${t('sync.control')}: ${p.name}`}
+                          checked={controlId === p.id}
+                          disabled={isSyncing}
+                          onChange={() => setControlId(p.id)}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
 
@@ -203,37 +277,9 @@ export function SynchronizePage() {
             {t('synchronize.tile')}
           </button>
 
-          {/* Input sync: drive the control window, mirror to the followers. */}
-          <div className="space-y-2 border-t border-line pt-4">
-            <h2 className="text-[13px] font-medium text-ink">{t('sync.title')}</h2>
-            <p className="text-xs text-ink-muted">{t('sync.desc')}</p>
-            {isSyncing ? (
-              <p className="text-xs text-ink">
-                {t('sync.activeCount', {
-                  count: syncStatus.data?.follower_profile_ids.length ?? 0,
-                })}
-              </p>
-            ) : (
-              <p className="text-xs text-ink-faint">{t('sync.tileHint')}</p>
-            )}
-            <button
-              type="button"
-              onClick={onToggleSync}
-              disabled={
-                startSync.isPending ||
-                stopSync.isPending ||
-                (!isSyncing && (!controlId || !followerIds.length))
-              }
-              className={`w-full rounded-md px-3 py-2 text-sm font-medium text-white disabled:opacity-50 ${
-                isSyncing ? 'bg-danger' : 'bg-accent'
-              }`}
-            >
-              {t(isSyncing ? 'sync.stop' : 'sync.start')}
-            </button>
-            {startSync.isError && (
-              <p className="text-xs text-danger">{t('sync.failed')}</p>
-            )}
-          </div>
+          <p className="border-t border-line pt-3 text-xs text-ink-faint">
+            {t('sync.tileHint')}
+          </p>
         </section>
       </div>
     </div>

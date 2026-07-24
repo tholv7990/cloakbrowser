@@ -18,9 +18,23 @@ def test_click_translates_to_mouse_dispatch_at_the_same_viewport_point():
                 "y": 240.0,
                 "button": "left",
                 "clickCount": 1,
+                "modifiers": 0,
             },
         )
     ]
+
+
+def test_modifier_keys_ride_along_so_shortcuts_mirror():
+    # Without modifiers a follower would receive a bare "a" instead of Ctrl+A.
+    _, params = translate_event(
+        {"kind": "key", "type": "keyDown", "key": "a", "code": "KeyA",
+         "keyCode": 65, "mod": 2, "text": "a"}
+    )[0]
+    assert params["modifiers"] == 2
+    _, click = translate_event(
+        {"kind": "mouse", "type": "mousePressed", "x": 1, "y": 2, "button": 0, "mod": 8}
+    )[0]
+    assert click["modifiers"] == 8
 
 
 def test_right_and_middle_buttons_map_to_their_cdp_names():
