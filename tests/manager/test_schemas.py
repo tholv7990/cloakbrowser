@@ -148,6 +148,30 @@ def test_operational_behavior_does_not_change_fingerprint_hash():
     assert first.config_hash == second.config_hash
 
 
+def test_pinned_version_older_than_bundled_is_rejected():
+    # F-011 (partial, no false positives): you can never pin a build older than the
+    # bundled free one. Full unresolvable-version rejection needs the cloud version list.
+    with pytest.raises(ValidationError):
+        ProfileCreate(
+            name="A", browser_version_mode="pinned", browser_version="50.0.0.0"
+        )
+
+
+def test_pinned_current_or_newer_version_is_accepted():
+    from cloakbrowser.config import get_chromium_version
+
+    major = int(get_chromium_version().split(".")[0])
+    at_bundled = ProfileCreate(
+        name="A", browser_version_mode="pinned", browser_version=f"{major}.0.0.0"
+    )
+    assert at_bundled.browser_version == f"{major}.0.0.0"
+    # A plausibly-newer Pro pin is allowed (full resolvability needs the server).
+    newer = ProfileCreate(
+        name="A", browser_version_mode="pinned", browser_version=f"{major + 4}.0.0.0"
+    )
+    assert newer.browser_version == f"{major + 4}.0.0.0"
+
+
 def test_profile_defaults_are_safe_and_consistent():
     profile = ProfileCreate(name="  Account A  ")
 

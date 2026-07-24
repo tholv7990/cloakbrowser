@@ -61,6 +61,7 @@ Where a repo doc already states a careful position, this audit cites it rather t
 | [06-coherence-engine-design.md](06-coherence-engine-design.md) | 9 | Windows-only canonical device model: schema, generation, validation, migration, degradation. |
 | [07-external-checker-policy.md](07-external-checker-policy.md) | 7, 8 | External-checker adapter policy + first-party local probe design. |
 | [08-release-gates.md](08-release-gates.md) | 10 | Hard release blockers vs non-blocking telemetry. |
+| [09-live-verification.md](09-live-verification.md) | — | **Live results from the real 146 binary**: confirms F-010, reduces F-004, corrects the GPU guess, adds the canvas/audio-shared finding. |
 
 Implementation plan (separate, superpowers format):
 [docs/superpowers/plans/2026-07-24-fingerprint-assurance.md](../../superpowers/plans/2026-07-24-fingerprint-assurance.md)

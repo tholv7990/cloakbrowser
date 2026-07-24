@@ -106,8 +106,12 @@ not suppress host candidates.
 - Tests: differential harness case DT-WEBRTC (see [04](04-differential-test-design.md)) — must fail
   if any host candidate leaks under a SOCKS5 proxy.
 
-**Confidence:** Needs runtime verification. This is the **#1 unknown** — it can only be settled by
-a live WebRTC probe behind a real SOCKS5 proxy on the actual binary.
+**Confidence:** Partially confirmed (live, 2026-07-24). A live ICE enumeration on the real 146
+binary shows `--fingerprint-webrtc-ip=<ip>` replaces **both** the `host` and `srflx` candidate IPs
+with the supplied value → candidate-enumeration fingerprinting is defeated. The residual unknown is
+narrowed to **UDP routing vs. reported IP** (does WebRTC UDP actually egress the proxy, or only the
+reported candidate change?), which still needs a real remote SOCKS5 proxy + packet capture. See
+[09-live-verification.md](09-live-verification.md).
 
 ---
 
@@ -138,6 +142,12 @@ a live WebRTC probe behind a real SOCKS5 proxy on the actual binary.
 
 **Confidence:** Confirmed (silent-drop mechanism); the *specific* per-flag floors are
 Needs runtime verification against each binary.
+
+**Live update (2026-07-24, real 146 binary):** `--fingerprint-locale`/`--lang` and
+`--fingerprint-timezone` were read back and **do apply** on the free 146 build
+(`de-DE` → `navigator.language`, `Europe/Berlin` → `Intl` tz with the correct offset).
+So the silent-drop risk is reduced to *older/untested* binaries for the current free tier.
+See [09-live-verification.md](09-live-verification.md).
 
 ---
 
@@ -331,7 +341,12 @@ entire fleet* and never tracks the persona.
 - Tests: statistical separation suite ([05](05-stability-and-separation.md)) measuring the
   per-component duplicate rate of screen dimensions across ≥100 profiles.
 
-**Confidence:** Needs runtime verification (the actual reported `screen.*` values live in the binary).
+**Confidence:** ~~Needs runtime verification~~ → **Confirmed (live, 2026-07-24).** On the real
+146 binary, `screen` is a fleet-constant `1920×1080` across every seed tested, and
+`hardwareConcurrency` is likewise constant (`8`). Both are common real values (MAY_REPEAT), so
+this is a mild fleet signal rather than a hard defect. The **GPU/WebGL renderer, by contrast, was
+verified to vary per seed** (RTX 3090/3060/… — an earlier single-run "host-GPU leak" note was
+premature and is retracted). See [09-live-verification.md](09-live-verification.md).
 
 ---
 
@@ -554,6 +569,37 @@ labelled as producing a linkable twin. Test: FE dialog copy test.
 orphaned strings. Test: covered by the probe plan.
 
 **Confidence:** Confirmed.
+
+---
+
+## F-021 — [Medium] Canvas and audio are shared across profiles under the consistent preset
+
+**Evidence**
+- Live (2026-07-24, real 146 binary): with `fingerprint_preset="consistent"`
+  (`--fingerprint-noise=false`, `browser.py:170`), the canvas hash and the audio-render hash are
+  **identical across different seeds** and stable per seed. Only the WebGL/GPU renderer varies per
+  seed. See [09-live-verification.md](09-live-verification.md).
+
+**Failure scenario**
+- Profile inputs: any two consistent-preset profiles on the same machine/GPU.
+- Observable wrong result: they present the **same** canvas and audio fingerprint. Canvas/audio
+  cannot distinguish your own profiles from each other, and they also match other Plasma users on
+  the same GPU with the preset.
+
+**Risk:** cross-profile non-differentiation on two classic surfaces (a linkage/uniqueness weakness),
+though it is the deliberate cost of the stability the preset buys.
+
+**Fix**
+- This is a documented tradeoff, not a bug: noise-off is what makes a returning identity stable.
+  The correct handling is analytical, not a behavior change: `analyze_separation(preset=...)`
+  (`separation.py`) now treats canvas/audio as MAY_REPEAT under the consistent preset (only WebGL
+  must differ per seed), so the separation suite no longer mis-flags them. If per-profile
+  canvas/audio uniqueness is ever required, it needs a binary capability that varies them per seed
+  *without* losing per-session stability — a binary feature request, not a wrapper change.
+- Tests: `tests/manager/test_separation.py::test_consistent_preset_allows_shared_canvas_and_audio`
+  and `::test_consistent_preset_still_flags_shared_webgl`.
+
+**Confidence:** Confirmed (live).
 
 ---
 

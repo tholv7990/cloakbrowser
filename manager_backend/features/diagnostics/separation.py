@@ -16,11 +16,15 @@ from collections import Counter, defaultdict
 
 # Every profile must be unique on these.
 MUST_DIFFER_FIELDS = ("seed", "config_hash")
-# Seed-derived surfaces: expected near-unique. The same value across two DIFFERENT
-# seeds means the seed does not actually drive the surface — an impossible correlation.
-SEED_DERIVED_FIELDS = ("canvas", "webgl", "audio")
-# Common real values that MAY repeat across profiles without being a defect.
-MAY_REPEAT_FIELDS = ("screen", "cores", "gpu", "ua", "timezone", "locale")
+# High-entropy noise surfaces: unique per seed only when fingerprint noise is ON (the
+# default preset). Under the consistent preset (--fingerprint-noise=false) they are
+# deterministic and shared across profiles by design (verified live), so sharing is not
+# a defect. Sharing across DIFFERENT seeds under noise-on is an impossible correlation.
+NOISE_ENTROPY_FIELDS = ("canvas", "audio")
+# Pool-selected or common surfaces: collisions across seeds are EXPECTED, never a
+# failure. Verified live: the GPU/WebGL renderer is drawn from a finite pool (16 seeds
+# already collide, birthday-style), and screen/cores are fleet-constant.
+MAY_REPEAT_FIELDS = ("webgl", "gpu", "screen", "cores", "ua", "timezone", "locale")
 
 
 def _duplicate_id_groups(identities: list[dict], field: str) -> list[list[str]]:
@@ -30,14 +34,17 @@ def _duplicate_id_groups(identities: list[dict], field: str) -> list[list[str]]:
     return sorted(ids for ids in groups.values() if len(ids) > 1)
 
 
-def analyze_separation(identities: list[dict]) -> dict:
+def analyze_separation(identities: list[dict], *, preset: str = "default") -> dict:
     count = len(identities)
 
     duplicate_seeds = _duplicate_id_groups(identities, "seed")
     duplicate_config_hashes = _duplicate_id_groups(identities, "config_hash")
 
+    # Only the high-entropy noise surfaces must be unique per seed, and only when noise
+    # is on. GPU/WebGL is pool-selected, so its collisions are expected (MAY_REPEAT).
+    impossible_fields = () if preset == "consistent" else NOISE_ENTROPY_FIELDS
     impossible_correlations = []
-    for field in SEED_DERIVED_FIELDS:
+    for field in impossible_fields:
         seeds_by_value: dict[object, set] = defaultdict(set)
         for identity in identities:
             seeds_by_value[identity.get(field)].add(identity.get("seed"))

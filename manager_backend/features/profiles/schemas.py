@@ -22,6 +22,19 @@ def _validate_custom_user_agent(value: str | None) -> str | None:
     return value
 
 
+def _pinned_version_older_than_bundled(version: str | None) -> bool:
+    # F-011 (partial): a pinned build older than the bundled free one can never resolve.
+    # Rejecting unresolvable *newer* pins needs the cloud version list (not done here).
+    if version is None:
+        return False
+    from cloakbrowser.config import get_chromium_version
+
+    try:
+        return int(version.split(".")[0]) < int(get_chromium_version().split(".")[0])
+    except (ValueError, IndexError):
+        return False
+
+
 class LocationSettings(StrictModel):
     # Default to deriving geo from the proxy: with no proxy this falls back to the
     # host timezone at launch, but a proxied profile then matches its exit IP
@@ -149,6 +162,8 @@ class ProfileCreate(StrictModel):
         if self.browser_version_mode == "pinned":
             if self.browser_version is None or not _VERSION_RE.fullmatch(self.browser_version):
                 raise ValueError("pinned browser mode requires a full numeric version")
+            if _pinned_version_older_than_bundled(self.browser_version):
+                raise ValueError("pinned browser version cannot be older than the bundled build")
         elif self.browser_version is not None:
             raise ValueError("browser version requires pinned mode")
         if self.user_agent_mode == "custom" and self.custom_user_agent is None:

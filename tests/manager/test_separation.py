@@ -53,12 +53,33 @@ def test_duplicate_config_hash_fails():
 
 
 def test_impossible_correlation_same_canvas_different_seed_fails():
-    # A seed-derived surface (canvas) shared across two DIFFERENT seeds means the seed
-    # does not actually drive that surface — an impossible correlation.
+    # Under the noise-ON default preset a seed-derived surface (canvas) shared across
+    # two DIFFERENT seeds means the seed doesn't drive it — an impossible correlation.
     identities = [_identity(0), _identity(1, canvas="canvas0")]
-    report = analyze_separation(identities)
+    report = analyze_separation(identities, preset="default")
     assert report["verdict"] == "fail"
     assert any(c["field"] == "canvas" for c in report["impossible_correlations"])
+
+
+def test_consistent_preset_allows_shared_canvas_and_audio():
+    # Verified live: the consistent (--fingerprint-noise=false) preset makes canvas and
+    # audio deterministic, so they are shared across profiles by design — not a defect.
+    identities = [_identity(0), _identity(1, canvas="canvas0", audio="audio0")]
+    report = analyze_separation(identities, preset="consistent")
+    assert report["verdict"] == "pass"
+    assert report["impossible_correlations"] == []
+
+
+def test_webgl_pool_collision_is_not_a_failure():
+    # Verified live (16-seed batch): the GPU/WebGL renderer is drawn from a finite pool,
+    # so two different seeds landing on the same GPU is expected — not a defect. WebGL is
+    # MAY_REPEAT, so this fleet still passes.
+    identities = [_identity(0), _identity(1, webgl="webgl0")]
+    for preset in ("consistent", "default"):
+        report = analyze_separation(identities, preset=preset)
+        assert report["verdict"] == "pass", preset
+        assert report["impossible_correlations"] == []
+    assert "webgl" in MAY_REPEAT_FIELDS
 
 
 def test_exact_duplicate_identity_fails():

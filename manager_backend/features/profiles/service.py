@@ -13,7 +13,13 @@ from ...errors import ManagerError
 from ...fingerprints import build_fingerprint_identity, generate_unique_seed
 from ...models import Folder, Profile, Proxy, Tag, WorkflowStatus, utc_now
 from .directories import resolve_profile_directory
-from .schemas import BulkProfileRequest, ProfileCreate, ProfilePatch, ProfileRead
+from .schemas import (
+    BulkProfileRequest,
+    ProfileCreate,
+    ProfilePatch,
+    ProfileRead,
+    _pinned_version_older_than_bundled,
+)
 
 
 _FINGERPRINT_FIELDS = {
@@ -315,6 +321,10 @@ def _validate_identity_modes(profile: Profile, changes: dict[str, Any]) -> None:
         errors["browser_version"] = "required_for_pinned_mode"
     elif browser_version_mode == "installed" and browser_version is not None:
         errors["browser_version"] = "requires_pinned_mode"
+    elif browser_version_mode == "pinned" and _pinned_version_older_than_bundled(
+        browser_version
+    ):
+        errors["browser_version"] = "older_than_bundled"
     if user_agent_mode == "custom" and custom_user_agent is None:
         errors["custom_user_agent"] = "required_for_custom_mode"
     elif user_agent_mode == "automatic" and custom_user_agent is not None:

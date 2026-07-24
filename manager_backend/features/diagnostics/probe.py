@@ -25,16 +25,38 @@ PROBE_SCHEMA_VERSION = 1
 # spawns a browser for a probe. A binary-backed environment sets this to run it.
 LIVE_PROBE_ENV = "CLOAK_LIVE_DIAGNOSTICS"
 
-# In-page collector: a self-contained expression returning the raw surfaces. Every
-# surface is guarded so one failure can't blank the whole collection. It reads only
-# fingerprint-relevant properties — no cookies, storage, or history.
-COLLECTOR_JS = r"""(() => {
+# In-page collector: a self-contained async expression returning the raw surfaces.
+# Async so it can render a real audio fingerprint (OfflineAudioContext.startRendering
+# is a promise). Every surface is guarded so one failure can't blank the collection.
+# It reads only fingerprint-relevant properties — no cookies, storage, or history.
+# Client Hints (userAgentData) only populate in a secure context, so a real read needs
+# an https page (see default_probe_page's optional navigation).
+COLLECTOR_JS = r"""(async () => {
   const safe = (fn, fallback) => { try { return fn(); } catch (e) { return fallback; } };
   const uaData = navigator.userAgentData || null;
+  const clientHints = uaData
+    ? await safe(
+        () => uaData.getHighEntropyValues(['platform', 'platformVersion', 'architecture', 'bitness', 'uaFullVersion']),
+        { platform: uaData.platform, mobile: uaData.mobile }
+      )
+    : null;
+  const audio = await (async () => {
+    try {
+      const Ctor = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+      const ctx = new Ctor(1, 5000, 44100);
+      const osc = ctx.createOscillator(); osc.type = 'triangle'; osc.frequency.value = 10000;
+      const comp = ctx.createDynamicsCompressor();
+      osc.connect(comp); comp.connect(ctx.destination); osc.start(0);
+      const buffer = await ctx.startRendering();
+      const data = buffer.getChannelData(0);
+      let sum = 0; for (let i = 4000; i < 5000; i++) sum += Math.abs(data[i]);
+      return sum.toString();
+    } catch (e) { return null; }
+  })();
   return {
     userAgent: navigator.userAgent,
     platform: navigator.platform,
-    userAgentData: uaData ? { platform: uaData.platform, mobile: uaData.mobile } : null,
+    userAgentData: clientHints,
     languages: safe(() => Array.from(navigator.languages), []),
     hardwareConcurrency: navigator.hardwareConcurrency,
     deviceMemory: safe(() => navigator.deviceMemory, null),
@@ -65,10 +87,7 @@ COLLECTOR_JS = r"""(() => {
         renderer: gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL),
       };
     }, null),
-    audio: safe(() => {
-      const Ctor = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-      return String(new Ctor(1, 44100, 44100).sampleRate);
-    }, null),
+    audio: audio,
     nativeIntegrity: safe(() => ({
       // A patched getter reveals a JS shim here instead of "[native code]".
       hardwareConcurrencyGetter: Object.getOwnPropertyDescriptor(
@@ -222,6 +241,11 @@ def default_probe_page(snapshot: dict) -> Iterator[Callable[[str], dict]]:
     )
     try:
         page = context.new_page()
+        # Client Hints (userAgentData) only populate in a secure context, so an https
+        # probe_url gives a real read; the default about:blank cannot (F-008-CH).
+        probe_url = snapshot.get("probe_url")
+        if probe_url:
+            page.goto(probe_url, wait_until="commit", timeout=20000)
         cdp = context.new_cdp_session(page)
         frame_id = cdp.send("Page.getFrameTree")["frameTree"]["frame"]["id"]
         world = cdp.send("Page.createIsolatedWorld", {"frameId": frame_id})
@@ -230,7 +254,12 @@ def default_probe_page(snapshot: dict) -> Iterator[Callable[[str], dict]]:
         def evaluate(script: str) -> dict:
             response = cdp.send(
                 "Runtime.evaluate",
-                {"expression": script, "contextId": context_id, "returnByValue": True},
+                {
+                    "expression": script,
+                    "contextId": context_id,
+                    "returnByValue": True,
+                    "awaitPromise": True,  # the collector is async (real audio render)
+                },
             )
             return response["result"]["value"]
 
