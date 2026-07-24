@@ -12,22 +12,14 @@ from ...schemas.common import Page, StrictModel
 
 _VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){3,4}$")
 _LOCALE_RE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
-_MANAGER_ARG_KEYS = {
-    "--fingerprint",
-    "--fingerprint-platform",
-    "--fingerprint-noise",
-    "--fingerprint-storage-quota",
-    "--fingerprint-timezone",
-    "--fingerprint-locale",
-    "--fingerprint-webrtc-ip",
-    "--proxy-server",
-    "--proxy-bypass-list",
-    "--user-data-dir",
-    "--remote-debugging-port",
-    "--remote-debugging-pipe",
-    "--load-extension",
-    "--disable-extensions-except",
-}
+
+
+def _validate_custom_user_agent(value: str | None) -> str | None:
+    # F-008: a custom UA that doesn't declare the Windows platform contradicts the
+    # Windows-only persona (and the engine-derived Client Hints).
+    if value is not None and "Windows NT" not in value:
+        raise ValueError("custom user agent must match the Windows platform")
+    return value
 
 
 class LocationSettings(StrictModel):
@@ -37,7 +29,9 @@ class LocationSettings(StrictModel):
     geo_mode: Literal["proxy", "manual", "system"] = "proxy"
     locale: str | None = None
     timezone: str | None = None
-    webrtc_mode: Literal["proxy", "direct", "disabled"] = "proxy"
+    # "disabled" retired (F-001): the launcher never enforced it, so offering it
+    # promised a WebRTC-off behavior the engine does not deliver. proxy | direct only.
+    webrtc_mode: Literal["proxy", "direct"] = "proxy"
     geolocation_mode: Literal["proxy", "manual", "ask", "block"] = "ask"
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
@@ -62,11 +56,17 @@ class LocationSettings(StrictModel):
         return self
 
 
+# The consistent preset spoofs a 1920x1080 screen (and the free binary clamps to
+# it); a custom window must not exceed that, or outerWidth/innerWidth > screen.width
+# — an impossible, detectable geometry (F-015).
+_SPOOFED_SCREEN = (1920, 1080)
+
+
 class WindowSettings(StrictModel):
     mode: Literal["maximized", "custom"] = "maximized"
-    width: int | None = Field(default=None, ge=800, le=7680)
-    height: int | None = Field(default=None, ge=600, le=4320)
-    color_scheme: Literal["system", "light", "dark"] = "system"
+    width: int | None = Field(default=None, ge=800, le=_SPOOFED_SCREEN[0])
+    height: int | None = Field(default=None, ge=600, le=_SPOOFED_SCREEN[1])
+    # color_scheme retired (F-006): it was stored but never applied at launch.
 
     @model_validator(mode="after")
     def validate_dimensions(self):
@@ -79,46 +79,11 @@ class WindowSettings(StrictModel):
 
 
 class BehaviorSettings(StrictModel):
-    humanize_enabled: bool = False
-    humanize_preset: Literal["default", "careful"] = "default"
-    clear_cache_before_launch: bool = False
-    restore_previous_tabs: bool = True
-    download_directory_mode: Literal["profile", "custom"] = "profile"
-    custom_download_directory: str | None = Field(default=None, max_length=1024)
+    # Only permissions remain: they are applied at launch (F-005). The former
+    # humanize / hardware-concurrency / GPU / downloads / additional-args / cache /
+    # https / restore-tabs fields were stored but never reached the browser (F-006)
+    # and were retired; two of them (hardware/GPU) had also polluted the config hash.
     permissions: dict[str, Literal["ask", "allow", "block"]] = Field(default_factory=dict)
-    ignore_https_errors: bool = False
-    hardware_concurrency_mode: Literal["automatic", "custom"] = "automatic"
-    hardware_concurrency: int | None = Field(default=None, ge=2, le=64)
-    gpu_mode: Literal["automatic", "custom_vendor"] = "automatic"
-    gpu_vendor: str | None = Field(default=None, min_length=1, max_length=120)
-    additional_args: list[str] = Field(default_factory=list, max_length=32)
-
-    @field_validator("additional_args")
-    @classmethod
-    def reject_manager_owned_args(cls, values: list[str]) -> list[str]:
-        for value in values:
-            if not value.startswith("--") or any(character in value for character in "\r\n\0"):
-                raise ValueError("Chromium arguments must be single --flag values")
-            key = value.split("=", 1)[0].lower()
-            if key in _MANAGER_ARG_KEYS:
-                raise ValueError(f"{key} is owned by CloakBrowser Manager")
-        return values
-
-    @model_validator(mode="after")
-    def validate_modes(self):
-        if self.hardware_concurrency_mode == "custom" and self.hardware_concurrency is None:
-            raise ValueError("custom hardware concurrency requires a value")
-        if self.hardware_concurrency_mode == "automatic" and self.hardware_concurrency is not None:
-            raise ValueError("hardware concurrency value requires custom mode")
-        if self.gpu_mode == "custom_vendor" and self.gpu_vendor is None:
-            raise ValueError("custom GPU mode requires a vendor")
-        if self.gpu_mode == "automatic" and self.gpu_vendor is not None:
-            raise ValueError("GPU vendor requires custom_vendor mode")
-        if self.download_directory_mode == "custom" and not self.custom_download_directory:
-            raise ValueError("custom download mode requires a directory")
-        if self.download_directory_mode == "profile" and self.custom_download_directory is not None:
-            raise ValueError("custom directory requires custom download mode")
-        return self
 
 
 class ProfileCreate(StrictModel):
@@ -148,6 +113,11 @@ class ProfileCreate(StrictModel):
         if not value:
             raise ValueError("name cannot be blank")
         return value
+
+    @field_validator("custom_user_agent")
+    @classmethod
+    def validate_custom_user_agent(cls, value: str | None) -> str | None:
+        return _validate_custom_user_agent(value)
 
     @field_validator("fingerprint_seed")
     @classmethod
@@ -222,6 +192,11 @@ class ProfilePatch(StrictModel):
         if value is not None and not _VERSION_RE.fullmatch(value):
             raise ValueError("browser version must be a full numeric version")
         return value
+
+    @field_validator("custom_user_agent")
+    @classmethod
+    def validate_custom_user_agent(cls, value: str | None) -> str | None:
+        return _validate_custom_user_agent(value)
 
     @field_validator("startup_urls")
     @classmethod

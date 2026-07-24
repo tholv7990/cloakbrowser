@@ -27,7 +27,7 @@ export const profileWizardSchema = z
     geo_mode: z.enum(['proxy', 'manual', 'system']),
     locale: z.string().trim().max(35),
     timezone: z.string().trim().max(60),
-    webrtc_mode: z.enum(['proxy', 'direct', 'disabled']),
+    webrtc_mode: z.enum(['proxy', 'direct']),
     geolocation_mode: z.enum(['proxy', 'manual', 'ask', 'block']),
     latitude: z.string(),
     longitude: z.string(),
@@ -45,29 +45,16 @@ export const profileWizardSchema = z
     window_mode: z.enum(['maximized', 'custom']),
     window_width: z.string(),
     window_height: z.string(),
-    color_scheme: z.enum(['system', 'light', 'dark']),
 
     // Step 6 — Extensions (not part of ProfileCreate yet; see contract questions)
     extension_ids: z.array(z.string()),
 
-    // Step 7 — Advanced behavior
-    humanize_enabled: z.boolean(),
-    humanize_preset: z.enum(['default', 'careful']),
-    clear_cache_before_launch: z.boolean(),
-    restore_previous_tabs: z.boolean(),
-    download_directory_mode: z.enum(['profile', 'custom']),
-    custom_download_directory: z.string().trim().max(1024),
+    // Step 7 — Advanced behavior (F-006: only permissions remain applied at launch)
     permission_geolocation: permission,
     permission_notifications: permission,
     permission_camera: permission,
     permission_microphone: permission,
     permission_clipboard: permission,
-    ignore_https_errors: z.boolean(),
-    hardware_concurrency_mode: z.enum(['automatic', 'custom']),
-    hardware_concurrency: z.string(),
-    gpu_mode: z.enum(['automatic', 'custom_vendor']),
-    gpu_vendor: z.string().trim().max(120),
-    additional_args: z.string().max(2000),
   })
   .superRefine((v, ctx) => {
     const add = (path: string, message: string) =>
@@ -86,18 +73,6 @@ export const profileWizardSchema = z
     if (v.geolocation_mode === 'manual') {
       if (!v.latitude) add('latitude', 'Latitude is required for manual geolocation.');
       if (!v.longitude) add('longitude', 'Longitude is required for manual geolocation.');
-    }
-    if (v.download_directory_mode === 'custom' && !v.custom_download_directory) {
-      add('custom_download_directory', 'Enter a download directory.');
-    }
-    if (v.hardware_concurrency_mode === 'custom') {
-      const n = Number(v.hardware_concurrency);
-      if (!v.hardware_concurrency || Number.isNaN(n) || n < 2 || n > 64) {
-        add('hardware_concurrency', 'Enter a value between 2 and 64.');
-      }
-    }
-    if (v.gpu_mode === 'custom_vendor' && !v.gpu_vendor) {
-      add('gpu_vendor', 'Enter a GPU vendor.');
     }
     for (const line of v.startup_urls_text
       .split('\n')
@@ -120,7 +95,7 @@ export const stepFields: Record<number, (keyof ProfileWizardValues)[]> = {
   3: ['window_width', 'window_height'],
   4: [],
   5: [],
-  6: ['custom_download_directory', 'hardware_concurrency', 'gpu_vendor', 'additional_args'],
+  6: [],
   7: [],
 };
 
@@ -128,6 +103,13 @@ const numOrNull = (value: string): number | null => {
   const n = Number(value);
   return value.trim() === '' || Number.isNaN(n) ? null : n;
 };
+
+/** A cryptographically strong, full 64-bit unsigned decimal seed (F-007). The
+ * backend accepts up to 2^64-1; Math.random gives only 32 non-crypto bits. */
+export function randomSeed(): string {
+  const parts = crypto.getRandomValues(new Uint32Array(2));
+  return ((BigInt(parts[0]) << 32n) | BigInt(parts[1])).toString();
+}
 
 export function defaultWizardValues(overrides?: Partial<ProfileWizardValues>): ProfileWizardValues {
   return {
@@ -148,7 +130,7 @@ export function defaultWizardValues(overrides?: Partial<ProfileWizardValues>): P
     longitude: '',
     accuracy: '',
     fingerprint_preset: 'consistent',
-    fingerprint_seed: String(Math.floor(Math.random() * 2 ** 32)),
+    fingerprint_seed: randomSeed(),
     browser_version_mode: 'installed',
     browser_version: '',
     user_agent_mode: 'automatic',
@@ -156,25 +138,12 @@ export function defaultWizardValues(overrides?: Partial<ProfileWizardValues>): P
     window_mode: 'maximized',
     window_width: '',
     window_height: '',
-    color_scheme: 'system',
     extension_ids: [],
-    humanize_enabled: false,
-    humanize_preset: 'default',
-    clear_cache_before_launch: false,
-    restore_previous_tabs: true,
-    download_directory_mode: 'profile',
-    custom_download_directory: '',
     permission_geolocation: 'ask',
     permission_notifications: 'block',
     permission_camera: 'block',
     permission_microphone: 'block',
     permission_clipboard: 'ask',
-    ignore_https_errors: false,
-    hardware_concurrency_mode: 'automatic',
-    hardware_concurrency: '',
-    gpu_mode: 'automatic',
-    gpu_vendor: '',
-    additional_args: '',
     ...overrides,
   };
 }
@@ -210,25 +179,12 @@ export function profileToWizardValues(
     window_mode: p.window.mode,
     window_width: str(p.window.width),
     window_height: str(p.window.height),
-    color_scheme: p.window.color_scheme,
     extension_ids: [...extensionIds],
-    humanize_enabled: p.behavior.humanize_enabled,
-    humanize_preset: p.behavior.humanize_preset,
-    clear_cache_before_launch: p.behavior.clear_cache_before_launch,
-    restore_previous_tabs: p.behavior.restore_previous_tabs,
-    download_directory_mode: p.behavior.download_directory_mode,
-    custom_download_directory: p.behavior.custom_download_directory ?? '',
     permission_geolocation: p.behavior.permissions.geolocation ?? 'ask',
     permission_notifications: p.behavior.permissions.notifications ?? 'block',
     permission_camera: p.behavior.permissions.camera ?? 'block',
     permission_microphone: p.behavior.permissions.microphone ?? 'block',
     permission_clipboard: p.behavior.permissions.clipboard ?? 'ask',
-    ignore_https_errors: p.behavior.ignore_https_errors,
-    hardware_concurrency_mode: p.behavior.hardware_concurrency_mode,
-    hardware_concurrency: str(p.behavior.hardware_concurrency),
-    gpu_mode: p.behavior.gpu_mode,
-    gpu_vendor: p.behavior.gpu_vendor ?? '',
-    additional_args: p.behavior.additional_args.join(' '),
   };
 }
 
@@ -266,16 +222,8 @@ export function wizardValuesToPayload(v: ProfileWizardValues): ProfileWrite {
       mode: v.window_mode,
       width: custom ? numOrNull(v.window_width) : null,
       height: custom ? numOrNull(v.window_height) : null,
-      color_scheme: v.color_scheme,
     },
     behavior: {
-      humanize_enabled: v.humanize_enabled,
-      humanize_preset: v.humanize_preset,
-      clear_cache_before_launch: v.clear_cache_before_launch,
-      restore_previous_tabs: v.restore_previous_tabs,
-      download_directory_mode: v.download_directory_mode,
-      custom_download_directory:
-        v.download_directory_mode === 'custom' ? v.custom_download_directory.trim() : null,
       permissions: {
         geolocation: v.permission_geolocation,
         notifications: v.permission_notifications,
@@ -283,13 +231,6 @@ export function wizardValuesToPayload(v: ProfileWizardValues): ProfileWrite {
         microphone: v.permission_microphone,
         clipboard: v.permission_clipboard,
       },
-      ignore_https_errors: v.ignore_https_errors,
-      hardware_concurrency_mode: v.hardware_concurrency_mode,
-      hardware_concurrency:
-        v.hardware_concurrency_mode === 'custom' ? numOrNull(v.hardware_concurrency) : null,
-      gpu_mode: v.gpu_mode,
-      gpu_vendor: v.gpu_mode === 'custom_vendor' ? v.gpu_vendor.trim() : null,
-      additional_args: v.additional_args.split(/\s+/).filter(Boolean),
     },
     proxy_id: v.proxy_id || null,
     test_proxy_before_launch: v.test_proxy_before_launch,

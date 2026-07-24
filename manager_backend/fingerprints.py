@@ -10,7 +10,9 @@ from typing import Any
 from pydantic import BaseModel
 
 
-FINGERPRINT_REVISION = 1
+# Bumped to 2 when the retired behavior fields (F-006) left the config hash. A
+# one-time migration re-baselines every stored profile's hash under this revision.
+FINGERPRINT_REVISION = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,17 +29,10 @@ def _plain(value: Any) -> Any:
 
 
 def _fingerprint_behavior(value: Any) -> dict[str, Any]:
-    plain = _plain(value) if value is not None else {}
-    if not isinstance(plain, dict):
-        return {}
-    keys = (
-        "hardware_concurrency_mode",
-        "hardware_concurrency",
-        "gpu_mode",
-        "gpu_vendor",
-        "additional_args",
-    )
-    return {key: plain.get(key) for key in keys if key in plain}
+    # No behavior field is identity-relevant any more (F-006 retired the hardware /
+    # GPU / additional-args knobs; permissions is a runtime grant, not a surface).
+    # Kept as a hook so build_fingerprint_identity's signature is stable.
+    return {}
 
 
 def build_fingerprint_identity(

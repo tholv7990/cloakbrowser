@@ -223,6 +223,10 @@ def build_proxy_url(
     """
     if scheme == "direct":
         return None
+    # Chromium's --proxy-server doesn't recognize socks5h and may fall back to
+    # DIRECT (host IP + local DNS); socks5 already resolves DNS remotely (F-012).
+    if scheme == "socks5h":
+        scheme = "socks5"
     authority = f"{host}:{port}"
     if username:
         from urllib.parse import quote
@@ -252,15 +256,42 @@ def cache_quick_test(session: Session, proxy: Proxy, result: QuickTestResult) ->
 
 
 # Country -> BCP-47 locale for profiles that derive their locale from the proxy.
-# Coarse (one language per country) but enough to keep navigator.language aligned
-# with the exit IP; anything unmapped falls back to en-US.
+# Coarse (one plausible language per country) but enough to keep navigator.language
+# aligned with the exit IP; non-English regions must not fall back to en-US (F-009).
 _LOCALE_BY_COUNTRY = {
     "US": "en-US", "GB": "en-GB", "CA": "en-CA", "AU": "en-AU", "IE": "en-IE",
-    "NZ": "en-NZ", "SG": "en-SG", "IN": "en-IN", "DE": "de-DE", "AT": "de-AT",
-    "FR": "fr-FR", "ES": "es-ES", "MX": "es-MX", "IT": "it-IT", "NL": "nl-NL",
-    "BE": "nl-BE", "PT": "pt-PT", "BR": "pt-BR", "JP": "ja-JP", "KR": "ko-KR",
-    "VN": "vi-VN", "TH": "th-TH", "RU": "ru-RU", "UA": "uk-UA", "PL": "pl-PL",
-    "TR": "tr-TR", "SE": "sv-SE", "NO": "nb-NO", "DK": "da-DK", "FI": "fi-FI",
+    "NZ": "en-NZ", "SG": "en-SG", "IN": "en-IN", "PH": "en-PH", "ZA": "en-ZA",
+    "DE": "de-DE", "AT": "de-AT", "CH": "de-CH", "FR": "fr-FR", "ES": "es-ES",
+    "MX": "es-MX", "AR": "es-AR", "CL": "es-CL", "CO": "es-CO", "PE": "es-PE",
+    "IT": "it-IT", "NL": "nl-NL", "BE": "nl-BE", "PT": "pt-PT", "BR": "pt-BR",
+    "JP": "ja-JP", "KR": "ko-KR", "CN": "zh-CN", "HK": "zh-HK", "TW": "zh-TW",
+    "VN": "vi-VN", "TH": "th-TH", "ID": "id-ID", "MY": "ms-MY", "RU": "ru-RU",
+    "UA": "uk-UA", "PL": "pl-PL", "TR": "tr-TR", "SE": "sv-SE", "NO": "nb-NO",
+    "DK": "da-DK", "FI": "fi-FI", "GR": "el-GR", "CZ": "cs-CZ", "RO": "ro-RO",
+    "HU": "hu-HU", "EG": "ar-EG", "AE": "ar-AE", "SA": "ar-SA", "IL": "he-IL",
+}
+
+# Country -> representative IANA timezone, used when geo enrichment resolves the
+# exit country but not the precise timezone. A coarse but plausible clock beats
+# leaking the host timezone (F-002). Kept in lock-step with _LOCALE_BY_COUNTRY.
+_TIMEZONE_BY_COUNTRY = {
+    "US": "America/New_York", "GB": "Europe/London", "CA": "America/Toronto",
+    "AU": "Australia/Sydney", "IE": "Europe/Dublin", "NZ": "Pacific/Auckland",
+    "SG": "Asia/Singapore", "IN": "Asia/Kolkata", "PH": "Asia/Manila",
+    "ZA": "Africa/Johannesburg", "DE": "Europe/Berlin", "AT": "Europe/Vienna",
+    "CH": "Europe/Zurich", "FR": "Europe/Paris", "ES": "Europe/Madrid",
+    "MX": "America/Mexico_City", "AR": "America/Argentina/Buenos_Aires",
+    "CL": "America/Santiago", "CO": "America/Bogota", "PE": "America/Lima",
+    "IT": "Europe/Rome", "NL": "Europe/Amsterdam", "BE": "Europe/Brussels",
+    "PT": "Europe/Lisbon", "BR": "America/Sao_Paulo", "JP": "Asia/Tokyo",
+    "KR": "Asia/Seoul", "CN": "Asia/Shanghai", "HK": "Asia/Hong_Kong",
+    "TW": "Asia/Taipei", "VN": "Asia/Ho_Chi_Minh", "TH": "Asia/Bangkok",
+    "ID": "Asia/Jakarta", "MY": "Asia/Kuala_Lumpur", "RU": "Europe/Moscow",
+    "UA": "Europe/Kyiv", "PL": "Europe/Warsaw", "TR": "Europe/Istanbul",
+    "SE": "Europe/Stockholm", "NO": "Europe/Oslo", "DK": "Europe/Copenhagen",
+    "FI": "Europe/Helsinki", "GR": "Europe/Athens", "CZ": "Europe/Prague",
+    "RO": "Europe/Bucharest", "HU": "Europe/Budapest", "EG": "Africa/Cairo",
+    "AE": "Asia/Dubai", "SA": "Asia/Riyadh", "IL": "Asia/Jerusalem",
 }
 
 
@@ -269,14 +300,30 @@ def _apply_proxy_geo(snapshot: dict, result) -> None:
     exit-IP timezone (and a matching locale) onto the launch snapshot so the
     browser clock/language agree with the IP. Without this, geo_mode="proxy" is
     a no-op and the browser reports the host timezone -> detection sites flag a
-    timezone/IP mismatch ("timezone spoofed")."""
+    timezone/IP mismatch ("timezone spoofed"). When the precise IANA timezone is
+    missing but the exit country is known, a representative country timezone is
+    used rather than leaking the host clock (F-002)."""
     location = snapshot.get("location") or {}
     if location.get("geo_mode") != "proxy":
         return
-    if getattr(result, "timezone", None):
-        snapshot["timezone"] = result.timezone
-    if not snapshot.get("locale") and getattr(result, "country", None):
-        snapshot["locale"] = _LOCALE_BY_COUNTRY.get(result.country, "en-US")
+    country = getattr(result, "country", None)
+    timezone_id = getattr(result, "timezone", None) or _TIMEZONE_BY_COUNTRY.get(country or "")
+    if timezone_id:
+        snapshot["timezone"] = timezone_id
+    if not snapshot.get("locale") and country:
+        snapshot["locale"] = _LOCALE_BY_COUNTRY.get(country, "en-US")
+
+
+def _require_proxy_timezone(snapshot: dict) -> None:
+    """A geo_mode="proxy" profile must never launch with the host clock (F-002): if
+    no timezone could be derived from the proxy, refuse the launch."""
+    location = snapshot.get("location") or {}
+    if location.get("geo_mode") == "proxy" and not snapshot.get("timezone"):
+        raise ManagerError(
+            "proxy_preflight_failed",
+            "Could not align the profile timezone to the proxy location.",
+            409,
+        )
 
 
 _PREFLIGHT_CACHE_MAX_AGE = timedelta(seconds=60)
@@ -332,6 +379,7 @@ def build_proxy_preflight(session_factory, store: CredentialStore, tester):
                 if cached is not None:
                     _apply_proxy_geo(snapshot, cached)
                     snapshot["proxy_exit_ip"] = cached.exit_ip
+                _require_proxy_timezone(snapshot)
                 return proxy_url
             result = _cached_quick_test(proxy, now=datetime.now(timezone.utc))
             used_cached_result = result is not None
@@ -348,9 +396,28 @@ def build_proxy_preflight(session_factory, store: CredentialStore, tester):
                 cache_quick_test(session, proxy, result)
             _apply_proxy_geo(snapshot, result)
             snapshot["proxy_exit_ip"] = result.exit_ip
+            _require_proxy_timezone(snapshot)
             return proxy_url
 
     return preflight
+
+
+def build_proxy_health(tester):
+    """A best-effort mid-session liveness check (F-013): re-test the already-resolved
+    launch proxy URL. Returns True when there is no proxy to watch, and never raises
+    — any error is reported as "not alive" for the worker's consecutive-failure gate."""
+
+    def health(snapshot: dict) -> bool:
+        proxy_url = snapshot.get("proxy_url")
+        if not proxy_url:
+            return True
+        try:
+            tester.run_fast(proxy_url, timeout_seconds=5)
+            return True
+        except Exception:
+            return False
+
+    return health
 
 
 def create_quality_run(session: Session, proxy_id: str) -> ProxyQualityRun:

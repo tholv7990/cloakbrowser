@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -14,6 +15,12 @@ from .timing import StartTimer
 
 
 class ProfileWorker(threading.Thread):
+    # Mid-session proxy monitoring (F-013): re-check a running profile's proxy on
+    # this cadence; crash the run after this many consecutive failures rather than
+    # silently continuing on a dead proxy.
+    _PROXY_HEALTH_INTERVAL = 120.0
+    _PROXY_HEALTH_FAILURES = 2
+
     def __init__(
         self,
         *,
@@ -26,6 +33,7 @@ class ProfileWorker(threading.Thread):
         proxy_preflight: Callable[[dict[str, Any]], str | None],
         on_finished: Callable[[str, "ProfileWorker"], None],
         settings: ManagerSettings,
+        proxy_health: Callable[[dict[str, Any]], bool] | None = None,
         timer: StartTimer | None = None,
     ):
         super().__init__(name=f"profile-{snapshot['id']}", daemon=True)
@@ -36,10 +44,25 @@ class ProfileWorker(threading.Thread):
         self._launch_semaphore = launch_semaphore
         self._profile_lock = profile_lock
         self._proxy_preflight = proxy_preflight
+        self._proxy_health = proxy_health
         self._on_finished = on_finished
         self._settings = settings
         self._timer = timer or StartTimer()
         self._commands: queue.SimpleQueue[str] = queue.SimpleQueue()
+
+    def _monitors_proxy(self) -> bool:
+        """Only monitor profiles that route through a proxy and opted into testing."""
+        return (
+            self._proxy_health is not None
+            and bool(self.snapshot.get("proxy_url"))
+            and bool(self.snapshot.get("test_proxy_before_launch", True))
+        )
+
+    def _proxy_alive(self) -> bool:
+        try:
+            return bool(self._proxy_health(self.snapshot))
+        except Exception:
+            return False  # a health-check error must never itself crash the run loop
 
     def request_stop(self) -> None:
         self._commands.put("stop")
@@ -134,6 +157,8 @@ class ProfileWorker(threading.Thread):
             finally:
                 self._launch_semaphore.release()
 
+            proxy_failures = 0
+            last_health_check = time.monotonic()
             while True:
                 try:
                     command = self._commands.get(timeout=0.1)
@@ -145,6 +170,17 @@ class ProfileWorker(threading.Thread):
                     self._transition("stopped")
                     self._append_log("runtime.exited")
                     break
+                if self._monitors_proxy():
+                    now = time.monotonic()
+                    if now - last_health_check >= self._PROXY_HEALTH_INTERVAL:
+                        last_health_check = now
+                        proxy_failures = 0 if self._proxy_alive() else proxy_failures + 1
+                        if proxy_failures >= self._PROXY_HEALTH_FAILURES:
+                            self._transition("stopping")
+                            handle.close()
+                            self._transition("crashed", "proxy_lost")
+                            self._append_log("runtime.crashed", "error")
+                            break
         except Exception as error:
             try:
                 preflight_failed = (

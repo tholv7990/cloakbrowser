@@ -33,12 +33,15 @@ class RuntimeManager:
         launcher=None,
         lock_factory=None,
         proxy_preflight=None,
+        proxy_health=None,
         license_gate=None,
     ):
         self._session_factory = session_factory
         self._settings = settings
         self._launcher = launcher or CloakPersistentLauncher()
         self._proxy_preflight = proxy_preflight or (lambda _snapshot: None)
+        # Optional mid-session proxy monitor (F-013); None disables it (default).
+        self._proxy_health = proxy_health
         # Raises ManagerError if the app isn't entitled to launch; no-op when license
         # enforcement is off (the default), so the free/dev build is unaffected.
         self._license_gate = license_gate or (lambda: None)
@@ -110,6 +113,7 @@ class RuntimeManager:
                 launch_semaphore=self._launch_semaphore,
                 profile_lock=profile_lock,
                 proxy_preflight=self._proxy_preflight,
+                proxy_health=self._proxy_health,
                 on_finished=self._worker_finished,
                 settings=self._settings,
                 timer=timer,

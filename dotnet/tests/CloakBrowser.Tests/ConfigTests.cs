@@ -69,12 +69,12 @@ public class ConfigTests
     }
 
     [Fact]
-    public void GetDefaultStealthArgs_RandomSeed_InRange()
+    public void GetDefaultStealthArgs_SeedIsFull64BitValue()
     {
+        // F-016: a full 64-bit CSPRNG seed (parses as ulong, not a 5-digit int).
         var args = Config.GetDefaultStealthArgs();
         var seedArg = args.First(a => a.StartsWith("--fingerprint="));
-        int seed = int.Parse(seedArg.Split('=')[1]);
-        Assert.InRange(seed, 10000, 99999);
+        Assert.True(ulong.TryParse(seedArg.Split('=')[1], out _));
     }
 
     // NormalizeRequestedVersion tests (port of Python/JS browser_version pinning)

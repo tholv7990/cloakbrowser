@@ -185,7 +185,13 @@ export function useDuplicateProfile() {
     mutationFn: (id: string) => api.duplicateProfile(id),
     onSuccess: (profile) => {
       queryClient.invalidateQueries({ queryKey: ['profiles'] });
-      toast({ title: 'Profile duplicated', description: profile.name, tone: 'success' });
+      // F-019: a duplicate deliberately gets a fresh fingerprint identity and no
+      // proxy, so it can't be silently linked to the original — say so.
+      toast({
+        title: 'Profile duplicated',
+        description: `${profile.name} — new fingerprint identity; assign a proxy before launch.`,
+        tone: 'success',
+      });
     },
     onError: (error) =>
       toast({

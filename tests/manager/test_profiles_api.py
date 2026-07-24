@@ -37,7 +37,7 @@ def test_create_generates_unique_stable_fingerprint_identity(client, auth_header
 
     assert first["fingerprint_seed"] != second["fingerprint_seed"]
     assert first["fingerprint_config_hash"] != second["fingerprint_config_hash"]
-    assert first["fingerprint_revision"] == second["fingerprint_revision"] == 1
+    assert first["fingerprint_revision"] == second["fingerprint_revision"] == 2
     assert len(first["fingerprint_config_hash"]) == 64
     assert first["fingerprint_preset"] == "consistent"
     assert first["runtime_state"] == "stopped"
@@ -142,6 +142,25 @@ def test_regenerate_fingerprint_changes_only_identity(client, auth_headers):
     assert regenerated["notes"] == "keep me"
 
 
+def test_regenerate_does_not_lower_revision(client, auth_headers):
+    # F-017: a regenerate is a new identity — its revision must advance, never reset
+    # to a lower number (which could collide with a cache keyed on the revision).
+    original = create_profile(client, auth_headers)
+    bumped = patch_profile(
+        client, auth_headers, original, fingerprint_preset="default"
+    ).json()
+    assert bumped["fingerprint_revision"] == original["fingerprint_revision"] + 1
+
+    response = client.post(
+        f"/api/v1/profiles/{bumped['id']}/regenerate-fingerprint",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    regenerated = response.json()
+    assert regenerated["fingerprint_revision"] > bumped["fingerprint_revision"]
+    assert regenerated["fingerprint_seed"] != bumped["fingerprint_seed"]
+
+
 def test_folder_tag_status_filters(client, auth_headers):
     folder = client.post(
         "/api/v1/folders", headers=auth_headers, json={"name": "KYC"}
@@ -225,17 +244,14 @@ def test_explicit_duplicate_seed_is_rejected(client, auth_headers):
     assert response.json()["error"]["code"] == "fingerprint_seed_conflict"
 
 
-def test_hardware_override_recalculates_hash_not_seed(client, auth_headers):
+def test_identity_change_recalculates_hash_not_seed(client, auth_headers):
     original = create_profile(client, auth_headers)
 
     response = patch_profile(
         client,
         auth_headers,
         original,
-        behavior={
-            "hardware_concurrency_mode": "custom",
-            "hardware_concurrency": 8,
-        },
+        fingerprint_preset="default",
     )
 
     assert response.status_code == 200, response.text
@@ -455,7 +471,7 @@ def test_fingerprint_changes_increment_revision_once_per_semantic_patch(
         auth_headers,
         original,
         location={"timezone": "UTC"},
-        window={"color_scheme": "dark"},
+        window={"mode": "custom", "width": 1600, "height": 900},
     )
     assert changed.status_code == 200, changed.text
     changed_profile = changed.json()
@@ -468,7 +484,7 @@ def test_fingerprint_changes_increment_revision_once_per_semantic_patch(
         auth_headers,
         changed_profile,
         location={"timezone": "UTC"},
-        window={"color_scheme": "dark"},
+        window={"mode": "custom", "width": 1600, "height": 900},
     )
     assert unchanged.status_code == 200, unchanged.text
     assert unchanged.json()["fingerprint_revision"] == changed_profile["fingerprint_revision"]
@@ -479,7 +495,7 @@ def test_fingerprint_changes_increment_revision_once_per_semantic_patch(
         client,
         auth_headers,
         unchanged.json(),
-        behavior={"clear_cache_before_launch": True},
+        behavior={"permissions": {"camera": "allow"}},
     )
     assert operational.status_code == 200, operational.text
     assert operational.json()["fingerprint_revision"] == changed_profile["fingerprint_revision"]

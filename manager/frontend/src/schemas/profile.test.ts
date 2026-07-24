@@ -1,6 +1,45 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { profiles } from '@/mocks/data';
-import { profileToWizardValues, wizardValuesToPatch } from './profile';
+import {
+  defaultWizardValues,
+  profileToWizardValues,
+  profileWizardSchema,
+  randomSeed,
+  wizardValuesToPatch,
+} from './profile';
+
+describe('fingerprint seed generation (F-007)', () => {
+  it('composes a full 64-bit seed from crypto, not 32-bit Math.random', () => {
+    const spy = vi.spyOn(crypto, 'getRandomValues').mockImplementation((array) => {
+      const view = array as Uint32Array;
+      view[0] = 0xffffffff;
+      view[1] = 0x00000002;
+      return array;
+    });
+    try {
+      const expected = ((0xffffffffn << 32n) | 0x2n).toString();
+      expect(randomSeed()).toBe(expected);
+      // The wizard default must use the same strong generator.
+      expect(defaultWizardValues().fingerprint_seed).toBe(expected);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('webrtc mode', () => {
+  const base = () => profileToWizardValues(profiles[0]);
+
+  it('rejects the retired "disabled" mode (F-001)', () => {
+    const values = { ...base(), webrtc_mode: 'disabled' as never };
+    expect(profileWizardSchema.safeParse(values).success).toBe(false);
+  });
+
+  it('accepts proxy and direct', () => {
+    expect(profileWizardSchema.safeParse({ ...base(), webrtc_mode: 'proxy' }).success).toBe(true);
+    expect(profileWizardSchema.safeParse({ ...base(), webrtc_mode: 'direct' }).success).toBe(true);
+  });
+});
 
 describe('wizardValuesToPatch', () => {
   it('hydrates existing extension assignments into the editor values', () => {

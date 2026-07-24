@@ -395,3 +395,62 @@ def test_webrtc_ip_spoofed_to_proxy_only_in_proxy_mode_with_a_proxy():
         headless=True,
     )
     assert not any(a.startswith("--fingerprint-webrtc-ip") for a in no_proxy["args"])
+
+
+def test_allowed_permissions_are_granted_to_the_context():
+    # F-005: permissions were stored but never applied. "allow" -> grant.
+    kwargs = persistent_context_kwargs(
+        {
+            "fingerprint_seed": 8200,
+            "fingerprint_preset": "consistent",
+            "behavior": {
+                "permissions": {"camera": "allow", "notifications": "block", "clipboard": "allow"}
+            },
+        },
+        headless=True,
+    )
+    assert set(kwargs["permissions"]) == {"camera", "clipboard-read", "clipboard-write"}
+
+
+def test_blocked_or_ask_permissions_are_not_granted():
+    kwargs = persistent_context_kwargs(
+        {
+            "fingerprint_seed": 8200,
+            "fingerprint_preset": "consistent",
+            "behavior": {"permissions": {"camera": "block", "microphone": "ask"}},
+        },
+        headless=True,
+    )
+    assert not kwargs.get("permissions")
+
+
+def test_manual_geolocation_coordinates_reach_the_context():
+    kwargs = persistent_context_kwargs(
+        {
+            "fingerprint_seed": 8200,
+            "fingerprint_preset": "consistent",
+            "location": {
+                "geolocation_mode": "manual",
+                "latitude": 40.7,
+                "longitude": -74.0,
+                "accuracy": 50,
+            },
+        },
+        headless=True,
+    )
+    assert kwargs["geolocation"] == {"latitude": 40.7, "longitude": -74.0, "accuracy": 50}
+    # A geolocation override has no effect unless the permission is also granted.
+    assert "geolocation" in kwargs["permissions"]
+
+
+def test_geolocation_block_grants_nothing_and_sets_no_coordinates():
+    kwargs = persistent_context_kwargs(
+        {
+            "fingerprint_seed": 8200,
+            "fingerprint_preset": "consistent",
+            "location": {"geolocation_mode": "block"},
+        },
+        headless=True,
+    )
+    assert "geolocation" not in kwargs
+    assert "geolocation" not in (kwargs.get("permissions") or [])

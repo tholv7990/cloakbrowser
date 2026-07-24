@@ -548,6 +548,29 @@ def test_proxy_preflight_failure_blocks_browser_launch(db_session_factory, setti
         assert session.get(RuntimeSession, runtime.id).last_message == "proxy_preflight_failed"
 
 
+def test_proxy_death_midsession_is_surfaced(db_session_factory, settings, monkeypatch):
+    # F-013: if the proxy dies mid-session, the run must not silently continue —
+    # repeated health failures crash the runtime with a safe reason code.
+    from manager_backend.features.runtime.worker import ProfileWorker
+
+    monkeypatch.setattr(ProfileWorker, "_PROXY_HEALTH_INTERVAL", 0.0)
+    monkeypatch.setattr(ProfileWorker, "_PROXY_HEALTH_FAILURES", 1)
+    launcher = FakeLauncher()
+    manager = RuntimeManager(
+        db_session_factory,
+        settings,
+        launcher=launcher,
+        proxy_preflight=lambda _snapshot: "socks5://proxy.example:1080",
+        proxy_health=lambda _snapshot: False,
+    )
+    profile_id = _profile(db_session_factory, "proxy-death")
+    runtime = manager.start(profile_id)
+    _wait_state(db_session_factory, runtime.id, "crashed")
+    with db_session_factory() as session:
+        assert session.get(RuntimeSession, runtime.id).last_message == "proxy_lost"
+    manager.shutdown()
+
+
 def test_proxy_preflight_value_is_forwarded_only_in_worker_memory(
     db_session_factory, settings
 ):

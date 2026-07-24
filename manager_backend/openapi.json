@@ -9774,51 +9774,6 @@
       },
       "BehaviorSettings": {
         "properties": {
-          "humanize_enabled": {
-            "type": "boolean",
-            "title": "Humanize Enabled",
-            "default": false
-          },
-          "humanize_preset": {
-            "type": "string",
-            "enum": [
-              "default",
-              "careful"
-            ],
-            "title": "Humanize Preset",
-            "default": "default"
-          },
-          "clear_cache_before_launch": {
-            "type": "boolean",
-            "title": "Clear Cache Before Launch",
-            "default": false
-          },
-          "restore_previous_tabs": {
-            "type": "boolean",
-            "title": "Restore Previous Tabs",
-            "default": true
-          },
-          "download_directory_mode": {
-            "type": "string",
-            "enum": [
-              "profile",
-              "custom"
-            ],
-            "title": "Download Directory Mode",
-            "default": "profile"
-          },
-          "custom_download_directory": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 1024
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Custom Download Directory"
-          },
           "permissions": {
             "additionalProperties": {
               "type": "string",
@@ -9830,63 +9785,6 @@
             },
             "type": "object",
             "title": "Permissions"
-          },
-          "ignore_https_errors": {
-            "type": "boolean",
-            "title": "Ignore Https Errors",
-            "default": false
-          },
-          "hardware_concurrency_mode": {
-            "type": "string",
-            "enum": [
-              "automatic",
-              "custom"
-            ],
-            "title": "Hardware Concurrency Mode",
-            "default": "automatic"
-          },
-          "hardware_concurrency": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 64.0,
-                "minimum": 2.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Hardware Concurrency"
-          },
-          "gpu_mode": {
-            "type": "string",
-            "enum": [
-              "automatic",
-              "custom_vendor"
-            ],
-            "title": "Gpu Mode",
-            "default": "automatic"
-          },
-          "gpu_vendor": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 120,
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Gpu Vendor"
-          },
-          "additional_args": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "maxItems": 32,
-            "title": "Additional Args"
           }
         },
         "additionalProperties": false,
@@ -11212,8 +11110,7 @@
             "type": "string",
             "enum": [
               "proxy",
-              "direct",
-              "disabled"
+              "direct"
             ],
             "title": "Webrtc Mode",
             "default": "proxy"
@@ -14389,7 +14286,7 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 7680.0,
+                "maximum": 1920.0,
                 "minimum": 800.0
               },
               {
@@ -14402,7 +14299,7 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 4320.0,
+                "maximum": 1080.0,
                 "minimum": 600.0
               },
               {
@@ -14410,16 +14307,6 @@
               }
             ],
             "title": "Height"
-          },
-          "color_scheme": {
-            "type": "string",
-            "enum": [
-              "system",
-              "light",
-              "dark"
-            ],
-            "title": "Color Scheme",
-            "default": "system"
           }
         },
         "additionalProperties": false,

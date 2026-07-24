@@ -29,8 +29,6 @@ export const BUILTIN_TEMPLATES: ProfileTemplate[] = [
       permission_notifications: 'block',
       permission_camera: 'block',
       permission_microphone: 'block',
-      hardware_concurrency_mode: 'automatic',
-      gpu_mode: 'automatic',
     },
   },
 ];

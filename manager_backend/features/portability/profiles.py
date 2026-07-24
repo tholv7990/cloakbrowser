@@ -411,12 +411,7 @@ def import_profile(
         startup_urls, _skipped_extension_urls = _portable_startup_urls(
             portable.startup_urls
         )
-        behavior = {
-            **portable.behavior.model_dump(mode="json"),
-            "download_directory_mode": "profile",
-            "custom_download_directory": None,
-            "additional_args": [],
-        }
+        behavior = portable.behavior.model_dump(mode="json")
         identity = build_fingerprint_identity(
             seed=seed,
             fingerprint_preset=portable.fingerprint_preset,

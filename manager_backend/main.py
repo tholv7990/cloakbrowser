@@ -30,7 +30,7 @@ from .dependencies import SESSION_COOKIE
 from .features.proxies.credentials import KeyringCredentialStore
 from .features.proxies.testing import ScannerQuickTester
 from .features.proxies.providers import DefaultProviderClient
-from .features.proxies.service import build_proxy_preflight
+from .features.proxies.service import build_proxy_health, build_proxy_preflight
 from .features.proxies.quality import ProxyQualityManager, recover_orphan_quality_runs
 from .features.backups.service import maybe_auto_backup
 from .features.automation.controller import StubAutomationController
@@ -186,6 +186,7 @@ def create_app(
             app.state.credential_store,
             app.state.proxy_quick_tester,
         ),
+        proxy_health=build_proxy_health(app.state.proxy_quick_tester),
         license_gate=make_license_gate(resolved),
     )
     app.state.account_service = AccountService(

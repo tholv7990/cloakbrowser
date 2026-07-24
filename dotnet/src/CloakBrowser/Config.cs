@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 
 namespace CloakBrowser;
@@ -60,8 +61,6 @@ public static class Config
     public const int DefaultViewportWidth = 1920;
     public const int DefaultViewportHeight = 947;
 
-    private static readonly Random _rng = new();
-
     /// <summary>
     /// Build stealth args with a random fingerprint seed per launch.
     /// On macOS, skips platform/GPU spoofing - runs as a native Mac browser.
@@ -69,8 +68,9 @@ public static class Config
     /// </summary>
     public static List<string> GetDefaultStealthArgs()
     {
-        int seed;
-        lock (_rng) { seed = _rng.Next(10000, 100000); }
+        // F-016: a full 64-bit CSPRNG seed. Callers that pass their own --fingerprint
+        // (e.g. the manager's per-profile seed) still override this via build_args dedup.
+        ulong seed = BitConverter.ToUInt64(RandomNumberGenerator.GetBytes(8), 0);
 
         var baseArgs = new List<string>
         {

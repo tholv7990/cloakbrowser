@@ -441,7 +441,7 @@ def test_runtime_log_sequence_migration_backfills_and_downgrades(tmp_path, monke
                 "automatic",
                 '{"geo_mode":"system"}',
                 '{"mode":"maximized"}',
-                '{"humanize_enabled":false}',
+                '{}',
                 1,
                 0,
                 "2026-07-22 00:00:00",

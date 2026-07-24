@@ -3,6 +3,7 @@
  * Mirrors Python cloakbrowser/config.py.
  */
 
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -407,7 +408,9 @@ export const IGNORE_DEFAULT_ARGS = ["--enable-automation", "--enable-unsafe-swif
 export const DEFAULT_VIEWPORT = { width: 1920, height: 947 };
 
 export function getDefaultStealthArgs(): string[] {
-  const seed = Math.floor(Math.random() * 90000) + 10000; // 10000-99999
+  // F-016: a full 64-bit CSPRNG seed. Callers that pass their own --fingerprint
+  // (e.g. the manager's per-profile seed) still override this via build_args dedup.
+  const seed = randomBytes(8).readBigUInt64BE().toString();
   const isMac = process.platform === "darwin";
 
   const base = [

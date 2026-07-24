@@ -27,7 +27,7 @@ export type ProxyReputation = 'clean' | 'neutral' | 'suspicious' | 'malicious' |
 export type ProxyHealth = 'healthy' | 'degraded' | 'unreachable' | 'untested' | 'unknown';
 
 export type GeoMode = 'proxy' | 'manual' | 'system';
-export type WebRtcMode = 'proxy' | 'direct' | 'disabled';
+export type WebRtcMode = 'proxy' | 'direct';
 export type GeolocationMode = 'proxy' | 'manual' | 'ask' | 'block';
 export type WindowMode = 'maximized' | 'custom';
 export type ColorScheme = 'system' | 'light' | 'dark';
@@ -200,23 +200,12 @@ export interface WindowSettings {
   mode: WindowMode;
   width: number | null;
   height: number | null;
-  color_scheme: ColorScheme;
 }
 
+// F-006: only permissions remain — the other behavior fields were stored but never
+// applied at launch and were retired.
 export interface BehaviorSettings {
-  humanize_enabled: boolean;
-  humanize_preset: HumanizePreset;
-  clear_cache_before_launch: boolean;
-  restore_previous_tabs: boolean;
-  download_directory_mode: DownloadDirMode;
-  custom_download_directory: string | null;
   permissions: Record<string, PermissionSetting>;
-  ignore_https_errors: boolean;
-  hardware_concurrency_mode: HardwareConcurrencyMode;
-  hardware_concurrency: number | null;
-  gpu_mode: GpuMode;
-  gpu_vendor: string | null;
-  additional_args: string[];
 }
 
 /** ProfileCreate / ProfilePatch body. Patch replaces the whole profile, so the

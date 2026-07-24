@@ -65,19 +65,9 @@ def _document(**profile_changes):
             "mode": "maximized",
             "width": None,
             "height": None,
-            "color_scheme": "system",
         },
         "behavior": {
-            "humanize_enabled": False,
-            "humanize_preset": "default",
-            "clear_cache_before_launch": False,
-            "restore_previous_tabs": True,
             "permissions": {},
-            "ignore_https_errors": False,
-            "hardware_concurrency_mode": "automatic",
-            "hardware_concurrency": None,
-            "gpu_mode": "automatic",
-            "gpu_vendor": None,
         },
         "proxy": None,
         "test_proxy_before_launch": True,
@@ -496,7 +486,7 @@ def test_import_assigns_fresh_identity_and_deterministic_collision_names(
             UUID(imported_id)
             imported = by_id[imported_id]
             assert imported.fingerprint_seed != "42"
-            assert imported.fingerprint_revision == 1
+            assert imported.fingerprint_revision == 2
             assert imported.fingerprint_config_hash != "f" * 64
             assert (settings.profile_root / imported_id).is_dir()
 

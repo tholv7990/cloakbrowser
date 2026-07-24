@@ -451,3 +451,91 @@ def test_preflight_rechecks_stale_proxy_result(db_session_factory):
     assert preflight(snapshot) == "socks5://proxy.example:1080"
     assert tester.called is True
     assert snapshot["proxy_exit_ip"] == "203.0.113.9"
+
+
+def test_proxy_geo_missing_timezone_falls_back_to_country_not_host():
+    # F-002: geo enrichment can resolve the country but not the precise IANA tz.
+    # Derive a representative tz from the country rather than leaking the host clock.
+    from manager_backend.features.proxies.service import _apply_proxy_geo
+
+    result = QuickTestResult(
+        exit_ip="203.0.113.20",
+        exit_ip_matches=True,
+        latency_ms=70,
+        checked_at=datetime(2026, 7, 24, tzinfo=timezone.utc),
+        country="US",
+        timezone=None,
+    )
+    snapshot = {"location": {"geo_mode": "proxy"}, "timezone": None, "locale": None}
+    _apply_proxy_geo(snapshot, result)
+    assert snapshot["timezone"] == "America/New_York"
+    assert snapshot["locale"] == "en-US"
+
+
+def test_proxy_geo_unknown_country_blocks_launch(db_session_factory):
+    # F-002: if neither a tz nor a country can be resolved for a geo_mode="proxy"
+    # profile, refuse to launch rather than fall back to the host timezone.
+    from manager_backend.errors import ManagerError
+
+    proxy = Proxy(label="No geo", scheme="socks5", host="proxy.example", port=1080)
+    with db_session_factory() as session:
+        session.add(proxy)
+        session.commit()
+        proxy_id = proxy.id
+
+    class BlindTester:
+        def run_fast(self, *_args, **_kwargs):
+            return QuickTestResult(
+                exit_ip="203.0.113.21",
+                exit_ip_matches=True,
+                latency_ms=60,
+                checked_at=datetime.now(timezone.utc),
+                country=None,
+                timezone=None,
+            )
+
+    snapshot = {
+        "proxy_id": proxy_id,
+        "test_proxy_before_launch": True,
+        "location": {"geo_mode": "proxy"},
+        "locale": None,
+        "timezone": None,
+    }
+    preflight = build_proxy_preflight(
+        db_session_factory, MemoryCredentialStore(), BlindTester()
+    )
+    with pytest.raises(ManagerError) as excinfo:
+        preflight(snapshot)
+    assert excinfo.value.code == "proxy_preflight_failed"
+
+
+def test_locale_and_timezone_maps_cover_common_exit_countries():
+    # F-009: non-English exit countries must not fall back to en-US, and every
+    # country we localize must also have a representative timezone.
+    from manager_backend.features.proxies.service import (
+        _LOCALE_BY_COUNTRY,
+        _TIMEZONE_BY_COUNTRY,
+    )
+
+    expected = {
+        "CH": "de-CH",
+        "ID": "id-ID",
+        "AR": "es-AR",
+        "EG": "ar-EG",
+        "JP": "ja-JP",
+        "BR": "pt-BR",
+    }
+    for country, locale in expected.items():
+        assert _LOCALE_BY_COUNTRY.get(country) == locale
+    # The two maps must stay in lock-step so a derived locale always has a clock.
+    assert set(_LOCALE_BY_COUNTRY) == set(_TIMEZONE_BY_COUNTRY)
+
+
+def test_socks5h_is_coerced_to_socks5_for_the_launch_url():
+    # F-012: Chromium's --proxy-server does not recognize socks5h and may fall back
+    # to DIRECT (host IP + local DNS). socks5 already does remote DNS.
+    from manager_backend.features.proxies.service import build_proxy_url
+
+    url = build_proxy_url("socks5h", "proxy.example", 1080, "user", "pass")
+    assert url is not None and url.startswith("socks5://")
+    assert "socks5h" not in url

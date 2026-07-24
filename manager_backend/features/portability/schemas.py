@@ -69,31 +69,11 @@ class PortableColoredCatalog(PortableStrictModel):
 
 
 class PortableBehaviorSettings(PortableStrictModel):
-    humanize_enabled: bool = False
-    humanize_preset: Literal["default", "careful"] = "default"
-    clear_cache_before_launch: bool = False
-    restore_previous_tabs: bool = True
+    # Mirrors the retired BehaviorSettings (F-006): only permissions survive.
     permissions: dict[PortablePermissionKey, Literal["ask", "allow", "block"]] = Field(
         default_factory=dict,
         max_length=MAX_PORTABLE_PERMISSIONS,
     )
-    ignore_https_errors: bool = False
-    hardware_concurrency_mode: Literal["automatic", "custom"] = "automatic"
-    hardware_concurrency: int | None = Field(default=None, ge=2, le=64)
-    gpu_mode: Literal["automatic", "custom_vendor"] = "automatic"
-    gpu_vendor: str | None = Field(default=None, min_length=1, max_length=120)
-
-    @model_validator(mode="after")
-    def validate_modes(self):
-        if self.hardware_concurrency_mode == "custom" and self.hardware_concurrency is None:
-            raise ValueError("custom hardware concurrency requires a value")
-        if self.hardware_concurrency_mode == "automatic" and self.hardware_concurrency is not None:
-            raise ValueError("hardware concurrency value requires custom mode")
-        if self.gpu_mode == "custom_vendor" and self.gpu_vendor is None:
-            raise ValueError("custom GPU mode requires a vendor")
-        if self.gpu_mode == "automatic" and self.gpu_vendor is not None:
-            raise ValueError("GPU vendor requires custom_vendor mode")
-        return self
 
 
 class PortableProxy(PortableStrictModel):
@@ -168,12 +148,7 @@ class PortableProfile(PortableStrictModel):
             custom_user_agent=self.custom_user_agent,
             location=self.location.model_dump(mode="python"),
             window=self.window.model_dump(mode="python"),
-            behavior={
-                **self.behavior.model_dump(mode="python"),
-                "download_directory_mode": "profile",
-                "custom_download_directory": None,
-                "additional_args": [],
-            },
+            behavior=self.behavior.model_dump(mode="python"),
             test_proxy_before_launch=self.test_proxy_before_launch,
         )
         return self

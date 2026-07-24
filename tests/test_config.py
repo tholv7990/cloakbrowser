@@ -156,8 +156,20 @@ class TestStealthArgs:
         args2 = get_default_stealth_args()
         seed1 = [a for a in args1 if a.startswith("--fingerprint=")][0]
         seed2 = [a for a in args2 if a.startswith("--fingerprint=")][0]
-        # Seeds are random 10000-99999 — extremely unlikely to collide
+        # Seeds are 64-bit CSPRNG values — collision is astronomically unlikely.
         assert seed1 != seed2
+
+    def test_seed_is_a_full_64_bit_csprng_value(self, monkeypatch):
+        # F-016: the wrapper's own default seed must be a full 64-bit CSPRNG value,
+        # not a 5-digit randint (which collapses the seed space when the wrapper is
+        # used without the manager's per-profile seed).
+        import cloakbrowser.config as config_module
+
+        monkeypatch.setattr(
+            config_module.secrets, "randbits", lambda _bits: 12345678901234567890
+        )
+        args = get_default_stealth_args()
+        assert "--fingerprint=12345678901234567890" in args
 
     def test_macos_profile(self):
         with patch("cloakbrowser.config.platform.system", return_value="Darwin"):

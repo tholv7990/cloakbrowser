@@ -210,14 +210,8 @@ def _profile(
                 "mode": "custom",
                 "width": 1440,
                 "height": 900,
-                "color_scheme": "dark",
             },
-            behavior={
-                "humanize_enabled": True,
-                "humanize_preset": "careful",
-                "restore_previous_tabs": False,
-                "ignore_https_errors": False,
-            },
+            behavior={"permissions": {"camera": "allow"}},
             proxy_id=proxy_id,
         )
         session.add(profile)

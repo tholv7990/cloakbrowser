@@ -14,6 +14,7 @@ import { ProxyInlineForm, emptyOneProxy, type OneProxy } from '@/features/proxie
 import { ProxyQuickResult } from '@/features/proxies/ProxyResultViews';
 import { useCreateProxy, useQuickTest } from '@/features/proxies/api';
 import type { ProfileWizardValues } from '@/schemas/profile';
+import { randomSeed } from '@/schemas/profile';
 import { useT, type TranslationKey } from '@/i18n';
 
 export interface WizardRefs {
@@ -343,7 +344,6 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
           options={[
             { value: 'proxy', label: t('opt.proxy') },
             { value: 'direct', label: t('opt.direct') },
-            { value: 'disabled', label: t('opt.disabled') },
           ]}
         />
       </div>
@@ -425,7 +425,7 @@ const IdentityStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
             variant="secondary"
             size="sm"
             onClick={() =>
-              setValue('fingerprint_seed', String(Math.floor(Math.random() * 2 ** 32)), {
+              setValue('fingerprint_seed', randomSeed(), {
                 shouldValidate: true,
               })
             }
@@ -502,15 +502,6 @@ const WindowStep: FC<{ refs: WizardRefs }> = () => {
           </Field>
         </div>
       )}
-      <SelectField
-        name="color_scheme"
-        label={t('editor.colorScheme')}
-        options={[
-          { value: 'system', label: t('opt.system') },
-          { value: 'light', label: t('opt.light') },
-          { value: 'dark', label: t('opt.dark') },
-        ]}
-      />
       <p className="text-2xs text-ink-faint">{t('editor.windowNote')}</p>
     </div>
   );
@@ -584,10 +575,7 @@ const ExtensionsStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
 
 const AdvancedStep: FC<{ refs: WizardRefs }> = () => {
   const t = useT();
-  const { register, formState } = useFormContext<ProfileWizardValues>();
-  const downloadMode = useWatch<ProfileWizardValues>({ name: 'download_directory_mode' }) as string;
-  const hwMode = useWatch<ProfileWizardValues>({ name: 'hardware_concurrency_mode' }) as string;
-  const gpuMode = useWatch<ProfileWizardValues>({ name: 'gpu_mode' }) as string;
+  const { register } = useFormContext<ProfileWizardValues>();
   const permissionOptions = [
     { value: 'ask', label: t('opt.ask') },
     { value: 'allow', label: t('opt.allow') },
@@ -602,45 +590,6 @@ const AdvancedStep: FC<{ refs: WizardRefs }> = () => {
   ];
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <ToggleField
-          name="humanize_enabled"
-          label={t('editor.humanize')}
-          hint={t('editor.humanizeHint')}
-        />
-        <SelectField
-          name="humanize_preset"
-          label={t('editor.humanizePreset')}
-          options={[
-            { value: 'default', label: t('opt.default') },
-            { value: 'careful', label: t('opt.careful') },
-          ]}
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <ToggleField name="clear_cache_before_launch" label={t('editor.clearCache')} />
-        <ToggleField name="restore_previous_tabs" label={t('editor.restoreTabs')} />
-      </div>
-      <SelectField
-        name="download_directory_mode"
-        label={t('editor.downloads')}
-        options={[
-          { value: 'profile', label: t('editor.profileDownloadDir') },
-          { value: 'custom', label: t('editor.customDir') },
-        ]}
-      />
-      {downloadMode === 'custom' && (
-        <Field
-          label={t('editor.customDownloadDir')}
-          error={formState.errors.custom_download_directory?.message}
-        >
-          <Input
-            mono
-            placeholder="C:\\Downloads\\profile"
-            {...register('custom_download_directory')}
-          />
-        </Field>
-      )}
       <Field label={t('editor.browserPermissions')}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {permissions.map((permission) => (
@@ -650,48 +599,6 @@ const AdvancedStep: FC<{ refs: WizardRefs }> = () => {
             </label>
           ))}
         </div>
-      </Field>
-      <ToggleField
-        name="ignore_https_errors"
-        label={t('editor.ignoreHttps')}
-        hint={t('editor.ignoreHttpsHint')}
-      />
-      <div className="grid grid-cols-2 gap-4">
-        <SelectField
-          name="hardware_concurrency_mode"
-          label={t('editor.hwConcurrency')}
-          options={[
-            { value: 'automatic', label: t('opt.automatic') },
-            { value: 'custom', label: t('opt.custom') },
-          ]}
-        />
-        {hwMode === 'custom' && (
-          <Field label={t('editor.cores')} error={formState.errors.hardware_concurrency?.message}>
-            <Input {...register('hardware_concurrency')} placeholder="12" />
-          </Field>
-        )}
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <SelectField
-          name="gpu_mode"
-          label={t('editor.gpu')}
-          options={[
-            { value: 'automatic', label: t('opt.automatic') },
-            { value: 'custom_vendor', label: t('editor.customVendor') },
-          ]}
-        />
-        {gpuMode === 'custom_vendor' && (
-          <Field label={t('editor.gpuVendor')} error={formState.errors.gpu_vendor?.message}>
-            <Input {...register('gpu_vendor')} placeholder="Google Inc. (Intel)" />
-          </Field>
-        )}
-      </div>
-      <Field
-        label={t('editor.additionalArgs')}
-        hint={t('editor.additionalArgsHint')}
-        error={formState.errors.additional_args?.message}
-      >
-        <Input mono placeholder="--disable-features=Foo" {...register('additional_args')} />
       </Field>
       <p className="text-2xs text-ink-faint">{t('editor.headedNote')}</p>
     </div>
@@ -736,7 +643,6 @@ const ReviewStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
   if (proxy && proxy.reputation === 'malicious') warnings.push(t('editor.warn.maliciousProxy'));
   if (proxy && proxy.assigned_profile_count > (refs.isEdit ? 1 : 0))
     warnings.push(t('editor.warn.sharedProxy'));
-  if (values.ignore_https_errors) warnings.push(t('editor.warn.ignoreHttps'));
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">

@@ -452,7 +452,9 @@ def regenerate_fingerprint(session: Session, profile_id: str) -> Profile:
     profile.fingerprint_seed = _new_seed(session)
     values = profile_to_dict(profile)
     identity = _fingerprint_identity(profile.fingerprint_seed, values)
-    profile.fingerprint_revision = identity.revision
+    # Advance the revision monotonically (F-017): a regenerate is a new identity, so
+    # its revision must never reset to a lower number than the profile already had.
+    profile.fingerprint_revision += 1
     profile.fingerprint_config_hash = identity.config_hash
     session.commit()
     return get_profile(session, profile.id)

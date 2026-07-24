@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import os
 import platform
-import random
 import re
+import secrets
 from pathlib import Path
 
 
@@ -57,7 +57,9 @@ def get_default_stealth_args() -> list[str]:
     On macOS, skips platform/GPU spoofing — runs as a native Mac browser.
     Spoofing Windows on Mac creates detectable mismatches (fonts, GPU, etc.).
     """
-    seed = random.randint(10000, 99999)
+    # F-016: a full 64-bit CSPRNG seed. Callers that pass their own --fingerprint
+    # (e.g. the manager's per-profile seed) still override this via build_args dedup.
+    seed = secrets.randbits(64)
     system = platform.system()
 
     base = [

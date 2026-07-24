@@ -49,7 +49,7 @@ def test_profile_name_and_unsigned_seed_persist(tmp_path):
         assert persisted.fingerprint_seed == "18446744073709551615"
         assert persisted.location == {"geo_mode": "proxy"}
         assert persisted.window == {"mode": "maximized"}
-        assert persisted.behavior == {"humanize_enabled": False}
+        assert persisted.behavior == {}
 
 
 def test_profile_folder_foreign_key_is_enforced(tmp_path):
@@ -136,7 +136,7 @@ def test_capability_aligned_profile_fields_persist(tmp_path):
             user_agent_mode="automatic",
             location={"geo_mode": "system"},
             window={"mode": "maximized"},
-            behavior={"humanize_enabled": False},
+            behavior={},
         )
         session.add(profile)
         session.commit()
@@ -197,4 +197,4 @@ def test_app_startup_builds_and_stamps_a_fresh_database(tmp_path):
 
     # A fresh DB is built and stamped at head, so future migrations apply to it.
     assert "profiles" in tables
-    assert version == "0015_performance_indexes"
+    assert version == "0016_retire_dead_behavior_fields"

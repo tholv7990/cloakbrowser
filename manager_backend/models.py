@@ -213,7 +213,7 @@ class Profile(TimestampMixin, Base):
         "window_json", JSON, default=lambda: {"mode": "maximized"}, nullable=False
     )
     behavior: Mapped[dict[str, Any]] = mapped_column(
-        "behavior_json", JSON, default=lambda: {"humanize_enabled": False}, nullable=False
+        "behavior_json", JSON, default=dict, nullable=False
     )
     proxy_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("proxies.id", ondelete="RESTRICT"), nullable=True

@@ -35,12 +35,12 @@ describe("config", () => {
     expect(args.some((a) => a.includes("fingerprint-gpu-vendor"))).toBe(false);
     expect(args.some((a) => a.includes("fingerprint-gpu-renderer"))).toBe(false);
 
-    // Should have a random fingerprint seed
+    // Should have a full 64-bit CSPRNG fingerprint seed (F-016).
     const fingerprintArg = args.find((a) => a.startsWith("--fingerprint="));
     expect(fingerprintArg).toBeDefined();
-    const seed = Number(fingerprintArg!.split("=")[1]);
-    expect(seed).toBeGreaterThanOrEqual(10000);
-    expect(seed).toBeLessThanOrEqual(99999);
+    const seed = BigInt(fingerprintArg!.split("=")[1]);
+    expect(seed).toBeGreaterThanOrEqual(0n);
+    expect(seed).toBeLessThan(1n << 64n);
   });
 
   it("getDefaultStealthArgs generates different seeds", () => {

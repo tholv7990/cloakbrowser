@@ -276,11 +276,55 @@ def _window_size_arg(window: dict[str, Any]) -> str:
     return f"--window-size={_DEFAULT_WINDOW_SIZE[0]},{_DEFAULT_WINDOW_SIZE[1]}"
 
 
+# Manager permission key -> Playwright permission token(s). Playwright grants only
+# what is listed; "ask"/"block" are expressed by simply not granting (its default
+# is deny/prompt). Clipboard maps to the read+write pair.
+_PERMISSION_TOKENS = {
+    "geolocation": ("geolocation",),
+    "notifications": ("notifications",),
+    "camera": ("camera",),
+    "microphone": ("microphone",),
+    "clipboard": ("clipboard-read", "clipboard-write"),
+}
+
+
+def _granted_permissions(permissions: dict[str, Any]) -> list[str]:
+    """The Playwright grant list for a profile's permission choices (F-005: these
+    were stored but never applied). Only "allow" grants; order-stable, de-duped."""
+    granted: list[str] = []
+    for key, decision in permissions.items():
+        if decision != "allow":
+            continue
+        for token in _PERMISSION_TOKENS.get(key, ()):
+            if token not in granted:
+                granted.append(token)
+    return granted
+
+
+def _manual_geolocation(location: dict[str, Any]) -> dict[str, Any] | None:
+    """Coordinates for a manual-geolocation profile (F-005). "proxy"/"ask"/"block"
+    pin nothing here so a stale coordinate can never leak."""
+    if location.get("geolocation_mode") != "manual":
+        return None
+    latitude, longitude = location.get("latitude"), location.get("longitude")
+    if latitude is None or longitude is None:
+        return None
+    coords: dict[str, Any] = {"latitude": latitude, "longitude": longitude}
+    if location.get("accuracy") is not None:
+        coords["accuracy"] = location["accuracy"]
+    return coords
+
+
 def persistent_context_kwargs(
     snapshot: dict[str, Any], *, headless: bool
 ) -> dict[str, Any]:
     """Translate a Manager snapshot into CloakBrowser persistent-context options."""
 
+    # The stable per-profile seed. cloakbrowser also injects its own default
+    # --fingerprint; this one must win. build_args dedups by flag key with caller
+    # args taking precedence over the stealth defaults, so passing the seed here as
+    # an explicit arg is load-bearing (F-018) — do not route it through a path that
+    # loses that precedence.
     args = [f"--fingerprint={snapshot['fingerprint_seed']}"]
     if not headless:  # headed runtime only — not the cookie/diagnostic utility launches
         args.append(_window_size_arg(snapshot.get("window") or {}))
@@ -289,6 +333,7 @@ def persistent_context_kwargs(
     # cloakbrowser resolves "auto" -> exit IP (and drops the flag if there is no
     # proxy). Without this the field is dead config and WebRTC exposes the host IP.
     location = snapshot.get("location") or {}
+    behavior = snapshot.get("behavior") or {}
     if snapshot.get("proxy_url") and location.get("webrtc_mode", "proxy") == "proxy":
         exit_ip = snapshot.get("proxy_exit_ip")
         if exit_ip:
@@ -305,6 +350,16 @@ def persistent_context_kwargs(
         "locale": snapshot.get("locale"),
         "timezone": snapshot.get("timezone"),
     }
+    # Permissions + geolocation are Playwright context options (forwarded via
+    # **kwargs). Previously stored but never applied (F-005).
+    permissions = _granted_permissions(behavior.get("permissions") or {})
+    geolocation = _manual_geolocation(location)
+    if geolocation is not None:
+        kwargs["geolocation"] = geolocation
+        if "geolocation" not in permissions:
+            permissions.append("geolocation")  # an override has no effect ungranted
+    if permissions:
+        kwargs["permissions"] = permissions
     extension_paths = snapshot.get("extension_paths")
     if extension_paths:
         kwargs["extension_paths"] = list(extension_paths)

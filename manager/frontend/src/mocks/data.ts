@@ -264,25 +264,11 @@ export function defaultLocation(proxy: Proxy | null): LocationSettings {
 }
 
 export function defaultWindow(): WindowSettings {
-  return { mode: 'maximized', width: null, height: null, color_scheme: 'system' };
+  return { mode: 'maximized', width: null, height: null };
 }
 
 export function defaultBehavior(): BehaviorSettings {
-  return {
-    humanize_enabled: false,
-    humanize_preset: 'default',
-    clear_cache_before_launch: false,
-    restore_previous_tabs: true,
-    download_directory_mode: 'profile',
-    custom_download_directory: null,
-    permissions: {},
-    ignore_https_errors: false,
-    hardware_concurrency_mode: 'automatic',
-    hardware_concurrency: null,
-    gpu_mode: 'automatic',
-    gpu_vendor: null,
-    additional_args: [],
-  };
+  return { permissions: {} };
 }
 
 export const qualityReports: ProxyQualityReport[] = [
