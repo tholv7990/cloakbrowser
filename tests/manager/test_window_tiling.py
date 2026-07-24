@@ -95,3 +95,32 @@ def test_safe_profile_id_rejects_traversal():
     assert not safe_profile_id("a/b")
     assert not safe_profile_id("..")
     assert not safe_profile_id("")
+
+
+import sys as _sys
+import pytest
+
+from manager_backend.features.runtime.windows import WindowManager
+
+
+def test_find_main_window_missing_profile_is_none():
+    # A user-data dir with no running browser has no window, on any platform.
+    assert WindowManager().find_main_window(r"C:\does\not\exist\ud") is None
+
+
+@pytest.mark.skipif(_sys.platform != "win32", reason="Win32 monitor enumeration")
+def test_list_monitors_returns_primary_on_windows():
+    monitors = WindowManager().list_monitors()
+    assert monitors  # at least one
+    assert any(m.is_primary for m in monitors)
+    m = monitors[0]
+    assert m.width > 0 and m.height > 0
+    wx, wy, ww, wh = m.work_area
+    assert ww > 0 and wh > 0
+
+
+def test_list_monitors_empty_off_windows(monkeypatch):
+    monkeypatch.setattr(
+        "manager_backend.features.runtime.windows.sys.platform", "linux"
+    )
+    assert WindowManager().list_monitors() == []

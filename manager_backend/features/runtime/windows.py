@@ -102,3 +102,129 @@ def arrange_windows(
             "error": None if ok else "position_failed",
         }
     return [r for r in results if r is not None]
+
+
+_SWP_NOZORDER = 0x0004
+_SWP_NOACTIVATE = 0x0010
+_SW_RESTORE = 9
+_MONITORINFOF_PRIMARY = 0x1
+
+
+class WindowManager:
+    """Real Win32 window manager. All calls guarded to no-op off Windows and to
+    swallow failures (arranging must never crash a request)."""
+
+    def list_monitors(self) -> list[Monitor]:
+        if sys.platform != "win32":
+            return []
+        try:
+            return self._enumerate_monitors()
+        except Exception:
+            return []
+
+    def find_main_window(self, user_data_dir: str) -> int | None:
+        if sys.platform != "win32" or not user_data_dir:
+            return None
+        try:
+            from .window_icon import _profile_chrome_pids
+
+            pids = _profile_chrome_pids(user_data_dir)
+            if not pids:
+                return None
+            return self._main_window_for_pids(pids)
+        except Exception:
+            return None
+
+    def move_window(self, hwnd: int, rect: Rect) -> bool:
+        if sys.platform != "win32":
+            return False
+        try:
+            import ctypes
+
+            x, y, w, h = rect
+            user32 = ctypes.windll.user32
+            user32.ShowWindow(hwnd, _SW_RESTORE)  # un-maximize before positioning
+            return bool(
+                user32.SetWindowPos(
+                    hwnd, 0, int(x), int(y), int(w), int(h),
+                    _SWP_NOZORDER | _SWP_NOACTIVATE,
+                )
+            )
+        except Exception:
+            return False
+
+    # --- Win32 internals ------------------------------------------------------
+
+    def _main_window_for_pids(self, pids: set[int]) -> int | None:
+        import ctypes
+        import ctypes.wintypes
+
+        user32 = ctypes.windll.user32
+        found: list[int] = []
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+        def _collect(hwnd, _lparam):
+            owner = ctypes.wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+            # Top-level, visible, titled window owned by this profile's browser =
+            # the browser frame (same test window_icon uses to stamp the icon).
+            if (
+                owner.value in pids
+                and user32.IsWindowVisible(hwnd)
+                and user32.GetWindow(hwnd, 4) == 0  # GW_OWNER: 0 => top-level
+                and user32.GetWindowTextLengthW(hwnd) > 0
+            ):
+                found.append(hwnd)
+            return True
+
+        user32.EnumWindows(_collect, 0)
+        return found[0] if found else None
+
+    def _enumerate_monitors(self) -> list[Monitor]:
+        import ctypes
+        import ctypes.wintypes
+
+        class _RECT(ctypes.Structure):
+            _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                        ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+        class _MONITORINFOEX(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_ulong), ("rcMonitor", _RECT),
+                        ("rcWork", _RECT), ("dwFlags", ctypes.c_ulong),
+                        ("szDevice", ctypes.c_wchar * 32)]
+
+        user32 = ctypes.windll.user32
+        monitors: list[Monitor] = []
+
+        @ctypes.WINFUNCTYPE(
+            ctypes.c_bool, ctypes.wintypes.HMONITOR, ctypes.wintypes.HDC,
+            ctypes.POINTER(_RECT), ctypes.wintypes.LPARAM,
+        )
+        def _collect(hmonitor, _hdc, _lprect, _lparam):
+            info = _MONITORINFOEX()
+            info.cbSize = ctypes.sizeof(_MONITORINFOEX)
+            if not user32.GetMonitorInfoW(hmonitor, ctypes.byref(info)):
+                return True
+            mon, work = info.rcMonitor, info.rcWork
+            width, height = mon.right - mon.left, mon.bottom - mon.top
+            is_primary = bool(info.dwFlags & _MONITORINFOF_PRIMARY)
+            index = len(monitors)
+            monitors.append(
+                Monitor(
+                    id=str(index),
+                    label=f"Monitor {index + 1} ({width}×{height})"
+                    + (" — Primary" if is_primary else ""),
+                    width=width,
+                    height=height,
+                    work_area=(work.left, work.top, work.right - work.left,
+                               work.bottom - work.top),
+                    is_primary=is_primary,
+                )
+            )
+            return True
+
+        user32.EnumDisplayMonitors(0, 0, _collect, 0)
+        return monitors
+
+
+WINDOW_MANAGER = WindowManager()
