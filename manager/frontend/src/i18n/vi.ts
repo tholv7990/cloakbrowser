@@ -1016,4 +1016,19 @@ export const vi: Record<keyof typeof en, string> = {
   'editor.extensionAssignmentPartial':
     'Hồ sơ đã được lưu nhưng gán tiện ích thất bại. Hãy thử lại việc gán mà không lưu hồ sơ lần nữa.',
   'editor.retryExtensionAssignment': 'Thử lại gán tiện ích',
+
+  'nav.synchronize': 'Đồng bộ',
+
+  'synchronize.title': 'Đồng bộ',
+  'synchronize.subtitle': 'Sắp xếp cửa sổ của các hồ sơ đang chạy trên một màn hình.',
+  'synchronize.running': 'Hồ sơ đang chạy',
+  'synchronize.noRunning': 'Không có hồ sơ đang chạy. Hãy khởi chạy một hồ sơ để sắp xếp cửa sổ.',
+  'synchronize.monitor': 'Màn hình',
+  'synchronize.layout': 'Bố cục',
+  'synchronize.grid': 'Lưới',
+  'synchronize.cascade': 'Xếp chồng',
+  'synchronize.tile': 'Sắp xếp cửa sổ',
+  'synchronize.ok': 'Đã sắp xếp',
+  'synchronize.notRunning': 'Chưa chạy',
+  'synchronize.failed': 'Thất bại',
 };

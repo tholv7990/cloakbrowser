@@ -1012,4 +1012,19 @@ export const en = {
   'editor.extensionAssignmentPartial':
     'The profile was saved, but its extension assignment failed. Retry the assignment without saving the profile again.',
   'editor.retryExtensionAssignment': 'Retry extension assignment',
+
+  'nav.synchronize': 'Synchronize',
+
+  'synchronize.title': 'Synchronize',
+  'synchronize.subtitle': 'Arrange the windows of your running profiles across a monitor.',
+  'synchronize.running': 'Running profiles',
+  'synchronize.noRunning': 'No running profiles. Launch a profile to arrange its window.',
+  'synchronize.monitor': 'Monitor',
+  'synchronize.layout': 'Layout',
+  'synchronize.grid': 'Grid',
+  'synchronize.cascade': 'Cascade',
+  'synchronize.tile': 'Tile windows',
+  'synchronize.ok': 'Arranged',
+  'synchronize.notRunning': 'Not running',
+  'synchronize.failed': 'Failed',
 } as const;
