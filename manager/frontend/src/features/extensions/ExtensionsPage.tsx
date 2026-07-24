@@ -40,6 +40,8 @@ export function ExtensionsPage() {
   };
 
   return (
+    // The app shell's <main> is overflow-hidden, so each page owns its scroll.
+    <div className="h-full overflow-y-auto">
     <div className="mx-auto max-w-5xl space-y-4 px-5 py-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -180,6 +182,7 @@ export function ExtensionsPage() {
         loading={unregister.isPending}
         error={unregister.isError ? (unregister.error as Error).message : null}
       />
+    </div>
     </div>
   );
 }

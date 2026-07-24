@@ -97,6 +97,9 @@ export function SettingsPage() {
   };
 
   return (
+    // The app shell's <main> is overflow-hidden, so each page owns its scroll —
+    // without this wrapper everything below the fold is unreachable.
+    <div className="h-full overflow-y-auto">
     <div className="mx-auto max-w-3xl space-y-5 px-5 py-6">
       <Section title={t('settings.storage')} description={t('settings.storage.desc')}>
         <Field label={t('settings.profileRoot')}>
@@ -266,6 +269,7 @@ export function SettingsPage() {
           className="font-mono text-[12px]"
         />
       </Modal>
+    </div>
     </div>
   );
 }

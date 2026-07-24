@@ -83,6 +83,8 @@ export function DiagnosticsPage() {
   useEffect(() => setProfileCatalogPage(1), [profileCatalogSearch]);
 
   return (
+    // The app shell's <main> is overflow-hidden, so each page owns its scroll.
+    <div className="h-full overflow-y-auto">
     <div className="mx-auto max-w-5xl space-y-5 px-5 py-6">
       <section className="rounded-lg border border-line bg-surface p-4">
         <h2 className="font-display text-[15px] font-semibold text-ink">{t('diag.controls')}</h2>
@@ -356,6 +358,7 @@ export function DiagnosticsPage() {
           </div>
         )}
       </section>
+    </div>
     </div>
   );
 }

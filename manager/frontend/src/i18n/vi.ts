@@ -1039,6 +1039,10 @@ export const vi: Record<keyof typeof en, string> = {
   'synchronize.title': 'Đồng bộ',
   'synchronize.subtitle': 'Sắp xếp cửa sổ của các hồ sơ đang chạy trên một màn hình.',
   'synchronize.running': 'Hồ sơ đang chạy',
+  'new.versionInstalled': 'Đã cài ({version})',
+  'new.versionLatest': 'Mới nhất ({version})',
+  'new.versionHint': 'Bản Chromium mà các hồ sơ này sẽ chạy. Bản đã cài không giới hạn số phiên.',
+
   'sync.title': 'Đồng bộ thao tác',
   'sync.desc': 'Nhấp và gõ trong cửa sổ điều khiển — mọi hồ sơ đã chọn sẽ làm theo.',
   'sync.control': 'Điều khiển',

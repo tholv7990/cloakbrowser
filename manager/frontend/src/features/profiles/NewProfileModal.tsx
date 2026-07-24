@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/Badge';
 import { defaultWizardValues, wizardValuesToPayload } from '@/schemas/profile';
 import { parseProxyText } from '@/schemas/proxy';
 import { useProxyProviders } from '@/features/proxies/api';
+import { useSettings } from '@/features/settings/api';
 import { ProxyInlineForm, emptyOneProxy, type OneProxy } from '@/features/proxies/ProxyInlineForm';
 import { ProvidersDialog } from '@/features/proxies/ProvidersDialog';
 import { listTemplates } from '@/features/profile-editor/profileTemplates';
@@ -49,6 +50,8 @@ export function NewProfileModal({
   const [proxyText, setProxyText] = useState('');
   const [proxyOne, setProxyOne] = useState<OneProxy>(emptyOneProxy);
   const [templateId, setTemplateId] = useState('builtin:no-leak');
+  // '' = use the installed build; otherwise a pinned full version (e.g. 150.x).
+  const [browserVersion, setBrowserVersion] = useState('');
   const [providerId, setProviderId] = useState<ProxyProviderId>('iproyal');
   const [country, setCountry] = useState('US');
   const [providersOpen, setProvidersOpen] = useState(false);
@@ -57,6 +60,23 @@ export function NewProfileModal({
 
   const providers = useProxyProviders();
   const provider = (providers.data ?? []).find((p) => p.id === providerId);
+
+  // Chromium build per profile: the installed one by default, or pin the newer
+  // Pro build when the license offers it (seat-capped, so it stays opt-in).
+  const settings = useSettings();
+  const installedVersion = settings.data?.browser.version ?? '';
+  const latestVersion = settings.data?.browser.latest_version ?? '';
+  const versionOptions = [
+    {
+      value: '',
+      label: installedVersion
+        ? t('new.versionInstalled', { version: installedVersion })
+        : t('opt.default'),
+    },
+    ...(latestVersion && latestVersion !== installedVersion
+      ? [{ value: latestVersion, label: t('new.versionLatest', { version: latestVersion }) }]
+      : []),
+  ];
 
   useEffect(() => {
     if (!open) return;
@@ -67,6 +87,7 @@ export function NewProfileModal({
     setProxyText('');
     setProxyOne(emptyOneProxy);
     setTemplateId('builtin:no-leak');
+    setBrowserVersion('');
     setProviderId('iproyal');
     setCountry('US');
     setBusy(false);
@@ -171,6 +192,8 @@ export function NewProfileModal({
           name: profileName,
           folder_id: folderId,
           proxy_id: proxyId,
+          browser_version_mode: browserVersion ? 'pinned' : 'installed',
+          browser_version: browserVersion,
         });
         try {
           await api.createProfile(wizardValuesToPayload(values));
@@ -319,6 +342,14 @@ export function NewProfileModal({
             />
           </Field>
         )}
+
+        <Field label={t('editor.browserVersion')} hint={t('new.versionHint')}>
+          <Select
+            value={browserVersion}
+            onChange={(e) => setBrowserVersion(e.target.value)}
+            options={versionOptions}
+          />
+        </Field>
 
         <p className="flex items-center gap-1.5 text-2xs text-ink-faint">
           <Sparkles className="h-3.5 w-3.5 text-accent" /> {t('new.defaultsNote')}

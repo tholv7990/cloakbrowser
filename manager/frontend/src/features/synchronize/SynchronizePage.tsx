@@ -108,9 +108,9 @@ export function SynchronizePage() {
         <p className="text-sm text-ink-muted">{t('synchronize.subtitle')}</p>
       </header>
 
-      <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
         {/* Running profiles */}
-        <section className="rounded-lg border border-line bg-surface p-3">
+        <section className="flex min-h-0 flex-col rounded-lg border border-line bg-surface p-3">
           <h2 className="mb-2 text-[13px] font-medium text-ink-muted">
             {t('synchronize.running')}
           </h2>
@@ -119,7 +119,7 @@ export function SynchronizePage() {
           ) : running.length === 0 ? (
             <p className="p-4 text-sm text-ink-muted">{t('synchronize.noRunning')}</p>
           ) : (
-            <ul className="space-y-1">
+            <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto">
               {running.map((p) => (
                 <li key={p.id} className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5">
                   <label className="flex min-w-0 items-center gap-2 text-sm text-ink">
@@ -155,7 +155,7 @@ export function SynchronizePage() {
         </section>
 
         {/* Console */}
-        <section className="space-y-4 rounded-lg border border-line bg-surface p-4">
+        <section className="min-h-0 space-y-4 overflow-y-auto rounded-lg border border-line bg-surface p-4">
           <div>
             <label className="mb-1 block text-[13px] font-medium text-ink">
               {t('synchronize.monitor')}

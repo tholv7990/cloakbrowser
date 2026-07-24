@@ -21,6 +21,8 @@ export function ShopifyPage() {
   const selected = list.find((store) => store.id === selectedStoreId) ?? null;
 
   return (
+    // The app shell's <main> is overflow-hidden, so each page owns its scroll.
+    <div className="h-full overflow-y-auto">
     <div className="mx-auto max-w-5xl px-5 py-6">
       {activePlan ? (
         <BuildPlanView
@@ -101,6 +103,7 @@ export function ShopifyPage() {
       )}
 
       <ConnectStoreDialog open={connectOpen} onClose={() => setConnectOpen(false)} />
+    </div>
     </div>
   );
 }

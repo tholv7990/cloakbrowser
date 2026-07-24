@@ -35,6 +35,8 @@ export function AutomationPage() {
   const list = templates.data ?? [];
 
   return (
+    // The app shell's <main> is overflow-hidden, so each page owns its scroll.
+    <div className="h-full overflow-y-auto">
     <div className="mx-auto max-w-5xl px-5 py-6">
       <div className="mb-4 flex items-center justify-between gap-3">
         <p className="text-[13px] text-ink-muted">{t('auto.subtitle')}</p>
@@ -148,6 +150,7 @@ export function AutomationPage() {
         tone="danger"
         loading={deleteTemplate.isPending}
       />
+    </div>
     </div>
   );
 }

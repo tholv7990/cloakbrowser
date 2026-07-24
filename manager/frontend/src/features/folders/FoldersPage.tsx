@@ -45,6 +45,8 @@ export function FoldersPage() {
   };
 
   return (
+    // The app shell's <main> is overflow-hidden, so each page owns its scroll.
+    <div className="h-full overflow-y-auto">
     <div className="mx-auto max-w-3xl px-5 py-6">
       <p className="mb-4 text-[13px] text-ink-muted">{t('folders.desc')}</p>
 
@@ -185,6 +187,7 @@ export function FoldersPage() {
         tone="danger"
         loading={deleteFolder.isPending}
       />
+    </div>
     </div>
   );
 }

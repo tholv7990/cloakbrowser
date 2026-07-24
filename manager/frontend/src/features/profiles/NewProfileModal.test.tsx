@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/utils';
+import { api } from '@/api';
 import { mockApi } from '@/mocks/mockApi';
 import { mockStore } from '@/mocks/store';
 import { NewProfileModal } from './NewProfileModal';
@@ -16,6 +17,7 @@ function proxySourceSelect(): HTMLElement {
 }
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   mockStore.reset();
   localStorage.clear();
 });
@@ -29,6 +31,42 @@ function templateSelect(): HTMLElement {
 }
 
 describe('NewProfileModal', () => {
+  it('pins the chosen Chromium build on the created profile', async () => {
+    const user = userEvent.setup();
+    // A newer Pro build is offered alongside the installed one. Capture the real
+    // implementation first — in tests `api` IS `mockApi`, so calling it through
+    // the spy would recurse.
+    const realGetSettings = mockApi.getSettings.bind(mockApi);
+    vi.spyOn(api, 'getSettings').mockImplementation(async () => {
+      const settings = await realGetSettings();
+      return {
+        ...settings,
+        browser: { ...settings.browser, version: '146.0.7680.177', latest_version: '150.0.1.2' },
+      };
+    });
+    renderWithProviders(<NewProfileModal open onClose={() => undefined} folders={[]} />);
+
+    await user.type(screen.getByPlaceholderText(/marketplace/i), 'Pinned');
+    const versionSelect = await waitFor(() => {
+      const select = screen
+        .getAllByRole('combobox')
+        .find((el) => within(el).queryByRole('option', { name: /latest \(150/i }));
+      if (!select) throw new Error('version select not found');
+      return select;
+    });
+    // Defaults to the installed build (no seat limit) until you opt in.
+    expect((versionSelect as HTMLSelectElement).value).toBe('');
+
+    await user.selectOptions(versionSelect, '150.0.1.2');
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
+
+    await waitFor(() => {
+      const created = mockStore.profiles.find((p) => p.name === 'Pinned');
+      expect(created?.browser_version_mode).toBe('pinned');
+      expect(created?.browser_version).toBe('150.0.1.2');
+    });
+  });
+
   it('creates a single named profile', async () => {
     const user = userEvent.setup();
     const before = mockStore.profiles.length;

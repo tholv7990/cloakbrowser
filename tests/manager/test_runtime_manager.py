@@ -606,6 +606,31 @@ def test_launch_snapshot_carries_profile_proxy_check_toggle(
     assert snapshot["test_proxy_before_launch"] is False
 
 
+def test_launch_snapshot_sends_the_selected_chromium_build_to_the_engine(
+    db_session_factory, settings
+):
+    """The version chosen on a profile must reach the engine, and an "installed"
+    profile must send the bundled version explicitly — sending None would resolve
+    to latest Pro and silently spend a seat."""
+    from cloakbrowser.config import get_chromium_version
+
+    bundled = get_chromium_version()
+    pinned_version = f"{int(bundled.split('.')[0]) + 4}.0.0.0"
+
+    profile_id = _profile(db_session_factory, "version-pin")
+    with db_session_factory() as session:
+        profile = session.get(Profile, profile_id)
+        # Default (installed) -> the bundled build, never None.
+        assert profile_launch_snapshot(profile, settings)["browser_version"] == bundled
+
+        profile.browser_version_mode = "pinned"
+        profile.browser_version = pinned_version
+        session.commit()
+        assert (
+            profile_launch_snapshot(profile, settings)["browser_version"] == pinned_version
+        )
+
+
 def test_start_emits_structured_stage_timing(db_session_factory, settings):
     # The start path emits one non-secret runtime.start_timing line breaking the
     # wall-clock into stages so we can see where a slow start (e.g. proxy

@@ -1035,6 +1035,10 @@ export const en = {
   'synchronize.title': 'Synchronize',
   'synchronize.subtitle': 'Arrange the windows of your running profiles across a monitor.',
   'synchronize.running': 'Running profiles',
+  'new.versionInstalled': 'Installed ({version})',
+  'new.versionLatest': 'Latest ({version})',
+  'new.versionHint': 'Which Chromium build these profiles launch. The installed build has no seat limit.',
+
   'sync.title': 'Sync input',
   'sync.desc': 'Click and type in the control window — every other selected profile does the same.',
   'sync.control': 'Control',
