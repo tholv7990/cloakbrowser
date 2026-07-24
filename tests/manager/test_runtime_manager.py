@@ -125,7 +125,11 @@ def test_launch_builder_uses_structured_extension_option_not_chromium_arguments(
 
     assert kwargs["extension_paths"] == extension_paths
     assert isinstance(kwargs["extension_paths"], list)
-    assert kwargs["args"] == ["--fingerprint=42", "--window-size=1920,1080"]
+    assert kwargs["args"] == [
+        "--fingerprint=42",
+        "--window-size=1920,1080",
+        "--remote-debugging-port=0",  # input-sync CDP endpoint (headed only)
+    ]
     assert all("load-extension" not in argument for argument in kwargs["args"])
 
 

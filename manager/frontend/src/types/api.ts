@@ -973,3 +973,14 @@ export interface ArrangeResult {
 export interface ArrangeResponse {
   results: ArrangeResult[];
 }
+
+export interface SyncStartRequest {
+  control_profile_id: string;
+  follower_profile_ids: string[];
+}
+
+export interface SyncStatus {
+  active: boolean;
+  control_profile_id: string | null;
+  follower_profile_ids: string[];
+}

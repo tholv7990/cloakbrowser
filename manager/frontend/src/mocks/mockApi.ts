@@ -6,6 +6,8 @@ import type {
   AppVersion,
   ArrangeRequest,
   ArrangeResponse,
+  SyncStartRequest,
+  SyncStatus,
   AuthStatus,
   LicenseStatus,
   AiImageSettings,
@@ -265,6 +267,11 @@ function progressPlan(plan: BuildPlan): void {
 // --- Session history / backups / media mock state ----------------------------
 const EXIT_REASONS: SessionExitReason[] = ['closed', 'stopped', 'crashed', 'timeout'];
 const mockSessions: RuntimeSessionRecord[] = [];
+let mockSyncStatus: SyncStatus = {
+  active: false,
+  control_profile_id: null,
+  follower_profile_ids: [],
+};
 const mockBackups: BackupArchive[] = [
   {
     id: 'bkp_seed',
@@ -1888,6 +1895,26 @@ export const mockApi: ApiAdapter = {
         error: null,
       })),
     };
+  },
+  async getSyncStatus(): Promise<SyncStatus> {
+    await delay(40);
+    return structuredClone(mockSyncStatus);
+  },
+  async startInputSync(payload: SyncStartRequest): Promise<SyncStatus> {
+    await delay(120);
+    mockSyncStatus = {
+      active: true,
+      control_profile_id: payload.control_profile_id,
+      follower_profile_ids: payload.follower_profile_ids.filter(
+        (id) => id !== payload.control_profile_id,
+      ),
+    };
+    return structuredClone(mockSyncStatus);
+  },
+  async stopInputSync(): Promise<SyncStatus> {
+    await delay(60);
+    mockSyncStatus = { active: false, control_profile_id: null, follower_profile_ids: [] };
+    return structuredClone(mockSyncStatus);
   },
 
   async listBackups(): Promise<BackupArchive[]> {

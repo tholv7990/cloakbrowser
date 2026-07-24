@@ -6,6 +6,8 @@ import type {
   AppVersion,
   ArrangeRequest,
   ArrangeResponse,
+  SyncStartRequest,
+  SyncStatus,
   AuthStatus,
   LicenseStatus,
   AiImageSettings,
@@ -318,6 +320,10 @@ export const realApi: ApiAdapter = {
       body: payload,
     });
   },
+  getSyncStatus: () => apiRequest<SyncStatus>('/runtime/sync/status'),
+  startInputSync: (payload: SyncStartRequest) =>
+    apiRequest<SyncStatus>('/runtime/sync/start', { method: 'POST', body: payload }),
+  stopInputSync: () => apiRequest<SyncStatus>('/runtime/sync/stop', { method: 'POST' }),
 
   listBackups: () => apiRequest<BackupArchive[]>('/backups'),
   createBackup: () => apiRequest<BackupArchive>('/backups', { method: 'POST' }),

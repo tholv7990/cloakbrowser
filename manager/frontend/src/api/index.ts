@@ -34,6 +34,7 @@ export const queryKeys = {
   diagnostics: ['diagnostics'] as const,
   resources: ['resources'] as const,
   monitors: ['runtime', 'monitors'] as const,
+  syncStatus: ['runtime', 'sync-status'] as const,
   automationTemplates: ['automation', 'templates'] as const,
   automationTemplate: (id: string) => ['automation', 'template', id] as const,
   automationRecording: (id: string) => ['automation', 'recording', id] as const,

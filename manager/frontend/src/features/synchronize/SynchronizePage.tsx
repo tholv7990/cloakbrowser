@@ -3,7 +3,13 @@ import { useQuery } from '@tanstack/react-query';
 import { api, queryKeys } from '@/api';
 import { useT } from '@/i18n';
 import type { ArrangeLayout, ArrangeResult } from '@/types/api';
-import { useMonitors, useArrangeWindows } from './api';
+import {
+  useMonitors,
+  useArrangeWindows,
+  useSyncStatus,
+  useStartInputSync,
+  useStopInputSync,
+} from './api';
 
 export function SynchronizePage() {
   const t = useT();
@@ -17,6 +23,9 @@ export function SynchronizePage() {
   });
   const monitorsQuery = useMonitors();
   const arrange = useArrangeWindows();
+  const syncStatus = useSyncStatus();
+  const startSync = useStartInputSync();
+  const stopSync = useStopInputSync();
 
   // A launched profile that the manager reconnected to after a restart is
   // 'detached' (still a live, tileable window), not 'running' — include both so
@@ -30,6 +39,7 @@ export function SynchronizePage() {
   );
 
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [controlId, setControlId] = useState<string>('');
   const [monitorId, setMonitorId] = useState<string>('');
   const [layout, setLayout] = useState<ArrangeLayout>('grid');
   const [results, setResults] = useState<Record<string, ArrangeResult>>({});
@@ -50,6 +60,21 @@ export function SynchronizePage() {
   }, [monitorsQuery.data, monitorId]);
 
   const chosenIds = running.filter((p) => selected[p.id]).map((p) => p.id);
+  // Followers are the selected profiles minus the control window itself.
+  const followerIds = chosenIds.filter((id) => id !== controlId);
+  const isSyncing = syncStatus.data?.active ?? false;
+
+  async function onToggleSync() {
+    if (isSyncing) {
+      await stopSync.mutateAsync();
+      return;
+    }
+    if (!controlId || !followerIds.length) return;
+    await startSync.mutateAsync({
+      control_profile_id: controlId,
+      follower_profile_ids: followerIds,
+    });
+  }
 
   async function onTile() {
     if (!chosenIds.length) return;
@@ -96,8 +121,8 @@ export function SynchronizePage() {
           ) : (
             <ul className="space-y-1">
               {running.map((p) => (
-                <li key={p.id} className="flex items-center justify-between rounded-md px-2 py-1.5">
-                  <label className="flex items-center gap-2 text-sm text-ink">
+                <li key={p.id} className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5">
+                  <label className="flex min-w-0 items-center gap-2 text-sm text-ink">
                     <input
                       type="checkbox"
                       checked={!!selected[p.id]}
@@ -105,11 +130,24 @@ export function SynchronizePage() {
                         setSelected((s) => ({ ...s, [p.id]: e.target.checked }))
                       }
                     />
-                    {p.name}
+                    <span className="truncate">{p.name}</span>
                   </label>
-                  {resultLabel(p.id) && (
-                    <span className="text-xs text-ink-muted">{resultLabel(p.id)}</span>
-                  )}
+                  <div className="flex shrink-0 items-center gap-3">
+                    {resultLabel(p.id) && (
+                      <span className="text-xs text-ink-muted">{resultLabel(p.id)}</span>
+                    )}
+                    {/* Which window you drive; the rest follow it. */}
+                    <label className="flex items-center gap-1 text-xs text-ink-muted">
+                      <input
+                        type="radio"
+                        name="sync-control"
+                        checked={controlId === p.id}
+                        disabled={isSyncing}
+                        onChange={() => setControlId(p.id)}
+                      />
+                      {t('sync.control')}
+                    </label>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -164,6 +202,38 @@ export function SynchronizePage() {
           >
             {t('synchronize.tile')}
           </button>
+
+          {/* Input sync: drive the control window, mirror to the followers. */}
+          <div className="space-y-2 border-t border-line pt-4">
+            <h2 className="text-[13px] font-medium text-ink">{t('sync.title')}</h2>
+            <p className="text-xs text-ink-muted">{t('sync.desc')}</p>
+            {isSyncing ? (
+              <p className="text-xs text-ink">
+                {t('sync.activeCount', {
+                  count: syncStatus.data?.follower_profile_ids.length ?? 0,
+                })}
+              </p>
+            ) : (
+              <p className="text-xs text-ink-faint">{t('sync.tileHint')}</p>
+            )}
+            <button
+              type="button"
+              onClick={onToggleSync}
+              disabled={
+                startSync.isPending ||
+                stopSync.isPending ||
+                (!isSyncing && (!controlId || !followerIds.length))
+              }
+              className={`w-full rounded-md px-3 py-2 text-sm font-medium text-white disabled:opacity-50 ${
+                isSyncing ? 'bg-danger' : 'bg-accent'
+              }`}
+            >
+              {t(isSyncing ? 'sync.stop' : 'sync.start')}
+            </button>
+            {startSync.isError && (
+              <p className="text-xs text-danger">{t('sync.failed')}</p>
+            )}
+          </div>
         </section>
       </div>
     </div>

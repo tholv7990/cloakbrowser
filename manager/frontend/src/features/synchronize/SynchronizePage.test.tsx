@@ -52,4 +52,42 @@ describe('SynchronizePage', () => {
       ),
     );
   });
+
+  it('starts input sync with the chosen control and never mirrors it onto itself', async () => {
+    vi.spyOn(api, 'listProfiles').mockResolvedValue({
+      items: [
+        { id: 'p1', name: 'Alpha', runtime_state: 'running' },
+        { id: 'p3', name: 'Gamma', runtime_state: 'running' },
+      ],
+      total: 2,
+    } as never);
+    vi.spyOn(api, 'getSyncStatus').mockResolvedValue({
+      active: false,
+      control_profile_id: null,
+      follower_profile_ids: [],
+    });
+    const start = vi.spyOn(api, 'startInputSync').mockResolvedValue({
+      active: true,
+      control_profile_id: 'p1',
+      follower_profile_ids: ['p3'],
+    });
+
+    renderPage();
+
+    const syncButton = await screen.findByRole('button', { name: /start sync/i });
+    // Both profiles are selected by default, but no control is chosen yet.
+    expect(syncButton).toBeDisabled();
+
+    await userEvent.click((await screen.findAllByRole('radio', { name: /control/i }))[0]);
+    await waitFor(() => expect(syncButton).toBeEnabled());
+    await userEvent.click(syncButton);
+
+    await waitFor(() =>
+      expect(start).toHaveBeenCalledWith({
+        control_profile_id: 'p1',
+        follower_profile_ids: ['p3'], // p1 excluded — a control never follows itself
+      }),
+    );
+    expect(await screen.findByRole('button', { name: /stop sync/i })).toBeInTheDocument();
+  });
 });

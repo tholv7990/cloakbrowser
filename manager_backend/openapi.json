@@ -3077,6 +3077,184 @@
         ]
       }
     },
+    "/api/v1/runtime/sync/start": {
+      "post": {
+        "summary": "Sync Start",
+        "operationId": "sync_start_api_v1_runtime_sync_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/runtime/sync/stop": {
+      "post": {
+        "summary": "Sync Stop",
+        "operationId": "sync_stop_api_v1_runtime_sync_stop_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/runtime/sync/status": {
+      "get": {
+        "summary": "Sync Status",
+        "operationId": "sync_status_api_v1_runtime_sync_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      }
+    },
     "/api/v1/proxies/providers": {
       "get": {
         "summary": "List Providers Route",
@@ -14364,6 +14542,59 @@
         "additionalProperties": false,
         "type": "object",
         "title": "StoreProfileWrite"
+      },
+      "SyncStartRequest": {
+        "properties": {
+          "control_profile_id": {
+            "type": "string",
+            "title": "Control Profile Id"
+          },
+          "follower_profile_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Follower Profile Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "control_profile_id",
+          "follower_profile_ids"
+        ],
+        "title": "SyncStartRequest"
+      },
+      "SyncStatusResponse": {
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          },
+          "control_profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Control Profile Id"
+          },
+          "follower_profile_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Follower Profile Ids",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "active"
+        ],
+        "title": "SyncStatusResponse"
       },
       "SystemResources": {
         "properties": {

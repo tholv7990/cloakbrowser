@@ -10,6 +10,8 @@ import type {
   AccountStatus,
   ArrangeRequest,
   ArrangeResponse,
+  SyncStartRequest,
+  SyncStatus,
   AuthStatus,
   LicenseStatus,
   AiImageSettings,
@@ -228,6 +230,9 @@ export interface ApiAdapter {
   // Window arrangement (Synchronize page) — Windows-only, inert elsewhere
   getMonitors(): Promise<Monitor[]>;
   arrangeWindows(payload: ArrangeRequest): Promise<ArrangeResponse>;
+  getSyncStatus(): Promise<SyncStatus>;
+  startInputSync(payload: SyncStartRequest): Promise<SyncStatus>;
+  stopInputSync(): Promise<SyncStatus>;
 
   // Backups
   listBackups(): Promise<BackupArchive[]>;
