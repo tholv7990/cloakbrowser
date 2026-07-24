@@ -123,11 +123,33 @@ Added a false-positive-free save-time check: a pinned `browser_version` **older 
 free build** is rejected (`schemas.py::_pinned_version_older_than_bundled`, wired into create and
 patch). Rejecting unresolvable *newer* pins still needs the cloud version list.
 
+## .NET port — verified
+
+Installed the .NET 8 SDK (8.0.423, user-local `~/.dotnet`, no admin), built the solution (`net8.0`),
+and ran the config tests: **46 passed / 0 failed**, including the F-016 64-bit-seed test
+(`GetDefaultStealthArgs_SeedIsFull64BitValue`). **F-016 is now verified on all three ports**
+(Python / JS / .NET).
+
+## Tier-2 — weak JA3/TLS capture (non-authoritative)
+
+Captured from the real 146 binary via a public TLS echo (`tls.peet.ws`, https):
+
+```
+HTTP/2 negotiated (h2)
+JA4            : t13d1516h2_8daaf6152771_d8a2da3f94cd
+JA3 hash       : 1e28e5fbde7046a698f5c92bbace0e35
+Akamai H2 hash : 52d84b11737d980aef856699f885ca86
+```
+
+The JA4 cipher component `8daaf6152771` is the standard modern-Chrome-on-Windows cipher signature —
+a positive, Chrome-like signal consistent with the README's "matches Chrome" claim. **This is not
+authoritative:** it is a public-service capture, not a controlled side-by-side with genuine Chrome of
+the exact same version, and raw JA3 hashes are GREASE-randomized.
+
 ## Still open (need infra not present here)
 
 - **F-003 remainder** — UDP-routing vs. reported-IP: needs a real remote SOCKS5 proxy + packet capture.
-- **Tier-2** TLS/JA3/JA4 + HTTP/2 + DNS ownership — needs a controlled server/packet observer (a JS
-  or public-service check is not authoritative).
+- **Tier-2 authoritative** — a JA3/JA4/HTTP-2/DNS comparison against genuine Chrome needs a controlled
+  packet observer + a matched-version Chrome side-by-side (the weak capture above is only a signal).
 - **F-011 remainder** — unresolvable *newer* pins: needs the cloud version list.
-- **.NET port** live verification — no `dotnet` SDK in this environment (code parity done in Phase 3).
 - A full **≥100-seed** statistical run (the 16-seed batch is representative; the analyzer scales).
