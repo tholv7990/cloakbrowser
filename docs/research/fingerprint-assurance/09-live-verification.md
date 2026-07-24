@@ -144,12 +144,24 @@ Akamai H2 hash : 52d84b11737d980aef856699f885ca86
 The JA4 cipher component `8daaf6152771` is the standard modern-Chrome-on-Windows cipher signature —
 a positive, Chrome-like signal consistent with the README's "matches Chrome" claim. **This is not
 authoritative:** it is a public-service capture, not a controlled side-by-side with genuine Chrome of
-the exact same version, and raw JA3 hashes are GREASE-randomized.
+the exact same version, and raw JA3 hashes are GREASE-randomized (confirmed live: two captures gave
+JA3 `1e28e5fb…` then `f101598c…` while JA4 and the HTTP-2 akamai hash stayed identical).
+
+### Harness implemented — `tier2.py`
+
+The differential harness is now built (`manager_backend/features/diagnostics/tier2.py`, tested):
+`compare_tls(observed, golden)` (GREASE-stable JA4 + HTTP-2 only), `webrtc_ice_verdict(candidates,
+allowed_ips)` (flags any non-proxy, non-mDNS IP), and `tier2_evidence(...)` which feeds G3/G10 of
+`evaluate_release_gates`. The capture layer (`capture_tls`, `capture_webrtc_candidates`) is
+live-validated against the real binary. What it still needs from your environment: a **genuine-Chrome
+golden** captured the same way, a **real remote SOCKS5 proxy**, and — for authoritative F-003 UDP
+proof — a **packet observer** (the ICE verdict checks reported candidates, not packet origin).
 
 ## Still open (need infra not present here)
 
-- **F-003 remainder** — UDP-routing vs. reported-IP: needs a real remote SOCKS5 proxy + packet capture.
-- **Tier-2 authoritative** — a JA3/JA4/HTTP-2/DNS comparison against genuine Chrome needs a controlled
-  packet observer + a matched-version Chrome side-by-side (the weak capture above is only a signal).
+- **F-003 remainder** — UDP-routing vs. reported-IP: the `tier2` WebRTC verdict is ready; a
+  definitive answer needs a real remote SOCKS5 proxy + a packet observer (or a source-logging STUN).
+- **Tier-2 authoritative** — the `tier2` comparison harness is ready; it needs a genuine-Chrome golden
+  + a matched-version side-by-side to render a verdict (the weak capture above is only a signal).
 - **F-011 remainder** — unresolvable *newer* pins: needs the cloud version list.
 - A full **≥100-seed** statistical run (the 16-seed batch is representative; the analyzer scales).

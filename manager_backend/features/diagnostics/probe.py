@@ -245,7 +245,10 @@ def default_probe_page(snapshot: dict) -> Iterator[Callable[[str], dict]]:
         # probe_url gives a real read; the default about:blank cannot (F-008-CH).
         probe_url = snapshot.get("probe_url")
         if probe_url:
-            page.goto(probe_url, wait_until="commit", timeout=20000)
+            # "commit" is enough to establish a secure context for reading navigator
+            # surfaces; reading a fetched response body (e.g. a TLS echo) needs "load".
+            wait_until = snapshot.get("probe_wait_until", "commit")
+            page.goto(probe_url, wait_until=wait_until, timeout=20000)
         cdp = context.new_cdp_session(page)
         frame_id = cdp.send("Page.getFrameTree")["frameTree"]["frame"]["id"]
         world = cdp.send("Page.createIsolatedWorld", {"frameId": frame_id})
