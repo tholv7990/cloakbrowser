@@ -104,6 +104,15 @@ def _first_page(browser: Any) -> Any | None:
     return None
 
 
+def _main_context(browser: Any) -> Any | None:
+    """The browser's persistent context (profiles launch exactly one)."""
+    return browser.contexts[0] if browser.contexts else None
+
+
+def _open_pages(context: Any) -> list[Any]:
+    return [page for page in context.pages if not page.is_closed()]
+
+
 class InputSyncService:
     """Mirrors input from a control profile to followers over CDP. One session at a
     time; hung on app.state so routes can start/stop/query it."""
@@ -111,6 +120,9 @@ class InputSyncService:
     # Drain cadence. 50ms keeps mirrored input imperceptible while costing ~20 cheap
     # CDP evaluates/sec on one page.
     _POLL_SECONDS = 0.05
+    # Safety rail: mirror at most this many tabs so a runaway popup loop in the
+    # control can't spawn unbounded tabs across every follower.
+    _MAX_TABS = 20
 
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
@@ -200,6 +212,58 @@ class InputSyncService:
         except (ValueError, TypeError):
             return []
 
+    async def _ensure_armed(self, page: Any, tabs: dict, control_ctx: Any,
+                            follower_ctxs: list[Any]) -> dict | None:
+        """Give a control tab its CDP session + isolated-world capture. Idempotent;
+        re-arms after a navigation destroyed the previous world."""
+        entry = tabs.get(page)
+        if entry is None:
+            cdp = await page.context.new_cdp_session(page)
+            await cdp.send("Page.enable")
+            entry = {"cdp": cdp, "context_id": None, "stale": True}
+            tabs[page] = entry
+            loop = asyncio.get_running_loop()
+
+            def _on_nav(frame: Any, _page=page, _entry=entry) -> None:
+                if frame != _page.main_frame:
+                    return
+                _entry["stale"] = True  # the isolated world died with the document
+                url = frame.url or ""
+                if url and not url.startswith(("about:", "chrome:", "devtools:", "data:")):
+                    loop.create_task(
+                        self._mirror_nav(_page, url, control_ctx, follower_ctxs)
+                    )
+
+            page.on("framenavigated", _on_nav)
+        if entry["stale"]:
+            entry["context_id"] = await self._arm(entry["cdp"])
+            entry["stale"] = False
+        return entry
+
+    async def _reconcile_tabs(self, control_pages: list, follower_ctxs: list[Any]) -> None:
+        """Keep each follower's tab count equal to the control's, so tab N on the
+        control always maps to tab N on every follower. Opening a tab in the control
+        opens one in each follower; closing one closes the extras."""
+        wanted = len(control_pages)
+        for context in follower_ctxs:
+            try:
+                pages = _open_pages(context)
+                while len(pages) < wanted:
+                    await context.new_page()
+                    pages = _open_pages(context)
+                while len(pages) > wanted and len(pages) > 1:
+                    await pages[-1].close()
+                    pages = _open_pages(context)
+            except Exception:
+                pass  # a follower that races us is retried on the next tick
+
+    async def _follower_cdp(self, page: Any, cache: dict) -> Any:
+        session = cache.get(page)
+        if session is None:
+            session = await page.context.new_cdp_session(page)
+            cache[page] = session
+        return session
+
     async def _run(self, control_endpoint, follower_endpoints, ready) -> None:
         from playwright.async_api import async_playwright
 
@@ -208,36 +272,24 @@ class InputSyncService:
         try:
             control = await pw.chromium.connect_over_cdp(control_endpoint)
             conns.append(control)
-            followers: list[dict] = []
+            control_ctx = _main_context(control)
+            if control_ctx is None or not _open_pages(control_ctx):
+                raise RuntimeError("control_has_no_page")
+
+            follower_ctxs: list[Any] = []
             for endpoint in follower_endpoints:
                 browser = await pw.chromium.connect_over_cdp(endpoint)
                 conns.append(browser)
-                page = _first_page(browser)
-                if page is None:
-                    continue
-                followers.append({"page": page, "cdp": await page.context.new_cdp_session(page)})
+                context = _main_context(browser)
+                if context is not None:
+                    follower_ctxs.append(context)
 
-            cpage = _first_page(control)
-            if cpage is None:
-                raise RuntimeError("control_has_no_page")
-            ccdp = await cpage.context.new_cdp_session(cpage)
-            await ccdp.send("Page.enable")  # required for frameNavigated events
+            tabs: dict = {}  # control page -> capture state
+            follower_sessions: dict = {}  # follower page -> cdp session
 
-            loop = asyncio.get_running_loop()
-            navigated = asyncio.Event()  # set when the control's document changed
-
-            def _on_nav(params: dict) -> None:
-                frame = params.get("frame", {})
-                if frame.get("parentId"):  # main frame only
-                    return
-                navigated.set()  # the isolated world died with the old document
-                url = frame.get("url") or ""
-                if url and not url.startswith(("about:", "chrome:", "devtools:", "data:")):
-                    loop.create_task(self._navigate(url, followers))
-
-            ccdp.on("Page.frameNavigated", _on_nav)
-            context_id = await self._arm(ccdp)
-
+            await self._ensure_armed(
+                _open_pages(control_ctx)[0], tabs, control_ctx, follower_ctxs
+            )
             if not ready.done():
                 ready.set_result(None)
 
@@ -247,21 +299,28 @@ class InputSyncService:
                     break
                 except asyncio.TimeoutError:
                     pass
-                if navigated.is_set():
-                    navigated.clear()
-                    try:
-                        context_id = await self._arm(ccdp)
-                    except Exception:
-                        continue  # document still settling; retry on the next tick
-                try:
-                    events = await self._drain(ccdp, context_id)
-                except Exception:
-                    # Context destroyed under us (navigation raced the drain) —
-                    # re-arm on the next tick rather than ending the session.
-                    navigated.set()
+
+                control_pages = _open_pages(control_ctx)[: self._MAX_TABS]
+                if not control_pages:
                     continue
-                for event in events:
-                    await self._fanout(event, followers)
+                await self._reconcile_tabs(control_pages, follower_ctxs)
+
+                for index, page in enumerate(control_pages):
+                    try:
+                        entry = await self._ensure_armed(
+                            page, tabs, control_ctx, follower_ctxs
+                        )
+                    except Exception:
+                        continue  # document still settling; retry next tick
+                    try:
+                        events = await self._drain(entry["cdp"], entry["context_id"])
+                    except Exception:
+                        # Context destroyed under us (a navigation raced the drain) —
+                        # re-arm next tick rather than ending the session.
+                        entry["stale"] = True
+                        continue
+                    for event in events:
+                        await self._fanout(event, index, follower_ctxs, follower_sessions)
         except Exception as error:  # noqa: BLE001 — surface to the awaiting caller
             if not ready.done():
                 ready.set_exception(error)
@@ -276,17 +335,36 @@ class InputSyncService:
             except Exception:
                 pass
 
-    async def _fanout(self, event: dict, followers: list[dict]) -> None:
-        for method, params in translate_event(event):
-            for follower in followers:
-                try:
-                    await follower["cdp"].send(method, params)
-                except Exception:
-                    pass
-
-    async def _navigate(self, url: str, followers: list[dict]) -> None:
-        for follower in followers:
+    async def _fanout(self, event: dict, index: int, follower_ctxs: list[Any],
+                      sessions: dict) -> None:
+        """Replay one control-tab event on the same-numbered tab of every follower."""
+        commands = translate_event(event)
+        if not commands:
+            return
+        for context in follower_ctxs:
+            pages = _open_pages(context)
+            if index >= len(pages):
+                continue  # follower hasn't opened this tab yet
             try:
-                await follower["page"].goto(url, wait_until="commit", timeout=15000)
+                cdp = await self._follower_cdp(pages[index], sessions)
+                for method, params in commands:
+                    await cdp.send(method, params)
+            except Exception:
+                pass
+
+    async def _mirror_nav(self, page: Any, url: str, control_ctx: Any,
+                          follower_ctxs: list[Any]) -> None:
+        """Navigate the same-numbered follower tab. The index is resolved when the
+        navigation fires, so it stays correct as tabs open and close."""
+        pages = _open_pages(control_ctx)
+        if page not in pages:
+            return
+        index = pages.index(page)
+        for context in follower_ctxs:
+            fpages = _open_pages(context)
+            if index >= len(fpages):
+                continue
+            try:
+                await fpages[index].goto(url, wait_until="commit", timeout=15000)
             except Exception:
                 pass

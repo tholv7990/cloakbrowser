@@ -76,17 +76,26 @@ uses `async_playwright` — separate instances, no conflict).
   equal-sized (coords are viewport-relative). Disable + explain when a profile lacks an
   endpoint ("relaunch to enable sync").
 
-## v1 scope boundaries
-- Mirrors clicks, keystrokes, typing, scroll, navigation on the **active tab** only.
-  New tabs / popups out of scope.
+## Scope
+- Mirrors clicks, keystrokes, typing, scroll and navigation.
+- **Multi-tab (v2):** every control tab is drained each tick and its events replay on
+  the follower's tab at the same index, so switching tabs needs no "active tab"
+  tracking. Follower tab counts are reconciled to the control's each tick — opening a
+  tab in the control opens one in each follower, closing one closes the extras.
+  Capped at `_MAX_TABS` so a popup loop can't spawn unbounded tabs.
 - Coordinates are viewport-relative → accurate on **equal-sized** (tiled) windows.
 - Debug port always-on for headed profiles; already-running profiles relaunch once.
+- One sync session at a time.
 
 ## Testing
 - Launcher: unit-test the `DevToolsActivePort` read + endpoint persistence (fake file).
-- Sync service: unit-test event → CDP-command translation with a fake CDP session
-  (assert a captured click yields the right `Input.dispatchMouseEvent`, a key yields the
-  right `Input.dispatchKeyEvent`, navigation yields `goto`).
+- Sync service: `translate_event` is pure, so the event → CDP-command contract is unit
+  tested without a browser. (This is why swapping the whole capture mechanism from
+  `addBinding` to isolated-world polling broke none of its tests.)
 - Routes: 409 without endpoints; start/stop/status happy path with a fake service.
 - Frontend: panel renders running profiles, disables start without endpoints, calls the
   start mutation with the chosen control + followers.
+- **`tests/manager/e2e/test_input_sync_e2e.py`** — the only test that proves the mirror
+  itself: two real profiles, asserting navigation, clicks, typing and a second tab all
+  reach the follower. Marked `manager_e2e`. Its teeth were verified by mutation
+  (neutering `_fanout` makes it fail at the click), so it cannot rot into a vacuous pass.
