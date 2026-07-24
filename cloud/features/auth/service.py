@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ...config import CloudSettings
 from ...db import ensure_aware_utc, utc_now
-from ... import models
+from ... import audit, models
 from ...keys import normalize_email
 from ...passwords import hash_password, needs_rehash, verify_password
 from ...tokens import generate_refresh_token, hash_token, mint_access_token
@@ -200,6 +200,16 @@ def rotate_refresh(
             update(models.Session)
             .where(models.Session.family_id == row.family_id)
             .values(revoked_at=now, reuse_detected_at=now)
+        )
+        # Audit the stolen-token signal (non-secret: ids only) on the same session so
+        # it persists with the revoke below — this is a security event worth alerting on.
+        audit.record(
+            session,
+            actor=row.user_id,
+            action="auth.refresh_reuse",
+            subject_type="session_family",
+            subject_id=row.family_id,
+            data={"device_id": row.device_id},
         )
         # Persist the containment NOW: the AuthError below unwinds to the route, whose
         # request session then rolls back — a revoke left pending would be lost, so the

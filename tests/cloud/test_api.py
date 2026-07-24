@@ -5,6 +5,7 @@ import base64
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from cloud import models
 from cloud.app import create_app
@@ -57,7 +58,15 @@ def ctx(tmp_path):
         "settings": settings,
         "mailer": mailer,
         "activation_key": display,
+        "factory": factory,
     }
+
+
+def _audit_actions(ctx, action):
+    with ctx["factory"]() as session:
+        return session.scalars(
+            select(models.AuditEvent).where(models.AuditEvent.action == action)
+        ).all()
 
 
 def _device():
@@ -129,6 +138,45 @@ def test_refresh_rotation_and_reuse_is_blocked(ctx):
     contained = client.post("/auth/token/refresh", json={"refresh_token": current})
     assert contained.status_code == 401
     assert contained.json()["error"] == "refresh_reuse"
+
+    # The stolen-token signal is durably audited (persisted alongside the revoke).
+    # Both reuse presentations above (the old token, then the now-revoked current one)
+    # are each recorded — every presentation of a dead token is a signal.
+    events = _audit_actions(ctx, "auth.refresh_reuse")
+    assert len(events) == 2
+    assert all(e.subject_type == "session_family" for e in events)
+
+
+def test_redeem_writes_an_audit_event(ctx):
+    client = ctx["client"]
+    tokens = _register_verify_and_login(ctx)
+    auth = {"Authorization": f"Bearer {tokens['access_token']}"}
+    assert client.post(
+        "/activation/redeem", json={"activation_key": ctx["activation_key"]}, headers=auth
+    ).status_code == 200
+
+    events = _audit_actions(ctx, "activation.redeem")
+    assert len(events) == 1
+    assert events[0].subject_type == "activation_key"
+    assert events[0].data["plan"] == "pro"
+
+    # An idempotent re-issue (same device, same key) consumes no use and adds no event.
+    assert client.post(
+        "/activation/redeem", json={"activation_key": ctx["activation_key"]}, headers=auth
+    ).status_code == 200
+    assert len(_audit_actions(ctx, "activation.redeem")) == 1
+
+
+def test_device_revoke_writes_an_audit_event(ctx):
+    client = ctx["client"]
+    tokens = _register_verify_and_login(ctx)
+    auth = {"Authorization": f"Bearer {tokens['access_token']}"}
+    device_id = client.get("/devices", headers=auth).json()[0]["id"]
+
+    assert client.post(f"/devices/{device_id}/revoke", headers=auth).status_code == 200
+    events = _audit_actions(ctx, "device.revoke")
+    assert len(events) == 1
+    assert events[0].subject_id == device_id
 
 
 def test_protected_routes_require_a_valid_bearer(ctx):

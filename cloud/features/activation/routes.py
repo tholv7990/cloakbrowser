@@ -6,7 +6,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from ... import licensing
+from ... import audit, licensing
 from ...config import CloudSettings
 from ...deps import get_session, get_settings, require_access
 from ...errors import CloudError
@@ -35,6 +35,16 @@ def redeem(
         )
     except licensing.RedeemError as error:
         raise CloudError(error.code) from error
+    if not result.reused:
+        # Log the use actually consumed (idempotent re-issues aren't a new consumption).
+        audit.record(
+            session,
+            actor=claims["sub"],
+            action="activation.redeem",
+            subject_type="activation_key",
+            subject_id=result.entitlement.key_id,
+            data={"device_id": claims["device_id"], "plan": result.entitlement.plan_id},
+        )
     return EntitlementResponse(entitlement_token=result.token)
 
 

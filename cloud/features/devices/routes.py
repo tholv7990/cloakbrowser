@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from ... import models
+from ... import audit, models
 from ...deps import get_session, require_access
 from ...errors import CloudError
 from ...schemas import DeviceResponse, MessageResponse
@@ -40,4 +40,11 @@ def revoke(
     if device is None or device.user_id != claims["sub"]:
         raise CloudError("not_found")
     devices.revoke_device(session, device_id=device_id)
+    audit.record(
+        session,
+        actor=claims["sub"],
+        action="device.revoke",
+        subject_type="device",
+        subject_id=device_id,
+    )
     return MessageResponse(status="revoked")

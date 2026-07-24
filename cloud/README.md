@@ -80,4 +80,6 @@ Login is rate-limited with lockout (`auth_throttle`). Admin key issuance:
 
 ## Not yet wired (next)
 
-- MFA/passkeys, Sentry error reporting, broader audit-event coverage. See the repo backlog.
+- MFA/passkeys, Sentry error reporting, an admin view/export over `audit_events`.
+  (Security events — reuse detection, key redemption, device revoke, admin key actions,
+  release publishing — are already recorded.) See the repo backlog.
