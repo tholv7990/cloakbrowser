@@ -11,6 +11,7 @@ import {
   useStopInputSync,
   useBroadcast,
 } from './api';
+import { toNavigableUrl } from './urlOrSearch';
 
 export function SynchronizePage() {
   const t = useT();
@@ -298,17 +299,20 @@ export function SynchronizePage() {
             <h2 className="text-[13px] font-medium text-ink">{t('sync.sendTitle')}</h2>
             <p className="text-xs text-ink-muted">{t('sync.sendDesc')}</p>
             <input
-              type="url"
+              type="text"
               value={sendUrl}
               onChange={(e) => setSendUrl(e.target.value)}
-              placeholder="https://example.com"
+              placeholder={t('sync.urlPlaceholder')}
               aria-label={t('sync.openUrl')}
               className="w-full rounded-md border border-line bg-surface-sunken px-2 py-1.5 text-sm"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onSend({ url: toNavigableUrl(sendUrl) ?? undefined });
+              }}
             />
             <button
               type="button"
-              onClick={() => onSend({ url: sendUrl.trim() })}
-              disabled={!chosenIds.length || !sendUrl.trim() || broadcast.isPending}
+              onClick={() => onSend({ url: toNavigableUrl(sendUrl) ?? undefined })}
+              disabled={!chosenIds.length || !toNavigableUrl(sendUrl) || broadcast.isPending}
               className="w-full rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink disabled:opacity-40"
             >
               {t('sync.openUrl')}

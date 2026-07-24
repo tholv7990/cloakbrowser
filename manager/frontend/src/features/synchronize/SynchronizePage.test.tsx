@@ -112,9 +112,9 @@ describe('SynchronizePage', () => {
 
     renderPage();
 
-    const field = await screen.findByRole('textbox', { name: /open url on all/i });
+    const field = await screen.findByRole('textbox', { name: /go on all profiles/i });
     await userEvent.type(field, 'https://example.com');
-    await userEvent.click(screen.getByRole('button', { name: /open url on all/i }));
+    await userEvent.click(screen.getByRole('button', { name: /go on all profiles/i }));
 
     await waitFor(() =>
       expect(send).toHaveBeenCalledWith({
