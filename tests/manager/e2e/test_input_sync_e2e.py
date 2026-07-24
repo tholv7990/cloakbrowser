@@ -218,6 +218,20 @@ async def test_control_window_mirrors_navigation_clicks_and_typing(two_profiles,
             # The first tab must not have received the second tab's click.
             assert await fpage.evaluate("window.__c||0") == 1
 
+            # 5. Switching tabs in the control switches the follower's view too.
+            #    (Followers already *receive* input on the right tab; without this
+            #    they kept showing the old one, which reads as "sync is broken".)
+            await cpage.bring_to_front()
+            assert await _until(
+                lambda: _equals(fpage.evaluate("document.visibilityState"), "visible")
+            ), "follower did not switch to the tab the user switched to"
+
+            # 6. Closing a tab in the control closes the follower's matching tab.
+            await cpage2.close()
+            assert await _until(lambda: _resolved(len(_open(fctx)) == 1)), (
+                f"follower still has {len(_open(fctx))} tabs after the control closed one"
+            )
+
             await control.close()
             await follower.close()
     finally:
