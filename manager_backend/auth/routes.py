@@ -36,6 +36,13 @@ from .sessions import (
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
 
+# Remember-me: keep the owner signed in across app restarts. Without a Max-Age the
+# session/CSRF cookies are session cookies that die when the webview closes, forcing
+# a re-login on every launch. The server-side session itself never expires until an
+# explicit logout/lock (see sessions.py), so this window just bounds how long the
+# browser will replay the cookie. 30 days matches the usual "remember me" horizon.
+_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
+
 
 def _cookie_policy(allowed_origin: str) -> tuple[str, bool]:
     """(SameSite, Secure) for the session/CSRF cookies, keyed off the UI origin.
@@ -57,6 +64,7 @@ def _set_session_cookie(request: Request, response: Response, issued: IssuedSess
     response.set_cookie(
         SESSION_COOKIE,
         issued.token,
+        max_age=_COOKIE_MAX_AGE_SECONDS,
         httponly=True,
         secure=secure,
         samesite=samesite,
@@ -65,6 +73,7 @@ def _set_session_cookie(request: Request, response: Response, issued: IssuedSess
     response.set_cookie(
         CSRF_COOKIE,
         issued.csrf_token,
+        max_age=_COOKIE_MAX_AGE_SECONDS,
         httponly=False,
         secure=secure,
         samesite=samesite,

@@ -49,3 +49,23 @@ def test_desktop_login_issues_cross_site_session_cookie(tmp_path):
         assert "cloak_session=" in cookies
         assert "samesite=none" in cookies
         assert "secure" in cookies
+
+
+def test_session_cookies_persist_across_restart(tmp_path):
+    """Remember-me: the session AND csrf cookies carry a Max-Age so they survive
+    the webview closing. A bare session cookie dies on restart, logging the owner
+    out; if only the session cookie persisted, CSRF-guarded POSTs would 401 after
+    a restart while GETs still worked."""
+    with TestClient(create_app(_desktop_settings(tmp_path))) as client:
+        resp = client.post(
+            "/api/v1/auth/setup",
+            headers={"Origin": "http://tauri.localhost"},
+            json={"email": "o@example.com", "password": "correct horse battery staple"},
+        )
+        assert resp.status_code == 201
+        cloak_cookies = [
+            c for c in resp.headers.get_list("set-cookie") if "cloak_" in c.lower()
+        ]
+        assert len(cloak_cookies) == 2  # session + csrf
+        for cookie in cloak_cookies:
+            assert "max-age=" in cookie.lower(), cookie

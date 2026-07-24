@@ -24,8 +24,9 @@ def test_setup_creates_session_cookie_and_rejects_second_owner(client):
     assert "cloak_session=" in response.headers["set-cookie"]
     assert "HttpOnly" in response.headers["set-cookie"]
     assert "SameSite=strict" in response.headers["set-cookie"]
-    assert "Max-Age" not in response.headers["set-cookie"]
-    assert "Expires" not in response.headers["set-cookie"]
+    # Remember-me: the session cookie persists across restarts (Max-Age set) so
+    # the owner stays signed in instead of being logged out when the app closes.
+    assert "Max-Age=" in response.headers["set-cookie"]
     assert set(response.json()) == {"email", "csrf_token"}
 
     second = client.post("/api/v1/auth/setup", json=OWNER, headers={"Origin": ORIGIN})
