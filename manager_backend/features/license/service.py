@@ -13,6 +13,9 @@ State machine (only ``disabled`` / ``active`` / ``grace`` may launch):
     unlicensed  enforcing, no entitlement cached                -> blocked
     expired     signed, now > offline_grace_deadline            -> blocked
     invalid     bad signature / missing claims / no pinned key  -> blocked (fail closed)
+
+A past ``trial_end`` claim (trial-plan keys only) forces ``expired`` regardless of
+``exp``/``offline_grace_deadline`` — the trial hard-cap always wins.
 """
 
 from __future__ import annotations

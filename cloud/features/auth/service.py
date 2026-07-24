@@ -20,7 +20,7 @@ from ...config import CloudSettings
 from ...db import ensure_aware_utc, utc_now
 from ... import audit, models
 from ...keys import normalize_email
-from ...licensing import redeem_key
+from ...licensing import TRIAL_PLAN_ID, redeem_key
 from ...passwords import hash_password, needs_rehash, verify_password
 from ...tokens import generate_refresh_token, hash_token, mint_access_token
 from ..devices.service import register_device
@@ -112,7 +112,6 @@ def verify_email(session, *, raw_token: str, now: datetime | None = None) -> mod
 
 # --- trial signup ---------------------------------------------------------------
 
-TRIAL_PLAN_ID = "trial"
 TRIAL_DAYS = 30
 
 

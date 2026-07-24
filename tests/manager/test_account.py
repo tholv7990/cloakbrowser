@@ -174,6 +174,41 @@ def test_routes_login_activate_reflect_in_license(cloud, tmp_path):
         assert client.get("/api/v1/license", headers=headers).json()["state"] == "active"
 
 
+def test_routes_register_reflects_in_license(cloud, tmp_path):
+    from manager_backend.main import create_app
+
+    settings = ManagerSettings(
+        data_root=tmp_path / "mr2",
+        allowed_origin="http://127.0.0.1:5173",
+        install_token="t",
+        auto_backup_enabled=False,
+        require_license=True,
+        entitlement_pubkey=cloud.pubkey,
+        cloud_base_url=CLOUD_BASE,
+    )
+    with TestClient(create_app(settings)) as client:
+        client.app.state.account_service = AccountService(
+            settings,
+            secret_store=MemorySecretStore(),
+            client_factory=lambda base: CloudClient(base, http=cloud.http),
+        )
+        setup = client.post(
+            "/api/v1/auth/setup",
+            headers={"Origin": "http://127.0.0.1:5173"},
+            json={"email": "owner2@example.com", "password": "correct horse battery staple"},
+        )
+        headers = {
+            "Origin": "http://127.0.0.1:5173",
+            "X-CSRF-Token": setup.json()["csrf_token"],
+        }
+        register = client.post(
+            "/api/v1/account/register", headers=headers,
+            json={"email": "fresh2@example.com", "password": "correct horse battery staple"},
+        )
+        assert register.status_code == 200 and register.json()["state"] == "active"
+        assert client.get("/api/v1/license", headers=headers).json()["state"] == "active"
+
+
 def test_register_creates_trial_and_unlocks(cloud, account):
     svc, settings = account
     status = svc.register(email="fresh@example.com", password="correct horse battery staple")

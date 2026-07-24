@@ -37,6 +37,12 @@ DEFAULT_ENTITLEMENT_TTL = timedelta(hours=24)
 DEFAULT_OFFLINE_GRACE = timedelta(days=7)
 ENTITLEMENT_VERSION = 1
 
+# The trial plan's id (also used by cloud.features.auth.service to grant/redeem trial
+# keys). Kept here — not in auth/service.py — because trial_end scoping below needs it,
+# and licensing.py has no dependency on the auth feature (importing it there would risk
+# a cycle back through cloud.admin -> cloud.features.auth.service).
+TRIAL_PLAN_ID = "trial"
+
 # Redeem outcomes surfaced to the caller (safe, fixed codes — no secrets).
 REDEEM_ERRORS = frozenset(
     {
@@ -140,7 +146,7 @@ def _issue_entitlement(
         now=now,
         expires_at=expires_at,
         grace_deadline=grace_deadline,
-        trial_end=ensure_aware_utc(key.expires_at),
+        trial_end=ensure_aware_utc(key.expires_at) if plan.id == TRIAL_PLAN_ID else None,
     )
     return sign_entitlement(claims, private_key), entitlement, claims
 

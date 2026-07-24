@@ -112,7 +112,6 @@ def token(
 @router.post("/signup", response_model=SignupResponse)
 def signup(
     body: SignupRequest,
-    request: Request,
     session: Session = Depends(get_session),
     settings: CloudSettings = Depends(get_settings),
 ) -> SignupResponse:

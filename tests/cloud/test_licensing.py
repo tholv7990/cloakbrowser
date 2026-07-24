@@ -10,6 +10,7 @@ from cloud.db import Base
 from cloud.entitlements import generate_signing_keypair, verify_entitlement
 from cloud.keys import generate_activation_key, key_verifier
 from cloud.licensing import (
+    TRIAL_PLAN_ID,
     RedeemError,
     RefreshError,
     redeem_key,
@@ -27,12 +28,12 @@ def session_factory(tmp_path):
     return create_session_factory(engine)
 
 
-def _setup(session_factory, *, max_uses=1, status="active", expires_at=None):
+def _setup(session_factory, *, max_uses=1, status="active", expires_at=None, plan_id="pro"):
     with session_factory() as session:
         session.add(
             models.Plan(
-                id="pro",
-                name="Pro",
+                id=plan_id,
+                name="Pro" if plan_id != TRIAL_PLAN_ID else "Trial",
                 max_devices=3,
                 max_profiles=100,
                 max_sessions=10,
@@ -51,7 +52,7 @@ def _setup(session_factory, *, max_uses=1, status="active", expires_at=None):
             verifier=key_verifier(display, PEPPER),
             lookup_prefix=parts["lookup_prefix"],
             last4=parts["last4"],
-            plan_id="pro",
+            plan_id=plan_id,
             max_uses=max_uses,
             uses_remaining=max_uses,
             status=status,
@@ -171,10 +172,20 @@ def test_bad_key_states_are_rejected(session_factory, status, expired, expected)
 
 
 def test_expiring_key_stamps_trial_end_claim(session_factory):
+    # trial_end is scoped to TRIAL-plan keys only — seed the key on the trial plan.
     expires_at = utc_now() + timedelta(days=30)
-    ctx = _setup(session_factory, expires_at=expires_at)
+    ctx = _setup(session_factory, expires_at=expires_at, plan_id=TRIAL_PLAN_ID)
     result = _redeem(session_factory, ctx, ctx["device_a"])
     assert result.claims["trial_end"] == int(expires_at.timestamp())
+
+
+def test_expiring_non_trial_key_has_no_trial_end(session_factory):
+    # A paid, time-limited key (e.g. Pro issued with --expires-days) must NOT get the
+    # trial hard-cap stamped onto it — that would bypass the offline grace at expiry.
+    expires_at = utc_now() + timedelta(days=365)
+    ctx = _setup(session_factory, expires_at=expires_at)  # default plan_id="pro"
+    result = _redeem(session_factory, ctx, ctx["device_a"])
+    assert "trial_end" not in result.claims
 
 
 def test_non_expiring_key_has_no_trial_end(session_factory):
