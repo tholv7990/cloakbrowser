@@ -116,11 +116,22 @@ class ProfileWorker(threading.Thread):
         browser_created_at = getattr(handle, "browser_created_at", None)
         if browser_pid is None or browser_created_at is None:
             return
+        # Loopback CDP endpoint for input-sync (Phase B). Best-effort: a missing
+        # DevToolsActivePort file must never fail a launch.
+        cdp_endpoint = None
+        reader = getattr(handle, "cdp_endpoint", None)
+        if callable(reader):
+            try:
+                cdp_endpoint = reader()
+            except Exception:
+                cdp_endpoint = None
         with self._session_factory() as session:
             runtime = session.get(RuntimeSession, self.runtime_id)
             if runtime is not None:
                 runtime.browser_pid = browser_pid
                 runtime.browser_created_at = browser_created_at
+                if cdp_endpoint:
+                    runtime.cdp_endpoint = cdp_endpoint
                 session.commit()
 
     def _append_log(

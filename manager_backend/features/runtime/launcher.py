@@ -328,6 +328,10 @@ def persistent_context_kwargs(
     args = [f"--fingerprint={snapshot['fingerprint_seed']}"]
     if not headless:  # headed runtime only — not the cookie/diagnostic utility launches
         args.append(_window_size_arg(snapshot.get("window") or {}))
+        # Loopback CDP endpoint for input-sync (Phase B): a random free port that
+        # Chromium writes to <user-data-dir>/DevToolsActivePort. Headed runtime only;
+        # utility/diagnostic (headless) launches stay clean.
+        args.append("--remote-debugging-port=0")
     # WebRTC leak guard: when the profile routes WebRTC through its proxy, spoof
     # the WebRTC IP to the proxy exit IP so the real IP can't leak via STUN.
     # cloakbrowser resolves "auto" -> exit IP (and drops the flag if there is no
@@ -385,6 +389,26 @@ def _cmdline_user_data_dir(cmdline: list[str]) -> str | None:
     return None
 
 
+def read_cdp_endpoint(user_data_dir: str, *, timeout: float = 2.0) -> str | None:
+    """The loopback CDP endpoint Chromium writes to <user-data-dir>/DevToolsActivePort
+    (first line is the chosen --remote-debugging-port) shortly after a headed launch.
+
+    Returns ``http://127.0.0.1:<port>`` once the file appears, or None within ``timeout``
+    (e.g. a headless/no-port launch, where the file is never written)."""
+    port_file = Path(user_data_dir) / "DevToolsActivePort"
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            first = port_file.read_text(encoding="utf-8").splitlines()[0].strip()
+            if first:
+                return f"http://127.0.0.1:{int(first)}"
+        except (OSError, ValueError, IndexError):
+            pass
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.05)
+
+
 class _PersistentContextHandle:
     _PROBE_INTERVAL = 2.0
 
@@ -410,6 +434,10 @@ class _PersistentContextHandle:
             threading.Thread(target=self._icon_burst, name="profile-icon", daemon=True).start()
         self._locate_browser()
         context.on("close", self._mark_closed)
+
+    def cdp_endpoint(self, *, timeout: float = 2.0) -> str | None:
+        """Loopback CDP endpoint for this profile's browser (input-sync), or None."""
+        return read_cdp_endpoint(self._user_data_dir, timeout=timeout)
 
     def _icon_burst(self) -> None:
         # Scan for the profile's Chrome pids ONCE (the browser process is stable

@@ -318,7 +318,11 @@ def test_headed_runtime_sizes_window_to_spoofed_screen():
         {"fingerprint_seed": 8200, "fingerprint_preset": "consistent", "window": {"mode": "maximized"}},
         headless=False,
     )
-    assert maximized["args"] == ["--fingerprint=8200", "--window-size=1920,1080"]
+    assert maximized["args"] == [
+        "--fingerprint=8200",
+        "--window-size=1920,1080",
+        "--remote-debugging-port=0",
+    ]
 
     # A custom size is honored verbatim.
     custom = persistent_context_kwargs(
@@ -329,7 +333,32 @@ def test_headed_runtime_sizes_window_to_spoofed_screen():
         },
         headless=False,
     )
-    assert custom["args"] == ["--fingerprint=8200", "--window-size=1366,768"]
+    assert custom["args"] == [
+        "--fingerprint=8200",
+        "--window-size=1366,768",
+        "--remote-debugging-port=0",
+    ]
+
+
+def test_headed_launch_opens_a_loopback_cdp_port_headless_does_not():
+    # Input-sync (Phase B) needs a CDP endpoint; only headed runtime launches get one.
+    headed = persistent_context_kwargs(
+        {"fingerprint_seed": 8200, "fingerprint_preset": "consistent"}, headless=False
+    )
+    assert "--remote-debugging-port=0" in headed["args"]
+    headless = persistent_context_kwargs(
+        {"fingerprint_seed": 8200, "fingerprint_preset": "consistent"}, headless=True
+    )
+    assert not any(a.startswith("--remote-debugging-port") for a in headless["args"])
+
+
+def test_read_cdp_endpoint_parses_devtools_active_port(tmp_path):
+    (tmp_path / "DevToolsActivePort").write_text("60721\n/devtools/browser/abc\n")
+    assert launcher.read_cdp_endpoint(str(tmp_path), timeout=0.0) == "http://127.0.0.1:60721"
+
+
+def test_read_cdp_endpoint_none_when_port_file_absent(tmp_path):
+    assert launcher.read_cdp_endpoint(str(tmp_path), timeout=0.0) is None
 
 
 def test_icon_burst_stamps_plasma_icon_immediately_without_a_probe(tmp_path, monkeypatch):
