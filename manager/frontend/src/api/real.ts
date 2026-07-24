@@ -79,6 +79,8 @@ export const realApi: ApiAdapter = {
     apiRequest<AccountStatus>('/account/login', { method: 'POST', body: payload }),
   accountActivate: (payload: AccountActivateRequest) =>
     apiRequest<LicenseStatus>('/account/activate', { method: 'POST', body: payload }),
+  accountRegister: (payload: EmailPasswordRequest) =>
+    apiRequest<LicenseStatus>('/account/register', { method: 'POST', body: payload }),
   accountRefresh: () => apiRequest<LicenseStatus>('/account/refresh', { method: 'POST' }),
   accountLogout: () => apiRequest<AccountStatus>('/account/logout', { method: 'POST' }),
 

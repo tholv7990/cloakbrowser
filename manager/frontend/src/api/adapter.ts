@@ -88,6 +88,7 @@ export interface ApiAdapter {
   accountStatus(): Promise<AccountStatus>;
   accountLogin(payload: EmailPasswordRequest): Promise<AccountStatus>;
   accountActivate(payload: AccountActivateRequest): Promise<LicenseStatus>;
+  accountRegister(payload: EmailPasswordRequest): Promise<LicenseStatus>;
   accountRefresh(): Promise<LicenseStatus>;
   accountLogout(): Promise<AccountStatus>;
 

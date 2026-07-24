@@ -38,6 +38,14 @@ export function useAccountActivate() {
   });
 }
 
+export function useAccountRegister() {
+  const refresh = useRefreshGate();
+  return useMutation({
+    mutationFn: (payload: EmailPasswordRequest) => api.accountRegister(payload),
+    onSuccess: refresh,
+  });
+}
+
 export function useAccountRefresh() {
   const refresh = useRefreshGate();
   return useMutation({ mutationFn: () => api.accountRefresh(), onSuccess: refresh });

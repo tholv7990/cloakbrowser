@@ -581,6 +581,21 @@ export const mockApi: ApiAdapter = {
     };
     return mockStore.license;
   },
+  async accountRegister(payload: EmailPasswordRequest): Promise<LicenseStatus> {
+    await delay(160);
+    mockStore.account = { cloud_configured: true, signed_in: true, email: payload.email };
+    mockStore.license = {
+      state: 'active',
+      allowed: true,
+      plan: 'trial',
+      features: [],
+      expires_at: null,
+      grace_deadline: null,
+      trial_end: null,
+      detail: null,
+    };
+    return mockStore.license;
+  },
   async accountRefresh(): Promise<LicenseStatus> {
     await delay(80);
     return mockStore.license;

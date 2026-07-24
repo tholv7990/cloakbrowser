@@ -421,6 +421,7 @@ export interface LicenseStatus {
   features: string[];
   expires_at: number | null;
   grace_deadline: number | null;
+  trial_end?: number | null;
   detail: string | null;
 }
 
