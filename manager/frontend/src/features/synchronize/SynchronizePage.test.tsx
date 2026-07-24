@@ -33,7 +33,12 @@ describe('SynchronizePage', () => {
     expect(await screen.findByText('Alpha')).toBeInTheDocument();
     expect(screen.queryByText('Beta')).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: /tile windows/i }));
+    // Tile stays disabled until a monitor has actually loaded (mock monitors
+    // resolve slightly after profiles) — wait for it to become clickable, the
+    // same way a real user would have to.
+    const tileButton = screen.getByRole('button', { name: /tile windows/i });
+    await waitFor(() => expect(tileButton).toBeEnabled());
+    await userEvent.click(tileButton);
 
     await waitFor(() =>
       expect(arrange).toHaveBeenCalledWith(

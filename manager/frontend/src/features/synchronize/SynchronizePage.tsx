@@ -45,9 +45,12 @@ export function SynchronizePage() {
     if (!chosenIds.length) return;
     // The monitor list resolves async; fall back to the primary/first monitor
     // rather than silently no-opping a click that landed before it settled.
+    // (The Tile button is also disabled until a monitor is available, so this
+    // is defense-in-depth rather than the only guard.)
     const monitors = monitorsQuery.data ?? [];
     const targetMonitorId = monitorId || (monitors.find((m) => m.is_primary) ?? monitors[0])?.id;
     if (!targetMonitorId) return;
+    setResults({});
     const res = await arrange.mutateAsync({
       profile_ids: chosenIds,
       monitor_id: targetMonitorId,
@@ -140,7 +143,11 @@ export function SynchronizePage() {
           <button
             type="button"
             onClick={onTile}
-            disabled={!chosenIds.length || arrange.isPending}
+            disabled={
+              !chosenIds.length ||
+              arrange.isPending ||
+              !(monitorsQuery.data && monitorsQuery.data.length)
+            }
             className="w-full rounded-md bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             {t('synchronize.tile')}
