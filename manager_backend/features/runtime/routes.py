@@ -15,7 +15,10 @@ from .schemas import (
     MonitorsResponse,
     RuntimePage,
     RuntimeRead,
+    SyncStartRequest,
+    SyncStatusResponse,
 )
+from .service import active_runtime
 from .windows import Monitor, arrange_windows, safe_profile_id
 
 
@@ -107,3 +110,63 @@ def arrange(payload: ArrangeRequest, request: Request):
             items.append((pid, None))
     results = arrange_windows(items, monitor.work_area, payload.layout, manager)
     return {"results": results}
+
+
+def _cdp_endpoint_for(session: Session, profile_id: str) -> str | None:
+    """The loopback CDP endpoint of a profile's live browser, or None when it isn't
+    running or predates the endpoint (launched before Phase B — needs a relaunch)."""
+    runtime = active_runtime(session, profile_id)
+    return runtime.cdp_endpoint if runtime is not None else None
+
+
+@router.post("/runtime/sync/start", response_model=SyncStatusResponse)
+async def sync_start(payload: SyncStartRequest, request: Request, session: SessionDependency):
+    service = request.app.state.input_sync
+    if service.active:
+        raise ManagerError(
+            "input_sync_already_active", "Input sync is already running.", 409
+        )
+    control_endpoint = _cdp_endpoint_for(session, payload.control_profile_id)
+    if control_endpoint is None:
+        raise ManagerError(
+            "input_sync_unavailable",
+            "The control profile is not running, or was started before sync was "
+            "available — restart it and try again.",
+            409,
+        )
+    followers: list[tuple[str, str]] = []
+    for profile_id in payload.follower_profile_ids:
+        if profile_id == payload.control_profile_id:
+            continue  # never mirror the control window onto itself
+        endpoint = _cdp_endpoint_for(session, profile_id)
+        if endpoint is not None:
+            followers.append((profile_id, endpoint))
+    if not followers:
+        raise ManagerError(
+            "input_sync_no_followers",
+            "No selected profile can be synced. Restart the profiles and try again.",
+            409,
+        )
+    try:
+        await service.start(
+            control_profile_id=payload.control_profile_id,
+            control_endpoint=control_endpoint,
+            followers=followers,
+        )
+    except Exception:
+        raise ManagerError(
+            "input_sync_failed", "Could not connect to the selected browsers.", 409
+        ) from None
+    return service.status()
+
+
+@router.post("/runtime/sync/stop", response_model=SyncStatusResponse)
+async def sync_stop(request: Request):
+    service = request.app.state.input_sync
+    await service.stop()
+    return service.status()
+
+
+@router.get("/runtime/sync/status", response_model=SyncStatusResponse)
+def sync_status(request: Request):
+    return request.app.state.input_sync.status()

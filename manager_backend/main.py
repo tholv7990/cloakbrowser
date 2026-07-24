@@ -25,6 +25,7 @@ from .features.account.refresher import start_entitlement_refresher
 from .features.runtime.reconcile import cleanup_stale_locks, reconcile_runtimes
 from .features.runtime.routes import runtime_to_dict
 from .features.runtime.snapshots import RuntimeSnapshotCache
+from .features.runtime.input_sync import InputSyncService
 from .features.runtime.windows import WINDOW_MANAGER
 from .auth.sessions import validate_session
 from .dependencies import SESSION_COOKIE
@@ -191,6 +192,7 @@ def create_app(
         license_gate=make_license_gate(resolved),
     )
     app.state.window_manager = WINDOW_MANAGER
+    app.state.input_sync = InputSyncService()
     app.state.account_service = AccountService(
         resolved, secret_store=KeyringSecretStore()
     )

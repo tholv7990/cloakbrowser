@@ -61,3 +61,14 @@ class ArrangeResultRead(BaseModel):
 
 class ArrangeResponse(BaseModel):
     results: list[ArrangeResultRead]
+
+
+class SyncStartRequest(BaseModel):
+    control_profile_id: str
+    follower_profile_ids: list[str]
+
+
+class SyncStatusResponse(BaseModel):
+    active: bool
+    control_profile_id: str | None = None
+    follower_profile_ids: list[str] = []
