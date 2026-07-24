@@ -4,11 +4,24 @@
 typing, scroll, and navigation to all other selected running profiles ("followers"),
 Hidemium-style.
 
-**Status:** Feasibility spiked and confirmed (2026-07-25). `--remote-debugging-port=0`
-on the stealth-binary launch opens an externally reachable CDP endpoint
-(`DevToolsActivePort` written, `/json/version` returns Chrome 146); CDP
-`Input.dispatchKeyEvent`, `Input.insertText`, and `Input.dispatchMouseEvent` all
-register in the page. Spike: `scratchpad/spike_cdp_sync.py`.
+**Status:** Built and **verified live** (2026-07-25). Two real stealth-binary
+profiles, one driving the other through the shipped `InputSyncService`:
+
+```
+[nav]   follower url mirrored: True
+[click] control=1 follower=1  mirrored: True
+[focus] control: t  follower: t
+[keys]  control='HELLO' follower='HELLO'  mirrored: True
+```
+
+Notes from verification:
+
+- Focus propagates only through *user input*. Clicking the control's field mirrors
+  the click, which focuses the follower's field, after which keystrokes land. A
+  driver-level `page.focus()` mirrors nothing (it is not an input event) — worth
+  remembering when writing further tests.
+- The nav mirror deliberately ignores `data:`/`about:`/`chrome:` URLs, so any test
+  of it must serve a real `http://` page.
 
 ## Architecture
 
@@ -28,16 +41,20 @@ worker. So Phase B adds a CDP channel.
   Playwright, so this adds no new web-detectable signal — only a local attack surface,
   accepted for a local desktop app.
 
-### 2. Sync service (new: features/runtime/sync_service.py)
+### 2. Sync service (features/runtime/input_sync.py)
 Async, runs on the FastAPI loop (workers use sync Playwright on their own threads; this
 uses `async_playwright` — separate instances, no conflict).
 
 - Connect to the control endpoint + each follower endpoint via `connect_over_cdp`.
-- Control page: `Runtime.addBinding("__plasmaSync")`, then inject a capture script (on the
-  current page AND `addScriptToEvaluateOnNewDocument` for navigations) that
-  `addEventListener`s pointerdown/up, keydown/up, input, wheel and reports
-  `{type, x, y, button, key, code, text, deltaX, deltaY, ...}` via `window.__plasmaSync`.
-- On each `Runtime.bindingCalled`, fan out to followers:
+- Control page: `Page.createIsolatedWorld` + `Runtime.evaluate` a capture script into
+  that world. It `addEventListener`s pointerdown/up, keydown/up, wheel and buffers
+  `{kind, type, x, y, button, key, code, text, dx, dy}` into an array the service
+  drains every 50ms. **Why not `Runtime.addBinding`:** in the main world it exposes a
+  callable global the page can enumerate, and it does not reach an isolated world
+  without `Runtime.enable` — itself a known CDP-detection signal. Verified: the page
+  sees `window.__q` and `window.__drain` as `undefined`. The world dies on navigation,
+  so `Page.frameNavigated` re-arms it.
+- For each drained event, fan out to followers:
   - pointer → `Input.dispatchMouseEvent` (mousePressed/mouseReleased/mouseMoved) at the
     same viewport coords.
   - key → `Input.dispatchKeyEvent` (keyDown/keyUp) + `Input.insertText` for the typed text.

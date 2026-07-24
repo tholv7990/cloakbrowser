@@ -2,9 +2,15 @@
 
 Interact with the "control" profile's window and the same clicks / keystrokes /
 scroll / navigation replay in every "follower" window, over each profile's loopback
-CDP endpoint (see launcher.read_cdp_endpoint). Feasibility spiked 2026-07-25:
-addBinding->bindingCalled captures input WITHOUT Runtime.enable, and Input.* dispatch
-+ Page.navigate replay it faithfully on the stealth binary.
+CDP endpoint (see launcher.read_cdp_endpoint).
+
+Capture runs in a CDP **isolated world** that buffers events, which the service
+drains on a short poll. Spiked 2026-07-25 against the stealth binary: the page can
+see neither the buffer nor the drain hook (both are `undefined` in the main world),
+and no `Runtime.enable` is needed — the alternative, `Runtime.addBinding`, exposes a
+callable global to the page in the main world and does not reach an isolated world
+without enabling the Runtime domain, itself a known CDP-detection signal. Replay uses
+Input.* dispatch + Page.navigate.
 
 One session at a time, on the app's asyncio loop. Workers use sync Playwright on
 their own threads; this uses async Playwright on the FastAPI loop — separate instances.
@@ -14,26 +20,28 @@ from __future__ import annotations
 
 import asyncio
 import json
-import secrets
 from typing import Any
 
-# Injected into the control page (capture phase) to report the input events we
-# mirror via the addBinding function. The binding name is randomized per session so
-# a page can't fingerprint a fixed global. {b} is the binding name.
+_WORLD = "__plasma_sync"
+
+# Runs in the isolated world: buffers the input events we mirror and hands them over
+# on drain. Nothing here is reachable from the page's own world.
 _CAPTURE_JS = """
-(() => {{
-  const B = window.{b};
-  if (!B || window.{b}_on) return;
-  window.{b}_on = true;
-  const s = (o) => {{ try {{ B(JSON.stringify(o)); }} catch (e) {{}} }};
-  const m = (t) => (e) => s({{kind:'mouse',type:t,x:e.clientX,y:e.clientY,button:e.button}});
+(() => {
+  if (window.__q) return 'already';
+  const q = [];
+  window.__q = q;
+  const s = (o) => { if (q.length < 500) q.push(o); };  // bounded: never grow unboundedly
+  const m = (t) => (e) => s({kind:'mouse',type:t,x:e.clientX,y:e.clientY,button:e.button});
   addEventListener('pointerdown', m('mousePressed'), true);
   addEventListener('pointerup', m('mouseReleased'), true);
-  const k = (t) => (e) => s({{kind:'key',type:t,key:e.key,code:e.code,keyCode:e.keyCode,text:(e.key.length===1?e.key:'')}});
+  const k = (t) => (e) => s({kind:'key',type:t,key:e.key,code:e.code,keyCode:e.keyCode,text:(t==='keyDown'&&e.key.length===1?e.key:'')});
   addEventListener('keydown', k('keyDown'), true);
   addEventListener('keyup', k('keyUp'), true);
-  addEventListener('wheel', (e) => s({{kind:'wheel',x:e.clientX,y:e.clientY,dx:e.deltaX,dy:e.deltaY}}), true);
-}})()
+  addEventListener('wheel', (e) => s({kind:'wheel',x:e.clientX,y:e.clientY,dx:e.deltaX,dy:e.deltaY}), true);
+  window.__drain = () => JSON.stringify(q.splice(0, q.length));
+  return 'installed';
+})()
 """
 
 _BUTTONS = {0: "left", 1: "middle", 2: "right"}
@@ -100,6 +108,10 @@ class InputSyncService:
     """Mirrors input from a control profile to followers over CDP. One session at a
     time; hung on app.state so routes can start/stop/query it."""
 
+    # Drain cadence. 50ms keeps mirrored input imperceptible while costing ~20 cheap
+    # CDP evaluates/sec on one page.
+    _POLL_SECONDS = 0.05
+
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
         self._stop: asyncio.Event | None = None
@@ -154,10 +166,43 @@ class InputSyncService:
         self.control_profile_id = None
         self.follower_profile_ids = []
 
+    async def _arm(self, ccdp: Any) -> int:
+        """(Re)create the isolated world on the control's main frame and install the
+        capture buffer in it. Returns the world's execution context id."""
+        tree = await ccdp.send("Page.getFrameTree")
+        world = await ccdp.send(
+            "Page.createIsolatedWorld",
+            {
+                "frameId": tree["frameTree"]["frame"]["id"],
+                "worldName": _WORLD,
+                # NB: the CDP parameter really is spelled "grantUniveralAccess".
+                "grantUniveralAccess": False,
+            },
+        )
+        context_id = world["executionContextId"]
+        await ccdp.send(
+            "Runtime.evaluate",
+            {"expression": _CAPTURE_JS, "contextId": context_id, "returnByValue": True},
+        )
+        return context_id
+
+    async def _drain(self, ccdp: Any, context_id: int) -> list[dict]:
+        result = await ccdp.send(
+            "Runtime.evaluate",
+            {
+                "expression": "window.__drain()",
+                "contextId": context_id,
+                "returnByValue": True,
+            },
+        )
+        try:
+            return json.loads(result.get("result", {}).get("value") or "[]")
+        except (ValueError, TypeError):
+            return []
+
     async def _run(self, control_endpoint, follower_endpoints, ready) -> None:
         from playwright.async_api import async_playwright
 
-        binding = "__pl" + secrets.token_hex(6)
         pw = await async_playwright().start()
         conns: list[Any] = []
         try:
@@ -176,34 +221,47 @@ class InputSyncService:
             if cpage is None:
                 raise RuntimeError("control_has_no_page")
             ccdp = await cpage.context.new_cdp_session(cpage)
-            await ccdp.send("Runtime.addBinding", {"name": binding})
+            await ccdp.send("Page.enable")  # required for frameNavigated events
 
             loop = asyncio.get_running_loop()
-
-            def _on_binding(params: dict) -> None:
-                if params.get("name") == binding:
-                    loop.create_task(self._fanout(params.get("payload", ""), followers))
-
-            ccdp.on("Runtime.bindingCalled", _on_binding)
+            navigated = asyncio.Event()  # set when the control's document changed
 
             def _on_nav(params: dict) -> None:
                 frame = params.get("frame", {})
                 if frame.get("parentId"):  # main frame only
                     return
+                navigated.set()  # the isolated world died with the old document
                 url = frame.get("url") or ""
                 if url and not url.startswith(("about:", "chrome:", "devtools:", "data:")):
                     loop.create_task(self._navigate(url, followers))
 
             ccdp.on("Page.frameNavigated", _on_nav)
-            await ccdp.send("Page.enable")  # required for frameNavigated events
-
-            capture_js = _CAPTURE_JS.format(b=binding)
-            await cpage.add_init_script(capture_js)  # re-arm capture on each navigation
-            await cpage.evaluate(capture_js)  # arm the current page
+            context_id = await self._arm(ccdp)
 
             if not ready.done():
                 ready.set_result(None)
-            await self._stop.wait()
+
+            while True:
+                try:  # doubles as the poll tick and the stop signal
+                    await asyncio.wait_for(self._stop.wait(), timeout=self._POLL_SECONDS)
+                    break
+                except asyncio.TimeoutError:
+                    pass
+                if navigated.is_set():
+                    navigated.clear()
+                    try:
+                        context_id = await self._arm(ccdp)
+                    except Exception:
+                        continue  # document still settling; retry on the next tick
+                try:
+                    events = await self._drain(ccdp, context_id)
+                except Exception:
+                    # Context destroyed under us (navigation raced the drain) —
+                    # re-arm on the next tick rather than ending the session.
+                    navigated.set()
+                    continue
+                for event in events:
+                    await self._fanout(event, followers)
         except Exception as error:  # noqa: BLE001 — surface to the awaiting caller
             if not ready.done():
                 ready.set_exception(error)
@@ -218,11 +276,7 @@ class InputSyncService:
             except Exception:
                 pass
 
-    async def _fanout(self, payload: str, followers: list[dict]) -> None:
-        try:
-            event = json.loads(payload)
-        except (ValueError, TypeError):
-            return
+    async def _fanout(self, event: dict, followers: list[dict]) -> None:
         for method, params in translate_event(event):
             for follower in followers:
                 try:
