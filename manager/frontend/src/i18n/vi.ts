@@ -92,6 +92,8 @@ export const vi: Record<keyof typeof en, string> = {
   'common.unfiled': 'Chưa phân loại',
   'common.yes': 'Có',
   'common.no': 'Không',
+  'common.showPassword': 'Hiện mật khẩu',
+  'common.hidePassword': 'Ẩn mật khẩu',
 
   'opt.ask': 'Hỏi',
   'opt.allow': 'Cho phép',

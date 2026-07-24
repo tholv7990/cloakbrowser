@@ -90,6 +90,8 @@ export const en = {
   'common.unfiled': 'Unfiled',
   'common.yes': 'Yes',
   'common.no': 'No',
+  'common.showPassword': 'Show password',
+  'common.hidePassword': 'Hide password',
 
   'opt.ask': 'Ask',
   'opt.allow': 'Allow',
