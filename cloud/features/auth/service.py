@@ -166,6 +166,12 @@ def signup_trial(
     from ...admin import issue_key
 
     now = now or utc_now()
+    # Ensure the plan before creating the user, so a plan-race rollback can't
+    # discard the user: ensure_trial_plan's IntegrityError handler rolls back
+    # the whole transaction (harmless here, since nothing else is pending yet),
+    # whereas doing this after the user flush would roll the user back too and
+    # leave register_device/redeem_key operating on a detached object.
+    ensure_trial_plan(session)
     user = models.User(
         email=normalize_email(email),
         password_hash=hash_password(password),
@@ -178,7 +184,6 @@ def signup_trial(
         session.rollback()
         raise AuthError("email_taken") from error
 
-    ensure_trial_plan(session)
     display, _key = issue_key(
         session,
         plan_id=TRIAL_PLAN_ID,
