@@ -72,6 +72,41 @@ def test_active_grace_expired_transitions(tmp_path):
     assert expired.state == "expired" and not expired.allowed
 
 
+def test_trial_end_in_past_forces_expired_even_within_grace(tmp_path):
+    priv, pub = _keypair()
+    s = _settings(tmp_path, pubkey=pub)
+    now = 1_000_000
+    # exp + grace are both in the FUTURE (would normally be "active"), but the trial
+    # ended → hard expired.
+    claims = {
+        "exp": now + 1000,
+        "offline_grace_deadline": now + 10_000,
+        "plan": "trial",
+        "features": [],
+        "trial_end": now - 1,
+    }
+    service.save_entitlement(s, sign_entitlement(claims, priv))
+    status = service.evaluate_license(s, now=now)
+    assert status.state == "expired" and not status.allowed
+    assert status.trial_end == now - 1
+
+
+def test_trial_end_in_future_is_active(tmp_path):
+    priv, pub = _keypair()
+    s = _settings(tmp_path, pubkey=pub)
+    now = 1_000_000
+    claims = {
+        "exp": now + 1000,
+        "offline_grace_deadline": now + 10_000,
+        "plan": "trial",
+        "features": [],
+        "trial_end": now + 100_000,
+    }
+    service.save_entitlement(s, sign_entitlement(claims, priv))
+    status = service.evaluate_license(s, now=now)
+    assert status.state == "active" and status.allowed
+
+
 def test_wrong_signing_key_is_invalid(tmp_path):
     _priv, pub = _keypair()
     other, _ = _keypair()  # signed by a key we don't trust

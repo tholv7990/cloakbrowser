@@ -40,6 +40,7 @@ class LicenseStatus:
     features: list[str] = field(default_factory=list)
     expires_at: int | None = None  # epoch seconds (entitlement exp)
     grace_deadline: int | None = None  # epoch seconds (offline_grace_deadline)
+    trial_end: int | None = None  # epoch seconds; hard trial cutoff (trial keys only)
     detail: str | None = None  # safe reason code, never a secret
 
 
@@ -96,7 +97,11 @@ def evaluate_license(settings: ManagerSettings, *, now: int | None = None) -> Li
 
     features = claims.get("features") or []
     plan = claims.get("plan")
-    if now <= exp:
+    trial_end = claims.get("trial_end")
+    trial_end = trial_end if isinstance(trial_end, int) else None
+    if trial_end is not None and now > trial_end:
+        state = "expired"  # trial hard-cap wins over exp/grace
+    elif now <= exp:
         state = "active"
     elif now <= grace:
         state = "grace"
@@ -109,6 +114,7 @@ def evaluate_license(settings: ManagerSettings, *, now: int | None = None) -> Li
         features=list(features),
         expires_at=exp,
         grace_deadline=grace,
+        trial_end=trial_end,
     )
 
 

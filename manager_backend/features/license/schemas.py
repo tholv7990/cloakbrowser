@@ -12,6 +12,7 @@ class LicenseStatusRead(BaseModel):
     features: list[str] = Field(default_factory=list)
     expires_at: int | None = None
     grace_deadline: int | None = None
+    trial_end: int | None = None
     detail: str | None = None
 
     @classmethod
@@ -23,6 +24,7 @@ class LicenseStatusRead(BaseModel):
             features=status.features,
             expires_at=status.expires_at,
             grace_deadline=status.grace_deadline,
+            trial_end=status.trial_end,
             detail=status.detail,
         )
 
