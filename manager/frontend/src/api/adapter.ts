@@ -8,6 +8,8 @@ import type {
   AppVersion,
   AccountActivateRequest,
   AccountStatus,
+  ArrangeRequest,
+  ArrangeResponse,
   AuthStatus,
   LicenseStatus,
   AiImageSettings,
@@ -35,6 +37,7 @@ import type {
   GenerateProxiesResult,
   MediaAsset,
   MediaSettings,
+  Monitor,
   ProductCatalog,
   ProductCsvInspection,
   ProxyProvider,
@@ -220,6 +223,10 @@ export interface ApiAdapter {
 
   // Session history (read-only)
   listSessions(limit?: number): Promise<RuntimeSessionRecord[]>;
+
+  // Window arrangement (Synchronize page) — Windows-only, inert elsewhere
+  getMonitors(): Promise<Monitor[]>;
+  arrangeWindows(payload: ArrangeRequest): Promise<ArrangeResponse>;
 
   // Backups
   listBackups(): Promise<BackupArchive[]>;

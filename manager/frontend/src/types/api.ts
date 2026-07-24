@@ -940,3 +940,35 @@ export interface ApiErrorBody {
     request_id: string;
   };
 }
+
+// ---------------------------------------------------------------------------
+// Runtime — window arrangement (Synchronize page). Windows-only; inert
+// elsewhere. GET /runtime/monitors, POST /runtime/windows/arrange.
+// ---------------------------------------------------------------------------
+
+export type ArrangeLayout = 'grid' | 'cascade';
+
+export interface Monitor {
+  id: string;
+  label: string;
+  width: number;
+  height: number;
+  work_area: { x: number; y: number; width: number; height: number };
+  is_primary: boolean;
+}
+
+export interface ArrangeRequest {
+  profile_ids: string[];
+  monitor_id: string;
+  layout: ArrangeLayout;
+}
+
+export interface ArrangeResult {
+  profile_id: string;
+  ok: boolean;
+  error: string | null;
+}
+
+export interface ArrangeResponse {
+  results: ArrangeResult[];
+}

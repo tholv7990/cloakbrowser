@@ -4,6 +4,8 @@ import type {
   AccountStatus,
   AppBootstrap,
   AppVersion,
+  ArrangeRequest,
+  ArrangeResponse,
   AuthStatus,
   LicenseStatus,
   AiImageSettings,
@@ -23,6 +25,7 @@ import type {
   GenerateProxiesResult,
   MediaAsset,
   MediaSettings,
+  Monitor,
   ProductCatalog,
   ProductCsvInspection,
   ProxyProvider,
@@ -302,6 +305,17 @@ export const realApi: ApiAdapter = {
 
   listSessions: (limit) =>
     apiRequest<RuntimeSessionRecord[]>(`/sessions${limit ? `?limit=${limit}` : ''}`),
+
+  async getMonitors() {
+    const data = await apiRequest<{ monitors: Monitor[] }>('/runtime/monitors');
+    return data.monitors;
+  },
+  async arrangeWindows(payload: ArrangeRequest) {
+    return apiRequest<ArrangeResponse>('/runtime/windows/arrange', {
+      method: 'POST',
+      body: payload,
+    });
+  },
 
   listBackups: () => apiRequest<BackupArchive[]>('/backups'),
   createBackup: () => apiRequest<BackupArchive>('/backups', { method: 'POST' }),

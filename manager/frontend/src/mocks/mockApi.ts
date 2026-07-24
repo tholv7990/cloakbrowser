@@ -4,6 +4,8 @@ import type {
   AccountStatus,
   AppBootstrap,
   AppVersion,
+  ArrangeRequest,
+  ArrangeResponse,
   AuthStatus,
   LicenseStatus,
   AiImageSettings,
@@ -26,6 +28,7 @@ import type {
   GenerateProxiesResult,
   MediaAsset,
   MediaSettings,
+  Monitor,
   PlanStep,
   ProductCatalog,
   ProductCsvInspection,
@@ -1846,6 +1849,30 @@ export const mockApi: ApiAdapter = {
       });
     }
     return structuredClone(mockSessions.slice(0, limit));
+  },
+
+  async getMonitors(): Promise<Monitor[]> {
+    await delay(60);
+    return [
+      {
+        id: '0',
+        label: 'Monitor 1 (1920×1080) — Primary',
+        width: 1920,
+        height: 1080,
+        work_area: { x: 0, y: 0, width: 1920, height: 1040 },
+        is_primary: true,
+      },
+    ];
+  },
+  async arrangeWindows(payload: ArrangeRequest): Promise<ArrangeResponse> {
+    await delay(120);
+    return {
+      results: payload.profile_ids.map((profile_id) => ({
+        profile_id,
+        ok: true,
+        error: null,
+      })),
+    };
   },
 
   async listBackups(): Promise<BackupArchive[]> {
