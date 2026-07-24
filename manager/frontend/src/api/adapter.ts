@@ -12,6 +12,8 @@ import type {
   ArrangeResponse,
   SyncStartRequest,
   SyncStatus,
+  BroadcastRequest,
+  BroadcastResponse,
   AuthStatus,
   LicenseStatus,
   AiImageSettings,
@@ -233,6 +235,7 @@ export interface ApiAdapter {
   getSyncStatus(): Promise<SyncStatus>;
   startInputSync(payload: SyncStartRequest): Promise<SyncStatus>;
   stopInputSync(): Promise<SyncStatus>;
+  broadcastToProfiles(payload: BroadcastRequest): Promise<BroadcastResponse>;
 
   // Backups
   listBackups(): Promise<BackupArchive[]>;

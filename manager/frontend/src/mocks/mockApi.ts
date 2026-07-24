@@ -8,6 +8,8 @@ import type {
   ArrangeResponse,
   SyncStartRequest,
   SyncStatus,
+  BroadcastRequest,
+  BroadcastResponse,
   AuthStatus,
   LicenseStatus,
   AiImageSettings,
@@ -1910,6 +1912,16 @@ export const mockApi: ApiAdapter = {
       ),
     };
     return structuredClone(mockSyncStatus);
+  },
+  async broadcastToProfiles(payload: BroadcastRequest): Promise<BroadcastResponse> {
+    await delay(120);
+    return {
+      results: payload.profile_ids.map((profile_id) => ({
+        profile_id,
+        ok: true,
+        error: null,
+      })),
+    };
   },
   async stopInputSync(): Promise<SyncStatus> {
     await delay(60);

@@ -95,6 +95,35 @@ describe('SynchronizePage', () => {
     expect(screen.getByRole('button', { name: /start sync/i })).toBeDisabled();
   });
 
+  it('opens a URL on every selected profile without needing a control window', async () => {
+    vi.spyOn(api, 'listProfiles').mockResolvedValue({
+      items: [
+        { id: 'p1', name: 'Alpha', runtime_state: 'running' },
+        { id: 'p3', name: 'Gamma', runtime_state: 'running' },
+      ],
+      total: 2,
+    } as never);
+    const send = vi.spyOn(api, 'broadcastToProfiles').mockResolvedValue({
+      results: [
+        { profile_id: 'p1', ok: true, error: null },
+        { profile_id: 'p3', ok: true, error: null },
+      ],
+    });
+
+    renderPage();
+
+    const field = await screen.findByRole('textbox', { name: /open url on all/i });
+    await userEvent.type(field, 'https://example.com');
+    await userEvent.click(screen.getByRole('button', { name: /open url on all/i }));
+
+    await waitFor(() =>
+      expect(send).toHaveBeenCalledWith({
+        profile_ids: ['p1', 'p3'],
+        url: 'https://example.com',
+      }),
+    );
+  });
+
   it('offers a disabled Start when nothing is running, even if a session lingers', async () => {
     // Every profile stopped. The backend ends the session on its own, but until
     // that status poll lands the button must not strand on "Stop sync".

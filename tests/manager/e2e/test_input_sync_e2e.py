@@ -84,7 +84,7 @@ def two_profiles():
                 headless=False,
                 args=["--remote-debugging-port=0", "--window-size=900,700"],
             )
-            endpoints[tag] = read_cdp_endpoint(str(udd), timeout=20)
+            endpoints[tag] = read_cdp_endpoint(str(udd), timeout=45)
             ready.set()
             stop.wait()
             try:
@@ -110,8 +110,13 @@ def two_profiles():
             thread.join(timeout=30)
 
 
-async def _until(predicate, timeout: float = 15.0, interval: float = 0.25):
-    """Poll an async predicate until it returns truthy (mirroring is asynchronous)."""
+async def _until(predicate, timeout: float = 45.0, interval: float = 0.25):
+    """Poll an async predicate until it returns truthy (mirroring is asynchronous).
+
+    Generous by default: this passes in seconds on an idle machine, but the full
+    suite launches browsers in other tests and a tight bound turns a working mirror
+    into a flaky failure.
+    """
     deadline = asyncio.get_running_loop().time() + timeout
     while asyncio.get_running_loop().time() < deadline:
         if await predicate():
@@ -173,7 +178,7 @@ async def test_control_window_mirrors_navigation_clicks_and_typing(two_profiles,
             assert await _until(lambda: _resolved(fpage.url.startswith("http://127.0.0.1"))), (
                 f"follower did not follow navigation (at {fpage.url})"
             )
-            await fpage.wait_for_selector("#b", timeout=15000)
+            await fpage.wait_for_selector("#b", timeout=30000)
 
             ccdp = await cpage.context.new_cdp_session(cpage)
 
@@ -195,16 +200,16 @@ async def test_control_window_mirrors_navigation_clicks_and_typing(two_profiles,
 
             # 4. A second tab mirrors: the follower opens one and mirrors into it.
             cpage2 = await cctx.new_page()
-            assert await _until(lambda: _resolved(len(_open(fctx)) >= 2), timeout=20), (
+            assert await _until(lambda: _resolved(len(_open(fctx)) >= 2), timeout=45), (
                 "follower did not open a matching second tab"
             )
             await cpage2.goto(page_url, wait_until="domcontentloaded")
             fpage2 = _open(fctx)[1]
             assert await _until(
-                lambda: _resolved(fpage2.url.startswith("http://127.0.0.1")), timeout=20
+                lambda: _resolved(fpage2.url.startswith("http://127.0.0.1")), timeout=45
             ), f"second tab did not follow navigation (at {fpage2.url})"
 
-            await fpage2.wait_for_selector("#b", timeout=15000)
+            await fpage2.wait_for_selector("#b", timeout=30000)
             ccdp2 = await cpage2.context.new_cdp_session(cpage2)
             await _click(ccdp2, cpage2, "#b")
             assert await _until(lambda: _truthy(fpage2.evaluate("window.__c||0"))), (

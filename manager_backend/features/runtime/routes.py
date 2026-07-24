@@ -9,9 +9,12 @@ from sqlalchemy.orm import Session
 from ...dependencies import get_session
 from ...errors import ManagerError
 from ...models import RuntimeSession
+from .input_sync import broadcast
 from .schemas import (
     ArrangeRequest,
     ArrangeResponse,
+    BroadcastRequest,
+    BroadcastResponse,
     MonitorsResponse,
     RuntimePage,
     RuntimeRead,
@@ -170,3 +173,24 @@ async def sync_stop(request: Request):
 @router.get("/runtime/sync/status", response_model=SyncStatusResponse)
 def sync_status(request: Request):
     return request.app.state.input_sync.status()
+
+
+@router.post("/runtime/sync/broadcast", response_model=BroadcastResponse)
+async def sync_broadcast(
+    payload: BroadcastRequest, request: Request, session: SessionDependency
+):
+    """Open a URL, or type text, on every selected profile at once — no control
+    window, no focus stealing, works on background windows."""
+    targets: list[tuple[str, str]] = []
+    results: list[dict] = []
+    for profile_id in payload.profile_ids:
+        endpoint = _cdp_endpoint_for(session, profile_id)
+        if endpoint is None:
+            results.append({"profile_id": profile_id, "ok": False, "error": "not_running"})
+        else:
+            targets.append((profile_id, endpoint))
+    if targets:
+        results.extend(
+            await broadcast(targets, url=payload.url, text=payload.text)
+        )
+    return {"results": results}

@@ -227,6 +227,58 @@ def test_sync_status_and_stop_round_trip(client, auth_headers):
     assert client.get("/api/v1/runtime/sync/status", headers=auth_headers).json()["active"] is False
 
 
+def test_broadcast_opens_a_url_on_running_profiles_and_flags_the_rest(
+    client, auth_headers, monkeypatch
+):
+    sent: dict = {}
+
+    async def fake_broadcast(targets, *, url=None, text=None):
+        sent["targets"] = targets
+        sent["url"] = url
+        return [{"profile_id": pid, "ok": True, "error": None} for pid, _ in targets]
+
+    monkeypatch.setattr(
+        "manager_backend.features.runtime.routes.broadcast", fake_broadcast
+    )
+    live = _running_profile(client, "bcast live", "http://127.0.0.1:1111")
+    stale = _running_profile(client, "bcast stale", None)  # predates the endpoint
+
+    response = client.post(
+        "/api/v1/runtime/sync/broadcast",
+        headers=auth_headers,
+        json={"profile_ids": [live, stale], "url": "https://example.com"},
+    )
+
+    assert response.status_code == 200
+    results = {r["profile_id"]: r for r in response.json()["results"]}
+    assert results[live]["ok"] is True
+    # A profile with no endpoint is reported, not silently skipped.
+    assert results[stale] == {"profile_id": stale, "ok": False, "error": "not_running"}
+    assert sent["targets"] == [(live, "http://127.0.0.1:1111")]
+    assert sent["url"] == "https://example.com"
+
+
+def test_broadcast_rejects_non_http_urls_and_ambiguous_payloads(client, auth_headers):
+    live = _running_profile(client, "bcast guard", "http://127.0.0.1:1111")
+
+    # javascript:/file: would execute or read locally on every profile at once.
+    for bad in ("javascript:alert(1)", "file:///C:/Windows/win.ini"):
+        response = client.post(
+            "/api/v1/runtime/sync/broadcast",
+            headers=auth_headers,
+            json={"profile_ids": [live], "url": bad},
+        )
+        assert response.status_code == 422, bad
+
+    for ambiguous in ({}, {"url": "https://a.test", "text": "hi"}):
+        response = client.post(
+            "/api/v1/runtime/sync/broadcast",
+            headers=auth_headers,
+            json={"profile_ids": [live], **ambiguous},
+        )
+        assert response.status_code == 422
+
+
 def test_sync_start_409s_when_a_session_is_already_active(client, auth_headers):
     fake = FakeSyncService()
     fake.active = True

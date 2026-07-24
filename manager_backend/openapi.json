@@ -3255,6 +3255,73 @@
         ]
       }
     },
+    "/api/v1/runtime/sync/broadcast": {
+      "post": {
+        "summary": "Sync Broadcast",
+        "description": "Open a URL, or type text, on every selected profile at once \u2014 no control\nwindow, no focus stealing, works on background windows.",
+        "operationId": "sync_broadcast_api_v1_runtime_sync_broadcast_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BroadcastRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BroadcastResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      }
+    },
     "/api/v1/proxies/providers": {
       "get": {
         "summary": "List Providers Route",
@@ -10234,6 +10301,62 @@
         "additionalProperties": false,
         "type": "object",
         "title": "BehaviorSettings"
+      },
+      "BroadcastRequest": {
+        "properties": {
+          "profile_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Profile Ids"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 10000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_ids"
+        ],
+        "title": "BroadcastRequest",
+        "description": "Open a URL, or type text, on several profiles at once. Exactly one of the two."
+      },
+      "BroadcastResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ArrangeResultRead"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "title": "BroadcastResponse"
       },
       "BrowserSettingsRead": {
         "properties": {

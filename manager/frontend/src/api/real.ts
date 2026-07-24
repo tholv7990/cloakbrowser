@@ -8,6 +8,8 @@ import type {
   ArrangeResponse,
   SyncStartRequest,
   SyncStatus,
+  BroadcastRequest,
+  BroadcastResponse,
   AuthStatus,
   LicenseStatus,
   AiImageSettings,
@@ -324,6 +326,8 @@ export const realApi: ApiAdapter = {
   startInputSync: (payload: SyncStartRequest) =>
     apiRequest<SyncStatus>('/runtime/sync/start', { method: 'POST', body: payload }),
   stopInputSync: () => apiRequest<SyncStatus>('/runtime/sync/stop', { method: 'POST' }),
+  broadcastToProfiles: (payload: BroadcastRequest) =>
+    apiRequest<BroadcastResponse>('/runtime/sync/broadcast', { method: 'POST', body: payload }),
 
   listBackups: () => apiRequest<BackupArchive[]>('/backups'),
   createBackup: () => apiRequest<BackupArchive>('/backups', { method: 'POST' }),

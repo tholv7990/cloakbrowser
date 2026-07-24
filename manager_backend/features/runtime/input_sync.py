@@ -120,6 +120,59 @@ def _open_pages(context: Any) -> list[Any]:
     return [page for page in context.pages if not page.is_closed()]
 
 
+async def _visible_page(pages: list[Any]) -> Any:
+    """The tab the user is looking at, falling back to the first."""
+    for page in pages:
+        try:
+            if await page.evaluate("!document.hidden"):
+                return page
+        except Exception:
+            continue
+    return pages[0]
+
+
+async def broadcast(
+    targets: list[tuple[str, str]], *, url: str | None = None, text: str | None = None
+) -> list[dict]:
+    """Open a URL, or type text, on every given profile's active tab.
+
+    Independent of a sync session: it drives each profile's own CDP endpoint
+    directly, so it needs no control window, steals no focus, and works on
+    background windows — unlike OS-level input, which only reaches the foreground.
+    Never closes a browser; these are the user's live windows.
+    """
+    from playwright.async_api import async_playwright
+
+    results: list[dict] = []
+    pw = await async_playwright().start()
+    try:
+        for profile_id, endpoint in targets:
+            try:
+                browser = await pw.chromium.connect_over_cdp(endpoint)
+                context = _main_context(browser)
+                pages = _open_pages(context) if context is not None else []
+                if not pages:
+                    results.append(
+                        {"profile_id": profile_id, "ok": False, "error": "not_running"}
+                    )
+                    continue
+                page = await _visible_page(pages)
+                if url:
+                    await page.goto(url, wait_until="commit", timeout=20000)
+                else:
+                    cdp = await page.context.new_cdp_session(page)
+                    await cdp.send("Input.insertText", {"text": text or ""})
+                results.append({"profile_id": profile_id, "ok": True, "error": None})
+            except Exception:
+                results.append({"profile_id": profile_id, "ok": False, "error": "failed"})
+    finally:
+        try:
+            await pw.stop()
+        except Exception:
+            pass
+    return results
+
+
 class InputSyncService:
     """Mirrors input from a control profile to followers over CDP. One session at a
     time; hung on app.state so routes can start/stop/query it."""

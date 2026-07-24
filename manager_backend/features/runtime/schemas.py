@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 RuntimeState = Literal[
@@ -72,3 +72,32 @@ class SyncStatusResponse(BaseModel):
     active: bool
     control_profile_id: str | None = None
     follower_profile_ids: list[str] = []
+
+
+class BroadcastRequest(BaseModel):
+    """Open a URL, or type text, on several profiles at once. Exactly one of the two."""
+
+    profile_ids: list[str]
+    url: str | None = None
+    text: str | None = Field(default=None, max_length=10_000)
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        candidate = value.strip()
+        # http(s) only: javascript:/file:/data: would execute or read locally.
+        if not candidate.lower().startswith(("http://", "https://")):
+            raise ValueError("url must start with http:// or https://")
+        return candidate
+
+    @model_validator(mode="after")
+    def exactly_one_payload(self):
+        if bool(self.url) == bool(self.text):
+            raise ValueError("provide either a url or text, not both")
+        return self
+
+
+class BroadcastResponse(BaseModel):
+    results: list[ArrangeResultRead]

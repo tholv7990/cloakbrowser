@@ -984,3 +984,13 @@ export interface SyncStatus {
   control_profile_id: string | null;
   follower_profile_ids: string[];
 }
+
+export interface BroadcastRequest {
+  profile_ids: string[];
+  url?: string;
+  text?: string;
+}
+
+export interface BroadcastResponse {
+  results: ArrangeResult[];
+}

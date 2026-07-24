@@ -9,6 +9,7 @@ import {
   useSyncStatus,
   useStartInputSync,
   useStopInputSync,
+  useBroadcast,
 } from './api';
 
 export function SynchronizePage() {
@@ -26,6 +27,7 @@ export function SynchronizePage() {
   const syncStatus = useSyncStatus();
   const startSync = useStartInputSync();
   const stopSync = useStopInputSync();
+  const broadcast = useBroadcast();
 
   // A launched profile that the manager reconnected to after a restart is
   // 'detached' (still a live, tileable window), not 'running' — include both so
@@ -41,6 +43,8 @@ export function SynchronizePage() {
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [controlId, setControlId] = useState<string>('');
   const [monitorId, setMonitorId] = useState<string>('');
+  const [sendUrl, setSendUrl] = useState('');
+  const [sendText, setSendText] = useState('');
   const [layout, setLayout] = useState<ArrangeLayout>('grid');
   const [results, setResults] = useState<Record<string, ArrangeResult>>({});
 
@@ -85,6 +89,13 @@ export function SynchronizePage() {
   async function onStopSync() {
     if (!isSyncing) return;
     await stopSync.mutateAsync();
+  }
+
+  async function onSend(payload: { url?: string; text?: string }) {
+    if (!chosenIds.length) return;
+    setResults({});
+    const res = await broadcast.mutateAsync({ profile_ids: chosenIds, ...payload });
+    setResults(Object.fromEntries(res.results.map((r) => [r.profile_id, r])));
   }
 
   /** What this profile is doing right now, in the user's terms. */
@@ -280,6 +291,46 @@ export function SynchronizePage() {
           <p className="border-t border-line pt-3 text-xs text-ink-faint">
             {t('sync.tileHint')}
           </p>
+
+          {/* Send-to-all: one CDP call per profile, so it reaches background
+              windows without stealing focus (OS-level input cannot). */}
+          <div className="space-y-2 border-t border-line pt-4">
+            <h2 className="text-[13px] font-medium text-ink">{t('sync.sendTitle')}</h2>
+            <p className="text-xs text-ink-muted">{t('sync.sendDesc')}</p>
+            <input
+              type="url"
+              value={sendUrl}
+              onChange={(e) => setSendUrl(e.target.value)}
+              placeholder="https://example.com"
+              aria-label={t('sync.openUrl')}
+              className="w-full rounded-md border border-line bg-surface-sunken px-2 py-1.5 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => onSend({ url: sendUrl.trim() })}
+              disabled={!chosenIds.length || !sendUrl.trim() || broadcast.isPending}
+              className="w-full rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink disabled:opacity-40"
+            >
+              {t('sync.openUrl')}
+            </button>
+            <textarea
+              rows={2}
+              value={sendText}
+              onChange={(e) => setSendText(e.target.value)}
+              placeholder={t('sync.textPlaceholder')}
+              aria-label={t('sync.sendText')}
+              className="w-full rounded-md border border-line bg-surface-sunken px-2 py-1.5 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => onSend({ text: sendText })}
+              disabled={!chosenIds.length || !sendText || broadcast.isPending}
+              className="w-full rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink disabled:opacity-40"
+            >
+              {t('sync.sendText')}
+            </button>
+            <p className="text-xs text-ink-faint">{t('sync.textHint')}</p>
+          </div>
         </section>
       </div>
     </div>

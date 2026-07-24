@@ -1,6 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, queryKeys } from '@/api';
-import type { ArrangeRequest, SyncStartRequest, SyncStatus } from '@/types/api';
+import type {
+  ArrangeRequest,
+  BroadcastRequest,
+  SyncStartRequest,
+  SyncStatus,
+} from '@/types/api';
 
 export function useMonitors() {
   return useQuery({ queryKey: queryKeys.monitors, queryFn: () => api.getMonitors() });
@@ -24,6 +29,12 @@ export function useStartInputSync() {
   return useMutation({
     mutationFn: (payload: SyncStartRequest) => api.startInputSync(payload),
     onSuccess: (status: SyncStatus) => client.setQueryData(queryKeys.syncStatus, status),
+  });
+}
+
+export function useBroadcast() {
+  return useMutation({
+    mutationFn: (payload: BroadcastRequest) => api.broadcastToProfiles(payload),
   });
 }
 
