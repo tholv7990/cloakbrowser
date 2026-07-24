@@ -50,3 +50,55 @@ def compute_layout(n: int, work_area: WorkArea, layout: str) -> list[Rect]:
         h = (height - row * cell_h) if row == rows - 1 else cell_h
         rects.append((x, y, w, h))
     return rects
+
+
+@dataclass
+class Monitor:
+    id: str
+    label: str
+    width: int
+    height: int
+    work_area: WorkArea
+    is_primary: bool
+
+
+class WindowManagerProtocol(Protocol):
+    def list_monitors(self) -> list[Monitor]: ...
+    def find_main_window(self, user_data_dir: str) -> int | None: ...
+    def move_window(self, hwnd: int, rect: Rect) -> bool: ...
+
+
+def safe_profile_id(profile_id: str) -> bool:
+    """True only if the id is a single safe path segment (no traversal). Guards
+    the profile_root join before building a user-data path from request input."""
+    return bool(profile_id) and profile_id not in (".", "..") and os.path.basename(
+        profile_id
+    ) == profile_id and "\\" not in profile_id and "/" not in profile_id
+
+
+def arrange_windows(
+    items: list[tuple[str, str | None]],
+    work_area: WorkArea,
+    layout: str,
+    manager: WindowManagerProtocol,
+) -> list[dict]:
+    """Position the running profiles' windows on `work_area`. `items` is
+    (profile_id, user_data_dir|None); a None dir or a profile with no live
+    window is `not_running`. Results preserve the input order."""
+    results: list[dict | None] = [None] * len(items)
+    running: list[tuple[int, int]] = []  # (result_index, hwnd)
+    for index, (profile_id, user_data_dir) in enumerate(items):
+        hwnd = manager.find_main_window(user_data_dir) if user_data_dir else None
+        if hwnd is None:
+            results[index] = {"profile_id": profile_id, "ok": False, "error": "not_running"}
+        else:
+            running.append((index, hwnd))
+    rects = compute_layout(len(running), work_area, layout)
+    for (index, hwnd), rect in zip(running, rects):
+        ok = bool(manager.move_window(hwnd, rect))
+        results[index] = {
+            "profile_id": items[index][0],
+            "ok": ok,
+            "error": None if ok else "position_failed",
+        }
+    return [r for r in results if r is not None]
