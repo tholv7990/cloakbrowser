@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useT } from '@/i18n';
 import { useCheckBrowserUpdate, useSettings, useUpdateSettings } from './api';
 import { BackupsSection } from './BackupsSection';
+import { LicenseSection } from './LicenseSection';
 
 function Section({
   title,
@@ -196,6 +197,8 @@ export function SettingsPage() {
           <RefreshCw className="h-3.5 w-3.5" /> {t('settings.checkUpdates')}
         </Button>
       </Section>
+
+      <LicenseSection />
 
       <Section title={t('settings.retention')}>
         <div className="grid grid-cols-2 gap-3">
