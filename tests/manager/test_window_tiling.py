@@ -124,3 +124,75 @@ def test_list_monitors_empty_off_windows(monkeypatch):
         "manager_backend.features.runtime.windows.sys.platform", "linux"
     )
     assert WindowManager().list_monitors() == []
+
+
+def _install_fake_manager(client, windows=None, monitors=None):
+    from manager_backend.features.runtime.windows import Monitor
+
+    class _WM:
+        def list_monitors(self):
+            return monitors if monitors is not None else [
+                Monitor("0", "Main", 1920, 1080, (0, 0, 1920, 1040), True)
+            ]
+
+        def find_main_window(self, user_data_dir):
+            return (windows or {}).get(user_data_dir)
+
+        def move_window(self, hwnd, rect):
+            return True
+
+    client.app.state.window_manager = _WM()
+
+
+def test_get_monitors(client, auth_headers):
+    _install_fake_manager(client)
+    resp = client.get("/api/v1/runtime/monitors", headers=auth_headers)
+    assert resp.status_code == 200
+    monitors = resp.json()["monitors"]
+    assert monitors[0]["id"] == "0"
+    assert monitors[0]["is_primary"] is True
+    assert monitors[0]["work_area"] == {"x": 0, "y": 0, "width": 1920, "height": 1040}
+
+
+def test_arrange_unknown_profiles_are_not_running(client, auth_headers):
+    _install_fake_manager(client, windows={})
+    resp = client.post(
+        "/api/v1/runtime/windows/arrange",
+        headers=auth_headers,
+        json={"profile_ids": ["p1", "p2"], "monitor_id": "0", "layout": "grid"},
+    )
+    assert resp.status_code == 200
+    assert [r["error"] for r in resp.json()["results"]] == ["not_running", "not_running"]
+
+
+def test_arrange_positions_running_window(client, auth_headers):
+    settings = client.app.state.settings
+    udd = str(settings.profile_root / "p1" / "user-data")
+    _install_fake_manager(client, windows={udd: 123})
+    resp = client.post(
+        "/api/v1/runtime/windows/arrange",
+        headers=auth_headers,
+        json={"profile_ids": ["p1"], "monitor_id": "0", "layout": "grid"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["results"] == [{"profile_id": "p1", "ok": True, "error": None}]
+
+
+def test_arrange_traversal_id_is_not_running(client, auth_headers):
+    _install_fake_manager(client, windows={})
+    resp = client.post(
+        "/api/v1/runtime/windows/arrange",
+        headers=auth_headers,
+        json={"profile_ids": ["../secret"], "monitor_id": "0", "layout": "grid"},
+    )
+    assert resp.json()["results"][0]["error"] == "not_running"
+
+
+def test_arrange_no_monitor_all_not_running(client, auth_headers):
+    _install_fake_manager(client, monitors=[])  # non-Windows / no displays
+    resp = client.post(
+        "/api/v1/runtime/windows/arrange",
+        headers=auth_headers,
+        json={"profile_ids": ["p1"], "monitor_id": "0", "layout": "grid"},
+    )
+    assert resp.json()["results"][0]["error"] == "not_running"

@@ -2955,6 +2955,128 @@
         }
       }
     },
+    "/api/v1/runtime/monitors": {
+      "get": {
+        "summary": "List Monitors",
+        "operationId": "list_monitors_api_v1_runtime_monitors_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitorsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/runtime/windows/arrange": {
+      "post": {
+        "summary": "Arrange",
+        "operationId": "arrange_api_v1_runtime_windows_arrange_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArrangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArrangeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      }
+    },
     "/api/v1/proxies/providers": {
       "get": {
         "summary": "List Providers Route",
@@ -9222,6 +9344,81 @@
         ],
         "title": "AppVersion"
       },
+      "ArrangeRequest": {
+        "properties": {
+          "profile_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Profile Ids"
+          },
+          "monitor_id": {
+            "type": "string",
+            "title": "Monitor Id"
+          },
+          "layout": {
+            "type": "string",
+            "enum": [
+              "grid",
+              "cascade"
+            ],
+            "title": "Layout"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_ids",
+          "monitor_id",
+          "layout"
+        ],
+        "title": "ArrangeRequest"
+      },
+      "ArrangeResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ArrangeResultRead"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "title": "ArrangeResponse"
+      },
+      "ArrangeResultRead": {
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_id",
+          "ok"
+        ],
+        "title": "ArrangeResultRead"
+      },
       "AuthStatus": {
         "properties": {
           "setup_required": {
@@ -11294,6 +11491,59 @@
           "enabled"
         ],
         "title": "MediaSettingsRead"
+      },
+      "MonitorRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "width": {
+            "type": "integer",
+            "title": "Width"
+          },
+          "height": {
+            "type": "integer",
+            "title": "Height"
+          },
+          "work_area": {
+            "$ref": "#/components/schemas/WorkAreaRead"
+          },
+          "is_primary": {
+            "type": "boolean",
+            "title": "Is Primary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "width",
+          "height",
+          "work_area",
+          "is_primary"
+        ],
+        "title": "MonitorRead"
+      },
+      "MonitorsResponse": {
+        "properties": {
+          "monitors": {
+            "items": {
+              "$ref": "#/components/schemas/MonitorRead"
+            },
+            "type": "array",
+            "title": "Monitors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "monitors"
+        ],
+        "title": "MonitorsResponse"
       },
       "NetworkRoutePayload": {
         "properties": {
@@ -14312,6 +14562,34 @@
         "additionalProperties": false,
         "type": "object",
         "title": "WindowSettings"
+      },
+      "WorkAreaRead": {
+        "properties": {
+          "x": {
+            "type": "integer",
+            "title": "X"
+          },
+          "y": {
+            "type": "integer",
+            "title": "Y"
+          },
+          "width": {
+            "type": "integer",
+            "title": "Width"
+          },
+          "height": {
+            "type": "integer",
+            "title": "Height"
+          }
+        },
+        "type": "object",
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "title": "WorkAreaRead"
       },
       "WorkflowStatusCreate": {
         "properties": {

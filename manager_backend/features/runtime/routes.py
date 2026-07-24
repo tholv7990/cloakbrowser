@@ -9,7 +9,14 @@ from sqlalchemy.orm import Session
 from ...dependencies import get_session
 from ...errors import ManagerError
 from ...models import RuntimeSession
-from .schemas import RuntimePage, RuntimeRead
+from .schemas import (
+    ArrangeRequest,
+    ArrangeResponse,
+    MonitorsResponse,
+    RuntimePage,
+    RuntimeRead,
+)
+from .windows import Monitor, arrange_windows, safe_profile_id
 
 
 router = APIRouter()
@@ -48,3 +55,55 @@ def get_runtime(runtime_id: str, session: SessionDependency):
     if runtime is None:
         raise ManagerError("runtime_not_found", "The requested runtime was not found.", 404)
     return runtime_to_dict(runtime)
+
+
+def _monitor_to_dict(monitor: Monitor) -> dict:
+    wx, wy, ww, wh = monitor.work_area
+    return {
+        "id": monitor.id,
+        "label": monitor.label,
+        "width": monitor.width,
+        "height": monitor.height,
+        "work_area": {"x": wx, "y": wy, "width": ww, "height": wh},
+        "is_primary": monitor.is_primary,
+    }
+
+
+def _select_monitor(monitors: list[Monitor], monitor_id: str) -> Monitor | None:
+    if not monitors:
+        return None
+    for monitor in monitors:
+        if monitor.id == monitor_id:
+            return monitor
+    for monitor in monitors:  # unknown id -> primary (stale dropdown is not an error)
+        if monitor.is_primary:
+            return monitor
+    return monitors[0]
+
+
+@router.get("/runtime/monitors", response_model=MonitorsResponse)
+def list_monitors(request: Request):
+    manager = request.app.state.window_manager
+    return {"monitors": [_monitor_to_dict(m) for m in manager.list_monitors()]}
+
+
+@router.post("/runtime/windows/arrange", response_model=ArrangeResponse)
+def arrange(payload: ArrangeRequest, request: Request):
+    manager = request.app.state.window_manager
+    settings = request.app.state.settings
+    monitor = _select_monitor(manager.list_monitors(), payload.monitor_id)
+    if monitor is None:  # non-Windows / no displays -> feature inert
+        return {
+            "results": [
+                {"profile_id": pid, "ok": False, "error": "not_running"}
+                for pid in payload.profile_ids
+            ]
+        }
+    items: list[tuple[str, str | None]] = []
+    for pid in payload.profile_ids:
+        if safe_profile_id(pid):
+            items.append((pid, str(settings.profile_root / pid / "user-data")))
+        else:
+            items.append((pid, None))
+    results = arrange_windows(items, monitor.work_area, payload.layout, manager)
+    return {"results": results}

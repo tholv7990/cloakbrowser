@@ -25,3 +25,39 @@ class RuntimeRead(BaseModel):
 class RuntimePage(BaseModel):
     items: list[RuntimeRead]
     total: int
+
+
+class WorkAreaRead(BaseModel):
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+class MonitorRead(BaseModel):
+    id: str
+    label: str
+    width: int
+    height: int
+    work_area: WorkAreaRead
+    is_primary: bool
+
+
+class MonitorsResponse(BaseModel):
+    monitors: list[MonitorRead]
+
+
+class ArrangeRequest(BaseModel):
+    profile_ids: list[str]
+    monitor_id: str
+    layout: Literal["grid", "cascade"]
+
+
+class ArrangeResultRead(BaseModel):
+    profile_id: str
+    ok: bool
+    error: str | None = None
+
+
+class ArrangeResponse(BaseModel):
+    results: list[ArrangeResultRead]
