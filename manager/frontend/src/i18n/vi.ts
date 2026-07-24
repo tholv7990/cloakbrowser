@@ -913,6 +913,8 @@ export const vi: Record<keyof typeof en, string> = {
   'auth.confirmPassword': 'Xác nhận mật khẩu',
   'auth.signIn': 'Đăng nhập',
   'auth.createAccount': 'Tạo tài khoản',
+  'auth.toCreate': 'Chưa có tài khoản? Tạo mới',
+  'auth.toSignIn': 'Đã có tài khoản? Đăng nhập',
   'auth.passwordHint': 'Ít nhất 12 ký tự.',
   'auth.mismatch': 'Mật khẩu không khớp.',
   'auth.checking': 'Đang kiểm tra phiên…',

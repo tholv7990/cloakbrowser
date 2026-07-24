@@ -908,6 +908,8 @@ export const en = {
   'auth.confirmPassword': 'Confirm password',
   'auth.signIn': 'Sign in',
   'auth.createAccount': 'Create account',
+  'auth.toCreate': 'Need an account? Create one',
+  'auth.toSignIn': 'Already have an account? Sign in',
   'auth.passwordHint': 'At least 12 characters.',
   'auth.mismatch': 'Passwords do not match.',
   'auth.checking': 'Checking session…',

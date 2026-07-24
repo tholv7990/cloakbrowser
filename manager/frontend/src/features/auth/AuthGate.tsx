@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { LogIn, ShieldCheck } from 'lucide-react';
 import { LogoMark } from '@/components/Logo';
@@ -34,7 +35,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     );
   }
 
-  return <AuthScreen mode={setupRequired ? 'setup' : 'login'} />;
+  return <AuthScreen initialMode={setupRequired ? 'setup' : 'login'} />;
 }
 
 interface FormValues {
@@ -43,8 +44,9 @@ interface FormValues {
   confirm: string;
 }
 
-function AuthScreen({ mode }: { mode: 'setup' | 'login' }) {
+export function AuthScreen({ initialMode }: { initialMode: 'setup' | 'login' }) {
   const t = useT();
+  const [mode, setMode] = useState<'setup' | 'login'>(initialMode);
   const login = useLogin();
   const setup = useSetup();
   const isSetup = mode === 'setup';
@@ -155,6 +157,13 @@ function AuthScreen({ mode }: { mode: 'setup' | 'login' }) {
               </Button>
             </form>
           </div>
+          <button
+            type="button"
+            className="mt-4 w-full text-center text-2xs font-medium text-ink-muted transition hover:text-ink"
+            onClick={() => setMode(isSetup ? 'login' : 'setup')}
+          >
+            {t(isSetup ? 'auth.toSignIn' : 'auth.toCreate')}
+          </button>
         </div>
       </div>
     </div>
