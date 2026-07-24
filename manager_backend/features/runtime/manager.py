@@ -33,11 +33,15 @@ class RuntimeManager:
         launcher=None,
         lock_factory=None,
         proxy_preflight=None,
+        license_gate=None,
     ):
         self._session_factory = session_factory
         self._settings = settings
         self._launcher = launcher or CloakPersistentLauncher()
         self._proxy_preflight = proxy_preflight or (lambda _snapshot: None)
+        # Raises ManagerError if the app isn't entitled to launch; no-op when license
+        # enforcement is off (the default), so the free/dev build is unaffected.
+        self._license_gate = license_gate or (lambda: None)
         self._instance_id = str(uuid4())
         self._process_id = os.getpid()
         self._process_created_at = datetime.fromtimestamp(
@@ -64,6 +68,8 @@ class RuntimeManager:
         # One timer spans the whole start; stage() calls below and in the worker
         # record where the wall-clock goes (logged as runtime.start_timing).
         timer = StartTimer()
+        # License gate first: a revoked/expired key blocks the launch before any work.
+        self._license_gate()
         with self._lock:
             existing = self._workers.get(profile_id)
             if existing is not None and existing.is_alive():

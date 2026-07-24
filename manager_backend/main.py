@@ -18,6 +18,7 @@ from .errors import install_error_handlers
 from .maintenance import MaintenanceGate
 from .dependencies import require_authenticated_session
 from .features.runtime.manager import RuntimeManager
+from .features.license.service import make_license_gate
 from .features.runtime.reconcile import cleanup_stale_locks, reconcile_runtimes
 from .features.runtime.routes import runtime_to_dict
 from .features.runtime.snapshots import RuntimeSnapshotCache
@@ -182,6 +183,7 @@ def create_app(
             app.state.credential_store,
             app.state.proxy_quick_tester,
         ),
+        license_gate=make_license_gate(resolved),
     )
     app.state.login_failures = {}
     app.add_middleware(

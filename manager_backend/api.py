@@ -15,6 +15,7 @@ from .features.backups.routes import router as backups_router
 from .features.media.routes import router as media_router
 from .features.automation.routes import router as automation_router
 from .features.shopify.routes import router as shopify_router
+from .features.license.routes import router as license_router
 from .dependencies import require_authenticated_session
 from .security import require_local_token
 from .schemas.common import ErrorEnvelope
@@ -44,3 +45,4 @@ api_router.include_router(backups_router)
 api_router.include_router(media_router)
 api_router.include_router(automation_router)
 api_router.include_router(shopify_router)
+api_router.include_router(license_router)

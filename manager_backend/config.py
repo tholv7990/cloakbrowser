@@ -68,6 +68,15 @@ class ManagerSettings(BaseModel):
     require_local_token: bool = Field(
         default_factory=lambda: _env_flag("PLASMA_REQUIRE_LOCAL_TOKEN")
     )
+    # License enforcement. Off by default so the free/dev build runs unchanged;
+    # licensed builds set PLASMA_REQUIRE_LICENSE=1 and pin the cloud's Ed25519 public
+    # key (base64 raw) so the signed entitlement can be verified fully offline.
+    require_license: bool = Field(
+        default_factory=lambda: _env_flag("PLASMA_REQUIRE_LICENSE")
+    )
+    entitlement_pubkey: str | None = Field(
+        default_factory=lambda: os.environ.get("PLASMA_ENTITLEMENT_PUBKEY") or None
+    )
     auto_backup_enabled: bool = True
     max_concurrent_launches: int = Field(default=2, ge=1, le=8)
     max_concurrent_diagnostics: int = Field(default=2, ge=1, le=8)
@@ -90,6 +99,11 @@ class ManagerSettings(BaseModel):
     @property
     def token_path(self) -> Path:
         return self.data_root / "install-token"
+
+    @property
+    def entitlement_path(self) -> Path:
+        # The cached signed entitlement (a capability token, not a secret credential).
+        return self.data_root / "entitlement"
 
     def resolved_install_token(self) -> str:
         # A per-process token (injected by the desktop shell) wins over the persisted

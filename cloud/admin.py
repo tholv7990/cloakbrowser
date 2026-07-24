@@ -6,6 +6,8 @@ CLI (secrets from the environment, same as the service):
     python -m cloud.admin issue  --plan pro --uses 1 [--expires-days 365]
     python -m cloud.admin revoke --key-id <id>
     python -m cloud.admin suspend --key-id <id>
+    python -m cloud.admin suspend-user --email a@b.com   # ban: blocks login + kicks sessions
+    python -m cloud.admin restore-user --email a@b.com
     python -m cloud.admin lookup  [--prefix PLASMA-XXXX | --key-id <id>]
 """
 
@@ -22,7 +24,8 @@ from sqlalchemy import select
 from . import models
 from .audit import record
 from .db import create_engine_for, create_session_factory, database_url, utc_now
-from .keys import generate_activation_key, key_verifier
+from .features.auth import service as auth
+from .keys import generate_activation_key, key_verifier, normalize_email
 
 
 def issue_key(
@@ -79,6 +82,30 @@ def set_key_status(session, *, key_id: str, status: str, actor: str = "admin") -
     return True
 
 
+def set_user_status(session, *, email: str, status: str, actor: str = "admin") -> bool:
+    """Ban ('suspended') or restore ('active') an account. Suspending also revokes
+    every live session (all refresh families), so the user is kicked out within the
+    access-token TTL and can't log in again until restored. Returns False if unknown."""
+    if status not in ("active", "suspended"):
+        raise ValueError(f"invalid user status: {status}")
+    user = session.execute(
+        select(models.User).where(models.User.email == normalize_email(email))
+    ).scalar_one_or_none()
+    if user is None:
+        return False
+    user.status = status
+    if status == "suspended":
+        auth.revoke_all_sessions(session, user_id=user.id)
+    record(
+        session,
+        actor=actor,
+        action=f"user.{status}",
+        subject_type="user",
+        subject_id=user.id,
+    )
+    return True
+
+
 def lookup_key(
     session, *, lookup_prefix: str | None = None, key_id: str | None = None
 ) -> list[dict[str, Any]]:
@@ -115,6 +142,9 @@ def _cli() -> None:
     for name in ("revoke", "suspend"):
         p = sub.add_parser(name)
         p.add_argument("--key-id", required=True)
+    for name in ("suspend-user", "restore-user"):
+        p = sub.add_parser(name, help="ban / restore an account (kicks live sessions)")
+        p.add_argument("--email", required=True)
     look = sub.add_parser("lookup")
     look.add_argument("--prefix")
     look.add_argument("--key-id")
@@ -143,6 +173,11 @@ def _cli() -> None:
             ok = set_key_status(session, key_id=args.key_id, status=status)
             session.commit()
             print("ok" if ok else "key not found")
+        elif args.cmd in ("suspend-user", "restore-user"):
+            status = "suspended" if args.cmd == "suspend-user" else "active"
+            ok = set_user_status(session, email=args.email, status=status)
+            session.commit()
+            print("ok" if ok else "user not found")
         elif args.cmd == "lookup":
             rows = lookup_key(session, lookup_prefix=args.prefix, key_id=args.key_id)
             for row in rows:

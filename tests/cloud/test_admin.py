@@ -4,10 +4,11 @@ import pytest
 from sqlalchemy import select
 
 from cloud import models
-from cloud.admin import issue_key, lookup_key, set_key_status
+from cloud.admin import issue_key, lookup_key, set_key_status, set_user_status
 from cloud.config import generate_test_settings
 from cloud.db import Base, create_engine_for, create_session_factory
 from cloud.entitlements import verify_entitlement
+from cloud.features.auth import service as auth
 from cloud.keys import normalize_key
 from cloud.licensing import RedeemError, redeem_key
 
@@ -109,3 +110,53 @@ def test_issue_rejects_unknown_plan(session_factory):
     with session_factory() as session:
         with pytest.raises(ValueError):
             issue_key(session, plan_id="does-not-exist", pepper=SETTINGS.activation_pepper)
+
+
+def test_suspend_user_bans_and_kicks_sessions(session_factory):
+    ids = _seed(session_factory)
+    with session_factory() as session:  # give the user a live session first
+        user = session.get(models.User, ids["user"])
+        device = session.get(models.Device, ids["device"])
+        auth.create_session(session, user=user, device=device, settings=SETTINGS)
+        session.commit()
+
+    with session_factory() as session:
+        assert set_user_status(session, email="u@example.com", status="suspended") is True
+        session.commit()
+
+    with session_factory() as session:
+        assert session.get(models.User, ids["user"]).status == "suspended"
+        # every live session is revoked -> the device is kicked
+        rows = session.scalars(
+            select(models.Session).where(models.Session.user_id == ids["user"])
+        ).all()
+        assert rows and all(r.revoked_at is not None for r in rows)
+        events = session.scalars(
+            select(models.AuditEvent).where(models.AuditEvent.action == "user.suspended")
+        ).all()
+        assert len(events) == 1 and events[0].subject_id == ids["user"]
+
+
+def test_restore_user_reactivates(session_factory):
+    _seed(session_factory)
+    with session_factory() as session:
+        assert set_user_status(session, email="u@example.com", status="suspended") is True
+        assert set_user_status(session, email="u@example.com", status="active") is True
+        session.commit()
+    with session_factory() as session:
+        user = session.scalars(
+            select(models.User).where(models.User.email == "u@example.com")
+        ).one()
+        assert user.status == "active"
+
+
+def test_suspend_unknown_user_returns_false(session_factory):
+    with session_factory() as session:
+        assert set_user_status(session, email="nobody@example.com", status="suspended") is False
+
+
+def test_set_user_status_rejects_bad_status(session_factory):
+    _seed(session_factory)
+    with session_factory() as session:
+        with pytest.raises(ValueError):
+            set_user_status(session, email="u@example.com", status="revoked")
