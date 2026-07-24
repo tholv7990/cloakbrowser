@@ -126,6 +126,20 @@ def test_list_monitors_empty_off_windows(monkeypatch):
     assert WindowManager().list_monitors() == []
 
 
+@pytest.mark.skipif(_sys.platform != "win32", reason="Win32 primary-monitor fallback")
+def test_list_monitors_falls_back_to_primary_when_enumeration_empty(monkeypatch):
+    """EnumDisplayMonitors can return nothing (some RDP / headless-session contexts);
+    the UI must never see an empty list, so we fall back to the primary screen."""
+    wm = WindowManager()
+    monkeypatch.setattr(wm, "_enumerate_monitors", lambda: [])
+    monitors = wm.list_monitors()
+    assert len(monitors) == 1
+    assert monitors[0].is_primary
+    assert monitors[0].width > 0 and monitors[0].height > 0
+    _wx, _wy, ww, wh = monitors[0].work_area
+    assert ww > 0 and wh > 0
+
+
 def _install_fake_manager(client, windows=None, monitors=None):
     from manager_backend.features.runtime.windows import Monitor
 

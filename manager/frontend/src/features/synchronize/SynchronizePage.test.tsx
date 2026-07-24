@@ -15,22 +15,28 @@ function renderPage() {
 }
 
 describe('SynchronizePage', () => {
-  it('lists running profiles and arranges them on Tile', async () => {
+  it('lists running + detached profiles and arranges them on Tile', async () => {
     vi.spyOn(api, 'listProfiles').mockResolvedValue({
       items: [
         { id: 'p1', name: 'Alpha', runtime_state: 'running' },
         { id: 'p2', name: 'Beta', runtime_state: 'stopped' },
+        // 'detached' = a live window the manager reconnected to; must be tileable.
+        { id: 'p3', name: 'Gamma', runtime_state: 'detached' },
       ],
-      total: 2,
+      total: 3,
     } as never);
-    const arrange = vi
-      .spyOn(api, 'arrangeWindows')
-      .mockResolvedValue({ results: [{ profile_id: 'p1', ok: true, error: null }] });
+    const arrange = vi.spyOn(api, 'arrangeWindows').mockResolvedValue({
+      results: [
+        { profile_id: 'p1', ok: true, error: null },
+        { profile_id: 'p3', ok: true, error: null },
+      ],
+    });
 
     renderPage();
 
-    // Only the running profile appears.
+    // Both the running and the detached profile appear; the stopped one does not.
     expect(await screen.findByText('Alpha')).toBeInTheDocument();
+    expect(await screen.findByText('Gamma')).toBeInTheDocument();
     expect(screen.queryByText('Beta')).not.toBeInTheDocument();
 
     // Tile stays disabled until a monitor has actually loaded (mock monitors
@@ -42,7 +48,7 @@ describe('SynchronizePage', () => {
 
     await waitFor(() =>
       expect(arrange).toHaveBeenCalledWith(
-        expect.objectContaining({ profile_ids: ['p1'], layout: 'grid' }),
+        expect.objectContaining({ profile_ids: ['p1', 'p3'], layout: 'grid' }),
       ),
     );
   });

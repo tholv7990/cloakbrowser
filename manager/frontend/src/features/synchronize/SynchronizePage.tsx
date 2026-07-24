@@ -10,12 +10,20 @@ export function SynchronizePage() {
   const profilesQuery = useQuery({
     queryKey: queryKeys.profiles({ page: 1, page_size: 200 }),
     queryFn: () => api.listProfiles({ page: 1, page_size: 200 }),
+    // Keep the list current as profiles start/stop while this page is open.
+    refetchInterval: 3000,
   });
   const monitorsQuery = useMonitors();
   const arrange = useArrangeWindows();
 
+  // A launched profile that the manager reconnected to after a restart is
+  // 'detached' (still a live, tileable window), not 'running' — include both so
+  // the list matches the "running" count in the header.
   const running = useMemo(
-    () => (profilesQuery.data?.items ?? []).filter((p) => p.runtime_state === 'running'),
+    () =>
+      (profilesQuery.data?.items ?? []).filter(
+        (p) => p.runtime_state === 'running' || p.runtime_state === 'detached',
+      ),
     [profilesQuery.data],
   );
 

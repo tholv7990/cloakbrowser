@@ -118,9 +118,44 @@ class WindowManager:
         if sys.platform != "win32":
             return []
         try:
-            return self._enumerate_monitors()
+            monitors = self._enumerate_monitors()
+            # EnumDisplayMonitors can legitimately return nothing (e.g. some RDP /
+            # headless-session contexts). Never leave the UI with an empty monitor
+            # list — fall back to the primary screen so tiling still works.
+            return monitors or self._primary_monitor_fallback()
         except Exception:
+            try:
+                return self._primary_monitor_fallback()
+            except Exception:
+                return []
+
+    def _primary_monitor_fallback(self) -> list[Monitor]:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        width = int(user32.GetSystemMetrics(0))   # SM_CXSCREEN
+        height = int(user32.GetSystemMetrics(1))  # SM_CYSCREEN
+        if width <= 0 or height <= 0:
             return []
+
+        class _RECT(ctypes.Structure):
+            _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                        ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+        work: WorkArea = (0, 0, width, height)
+        rc = _RECT()
+        if user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rc), 0):  # SPI_GETWORKAREA
+            work = (rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top)
+        return [
+            Monitor(
+                id="0",
+                label=f"Monitor 1 ({width}×{height}) — Primary",
+                width=width,
+                height=height,
+                work_area=work,
+                is_primary=True,
+            )
+        ]
 
     def find_main_window(self, user_data_dir: str) -> int | None:
         if sys.platform != "win32" or not user_data_dir:
