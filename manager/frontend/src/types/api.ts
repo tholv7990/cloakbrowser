@@ -7,8 +7,9 @@
  * updated design spec §3/§7/§12/§13. The backend uses `extra="forbid"`, so write
  * payloads must match these shapes exactly.
  *
- * No type here carries a proxy password, auth header, cookie value, session
- * token, or website credential — those never cross the API by contract (§3).
+ * No type here carries an auth header, cookie value, session token, or website
+ * credential. Proxy passwords are the exception: they are ordinary local config
+ * for a single-owner desktop app, so the editor can show and keep them.
  */
 
 // ---------------------------------------------------------------------------
@@ -90,7 +91,7 @@ export interface BrowserInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Proxy (unchanged contract). Responses never contain `password`.
+// Proxy. Responses DO carry `password` — see the note at the top of this file.
 // ---------------------------------------------------------------------------
 
 export interface Proxy {
@@ -101,6 +102,8 @@ export interface Proxy {
   port: number | null;
   username: string | null;
   has_password: boolean;
+  /** Returned like any other field — proxy creds are ordinary local config. */
+  password?: string | null;
   masked_endpoint: string;
   test_before_launch: boolean;
   assigned_profile_count: number;

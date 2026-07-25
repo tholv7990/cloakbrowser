@@ -9,7 +9,6 @@ import { Field } from '@/components/ui/Field';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Toggle } from '@/components/ui/Toggle';
-import { api } from '@/api';
 import { useT } from '@/i18n';
 import {
   parseProxyText,
@@ -35,7 +34,7 @@ function defaults(proxy: Proxy | null, defaultLabel = ''): ProxyFormValues {
     host: proxy?.host ?? '',
     port: proxy?.port ?? '',
     username: proxy?.username ?? '',
-    password: '',
+    password: proxy?.password ?? '',
     test_before_launch: proxy?.test_before_launch ?? true,
   };
 }
@@ -102,24 +101,10 @@ export function ProxyEditorDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, proxy, reset]);
 
-  const [showPassword, setShowPassword] = useState(false);
-
-  async function revealPassword() {
-    if (showPassword) {
-      setShowPassword(false);
-      return;
-    }
-    // Fetch the stored secret only when asked for it.
-    if (current?.id && current.has_password) {
-      try {
-        const { password } = await api.getProxyPassword(current.id);
-        if (password) setValue('password', password);
-      } catch {
-        // Leave the field as-is; the toggle still reveals whatever was typed.
-      }
-    }
-    setShowPassword(true);
-  }
+  // Proxy credentials are ordinary config, not a secret to be hidden from their
+  // owner: the value is returned by the API and shown, with a toggle to mask it
+  // if someone is looking over your shoulder.
+  const [showPassword, setShowPassword] = useState(true);
 
   // Auto-fill all four fields (incl. password) as the user pastes — no button.
   const applyParse = (text: string) => {
@@ -139,7 +124,7 @@ export function ProxyEditorDrawer({
       ? await updateProxy.mutateAsync({ id: current.id, payload })
       : await createProxy.mutateAsync(payload);
     setCurrent(saved);
-    reset(defaults(saved)); // clears the write-only password field
+    reset(defaults(saved)); // keeps the saved credentials in the form
     onSaved?.(saved);
   });
 
@@ -282,7 +267,7 @@ export function ProxyEditorDrawer({
                   <button
                     type="button"
                     aria-label={t(showPassword ? 'common.hidePassword' : 'common.showPassword')}
-                    onClick={revealPassword}
+                    onClick={() => setShowPassword((v) => !v)}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink"
                   >
                     {showPassword ? (

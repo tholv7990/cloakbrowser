@@ -47,9 +47,10 @@ class ProxyRead(StrictModel):
     host: str
     port: int | None
     # The username is a login identifier, returned so the edit form can prefill
-    # it. The password stays strictly write-only (only `has_password` is exposed).
+    # it. `has_password` says whether one is stored; `password` returns it.
     username: str | None = None
     has_password: bool
+    password: str | None = None
     masked_endpoint: str
     test_before_launch: bool
     assigned_profile_count: int
@@ -154,8 +155,3 @@ class ProxyQualityReportRead(StrictModel):
     observed_scope: str
     checked_at: datetime
 
-
-class ProxyPasswordRead(StrictModel):
-    """Returned only from the explicit reveal endpoint, never from list/detail."""
-
-    password: str | None

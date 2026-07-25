@@ -149,7 +149,6 @@ export interface ApiAdapter {
   // Proxies
   listProxies(): Promise<Proxy[]>;
   getProxy(id: string): Promise<Proxy>;
-  getProxyPassword(id: string): Promise<{ password: string | null }>;
   createProxy(payload: ProxyWritePayload): Promise<Proxy>;
   updateProxy(id: string, payload: ProxyWritePayload): Promise<Proxy>;
   deleteProxy(id: string): Promise<{ ok: boolean }>;

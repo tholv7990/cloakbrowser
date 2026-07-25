@@ -550,8 +550,8 @@ export const en = {
   'pxd.host': 'Host',
   'pxd.port': 'Port',
   'pxd.username': 'Username',
-  'pxd.pwStored': 'A password is stored. Leave blank to keep it.',
-  'pxd.pwWriteOnly': 'Write-only.',
+  'pxd.pwStored': 'Stored — edit to change it.',
+  'pxd.pwWriteOnly': 'Optional.',
   'pxd.socks5Warn':
     'Plain SOCKS5 resolves DNS locally. Use SOCKS5H when the proxy should resolve DNS remotely.',
   'pxd.testBefore': 'Test before every launch',

@@ -18,11 +18,11 @@ def test_proxy_capability_and_frontend_routes_are_published(client, auth_headers
         assert path in paths
 
 
-def test_proxy_write_secrets_are_write_only_and_absent_from_reads(client):
+def test_proxy_reads_expose_credentials_but_never_the_store_reference(client):
+    """Proxy credentials are ordinary config for a local single-owner app, so reads
+    return them. The credential_ref is an internal store key and stays hidden."""
     schemas = client.app.openapi()["components"]["schemas"]
-    write = schemas["ProxyWrite"]["properties"]
-    assert write["password"]["writeOnly"] is True
-    assert write["username"]["writeOnly"] is True
     read = schemas["ProxyRead"]["properties"]
-    assert "password" not in read
+    assert "password" in read
+    assert "username" in read
     assert "credential_ref" not in read

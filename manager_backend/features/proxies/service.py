@@ -52,10 +52,13 @@ def proxy_to_dict(
     assigned_count: int | None = None,
 ) -> dict:
     endpoint = "direct" if proxy.scheme == "direct" else f"{proxy.scheme}://{proxy.host}:{proxy.port}"
-    username = None
+    username = password = None
     if store is not None and proxy.credential_ref:
         credential = store.get(proxy.credential_ref)
         username = credential.username if credential is not None else None
+        # Proxy credentials are ordinary config for a local, single-owner app —
+        # returned like host/port so the editor can show and keep them.
+        password = credential.password if credential is not None else None
     return {
         "id": proxy.id,
         "label": proxy.label,
@@ -64,6 +67,7 @@ def proxy_to_dict(
         "port": proxy.port,
         "username": username,
         "has_password": proxy.credential_ref is not None,
+        "password": password,
         "masked_endpoint": endpoint,
         "test_before_launch": proxy.test_before_launch,
         "assigned_profile_count": (

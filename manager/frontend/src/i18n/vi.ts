@@ -554,8 +554,8 @@ export const vi: Record<keyof typeof en, string> = {
   'pxd.host': 'Máy chủ',
   'pxd.port': 'Cổng',
   'pxd.username': 'Tên đăng nhập',
-  'pxd.pwStored': 'Đã lưu một mật khẩu. Để trống để giữ nguyên.',
-  'pxd.pwWriteOnly': 'Chỉ ghi.',
+  'pxd.pwStored': 'Đã lưu — sửa để thay đổi.',
+  'pxd.pwWriteOnly': 'Không bắt buộc.',
   'pxd.socks5Warn':
     'SOCKS5 thường phân giải DNS cục bộ. Dùng SOCKS5H khi muốn proxy phân giải DNS từ xa.',
   'pxd.testBefore': 'Kiểm tra trước mỗi lần chạy',

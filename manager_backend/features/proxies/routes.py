@@ -13,7 +13,6 @@ from .schemas import (
     ProxyParseRequest,
     ProxyQuickTestRead,
     ProxyQualityReportRead,
-    ProxyPasswordRead,
     ProxyRead,
     ProxyTestRequest,
     ProxyWrite,
@@ -68,20 +67,6 @@ def parse(payload: ProxyParseRequest):
 def get(proxy_id: str, request: Request, session: SessionDependency):
     store = request.app.state.credential_store
     return proxy_to_dict(session, get_proxy(session, proxy_id), store)
-
-
-@router.get("/proxies/{proxy_id}/password", response_model=ProxyPasswordRead)
-def reveal_password(proxy_id: str, request: Request, session: SessionDependency):
-    """Return a stored proxy password to the signed-in owner, on explicit request.
-
-    Passwords stay out of the list/detail payloads so they are not cached or logged
-    with every render — but they are the owner's own credentials on their own
-    machine, and a store you cannot read back is a store that loses them.
-    """
-    proxy = get_proxy(session, proxy_id)
-    store = request.app.state.credential_store
-    credential = store.get(proxy.credential_ref) if proxy.credential_ref else None
-    return {"password": credential.password if credential is not None else None}
 
 
 @router.patch("/proxies/{proxy_id}", response_model=ProxyRead)
