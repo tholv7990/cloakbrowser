@@ -212,3 +212,23 @@ def test_the_dashboard_page_is_served_and_holds_no_data(ctx):
     # A static shell: it must not embed users, keys or tokens.
     assert "admin@example.com" not in body
     assert "Bearer " not in body.split("Authorization")[0]
+
+
+def test_user_detail_carries_the_fields_the_seats_screen_renders(ctx):
+    """Pins the contract the dashboard's device table depends on."""
+    body = ctx["client"].get(
+        f"/admin/users/{ctx['ids']['member']}", headers=ctx["admin_auth"]
+    ).json()
+    assert body["user"]["email"] == "user@example.com"
+    device = body["devices"][0]
+    assert set(device) >= {"id", "name", "platform", "last_seen_at", "revoked_at"}
+    assert device["revoked_at"] is None  # a live seat
+
+    ctx["client"].post(
+        f"/admin/devices/{ctx['ids']['device']}/release", headers=ctx["admin_auth"]
+    )
+    after = ctx["client"].get(
+        f"/admin/users/{ctx['ids']['member']}", headers=ctx["admin_auth"]
+    ).json()
+    # The screen counts a seat as free exactly when revoked_at is set.
+    assert after["devices"][0]["revoked_at"] is not None

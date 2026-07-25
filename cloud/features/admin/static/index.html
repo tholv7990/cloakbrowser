@@ -139,6 +139,21 @@
         <tbody id="keys"></tbody></table>
     </section>
 
+    <section id="v-user" class="hide">
+      <div class="row">
+        <button class="act ghost" onclick="show('users')">&larr; Users</button>
+        <b id="u-email"></b>
+        <span class="pill" id="u-status"></span>
+        <span style="flex:1"></span>
+        <span class="pill" id="u-seats"></span>
+      </div>
+      <table><thead><tr><th>Device</th><th>Platform</th><th>Last seen</th><th>State</th><th></th></tr></thead>
+        <tbody id="devices"></tbody></table>
+      <p style="color:var(--muted);font-size:12px;margin-top:14px">
+        Releasing a device frees its seat immediately. Use this when someone
+        reinstalled Windows and cannot activate.</p>
+    </section>
+
     <section id="v-audit" class="hide">
       <table><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Subject</th><th>Detail</th></tr></thead>
         <tbody id="audit"></tbody></table>
@@ -187,11 +202,14 @@ function signOut() {
 }
 
 function show(view) {
-  for (const v of ['overview', 'users', 'keys', 'audit']) {
+  for (const v of ['overview', 'users', 'keys', 'audit', 'user']) {
     document.getElementById('v-' + v).classList.toggle('hide', v !== view);
-    document.getElementById('tab-' + v).setAttribute('aria-selected', String(v === view));
+    // The detail view has no tab of its own; it hangs off Users.
+    document.getElementById('tab-' + v)
+      ?.setAttribute('aria-selected', String(v === view || (view === 'user' && v === 'users')));
   }
-  ({overview: loadOverview, users: loadUsers, keys: lookupKeys, audit: loadAudit})[view]();
+  ({overview: loadOverview, users: loadUsers, keys: lookupKeys, audit: loadAudit,
+    user: () => {}})[view]();
 }
 
 async function loadOverview() {
@@ -207,7 +225,8 @@ async function loadUsers() {
   const q = document.getElementById('q').value.trim();
   const page = await api('/users' + (q ? '?query=' + encodeURIComponent(q) : ''));
   document.getElementById('users').innerHTML = page.items.map(u => `
-    <tr><td>${esc(u.email)}</td>
+    <tr><td><a href="#" onclick="openUser('${u.id}');return false"
+             style="color:var(--accent);text-decoration:none">${esc(u.email)}</a></td>
         <td><span class="pill ${u.status === 'active' ? 'ok' : 'bad'}">${esc(u.status)}</span></td>
         <td>${esc(u.role)}</td><td>${when(u.created_at)}</td>
         <td><button class="act ${u.status === 'active' ? 'warn' : ''}"
@@ -221,6 +240,41 @@ async function setUserStatus(id, status) {
       !confirm('Suspend this account? Their live sessions end immediately.')) return;
   await api(`/users/${id}/status`, {method: 'POST', body: JSON.stringify({status})});
   loadUsers();
+}
+
+let currentUserId = null;
+
+async function openUser(id) {
+  currentUserId = id;
+  show('user');
+  await loadUser();
+}
+
+async function loadUser() {
+  const d = await api('/users/' + currentUserId);
+  document.getElementById('u-email').textContent = d.user.email;
+  const status = document.getElementById('u-status');
+  status.textContent = d.user.status;
+  status.className = 'pill ' + (d.user.status === 'active' ? 'ok' : 'bad');
+
+  const active = d.devices.filter(x => !x.revoked_at);
+  document.getElementById('u-seats').textContent =
+    `${active.length} seat${active.length === 1 ? '' : 's'} in use`;
+
+  document.getElementById('devices').innerHTML = d.devices.map(x => {
+    const live = !x.revoked_at;
+    return `<tr>
+      <td>${esc(x.name)}</td><td>${esc(x.platform)}</td><td>${when(x.last_seen_at)}</td>
+      <td><span class="pill ${live ? 'ok' : 'bad'}">${live ? 'active' : 'released'}</span></td>
+      <td>${live ? `<button class="act warn" onclick="releaseDevice('${x.id}')">Release</button>` : ''}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="5">No devices registered</td></tr>';
+}
+
+async function releaseDevice(id) {
+  if (!confirm('Release this device? It frees the seat and the machine must activate again.')) return;
+  await api(`/devices/${id}/release`, {method: 'POST'});
+  await loadUser();  // re-read, so the freed seat is visibly gone
 }
 
 async function issueKeys() {
