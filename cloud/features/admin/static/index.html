@@ -71,6 +71,14 @@
   #login input:focus{outline:none;border-color:var(--accent);
                      box-shadow:0 0 0 3px rgb(91 155 245 / .30)}
   #login button{width:100%;margin-top:2px}
+  /* Reveal sits inside the field, like the desktop sign-in. */
+  #login .pw{position:relative;margin-bottom:14px}
+  #login .pw input{margin-bottom:0;padding-right:40px}
+  #login .pw button{position:absolute;right:6px;top:50%;transform:translateY(-50%);
+                    width:32px;min-height:32px;margin:0;padding:0;background:none;
+                    border:0;color:var(--muted);cursor:pointer;display:flex;
+                    align-items:center;justify-content:center}
+  #login .pw button:hover{color:var(--ink)}
 
   @media (min-width:1024px){
     #login{grid-template-columns:1.1fr 1fr}
@@ -114,7 +122,6 @@
   .row>span[style]{display:none}
 
   @media (min-width:640px){
-    #login{max-width:380px;margin:0 auto;padding:24px}
     header{padding:14px 22px}
     main{padding:22px}
     nav{padding:10px 22px}
@@ -153,9 +160,19 @@
       <h1 class="display">Admin sign in</h1>
       <p>Super-admin access. Every action is recorded.</p>
       <label class="lbl" for="email">Email</label>
-      <input id="email" type="email" autocomplete="username" placeholder="you@useplasma.app">
+      <input id="email" type="email" autocomplete="username" placeholder="you@useplasma.app"
+             onkeydown="if(event.key==='Enter')signIn()">
       <label class="lbl" for="password">Password</label>
-      <input id="password" type="password" autocomplete="current-password" placeholder="••••••••">
+      <div class="pw">
+        <input id="password" type="password" autocomplete="current-password" placeholder="Password"
+               onkeydown="if(event.key==='Enter')signIn()">
+        <button type="button" id="pwToggle" aria-label="Show password" onclick="togglePw()">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+      </div>
       <button class="act" onclick="signIn()">Sign in</button>
       <div class="err" id="loginErr"></div>
     </div>
@@ -263,6 +280,15 @@ async function api(path, options = {}) {
   if (res.status === 401 || res.status === 403) { signOut(); throw new Error('unauthorized'); }
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error?.code || res.statusText);
   return res.status === 204 ? null : res.json();
+}
+
+function togglePw() {
+  const field = document.getElementById('password');
+  const shown = field.type === 'text';
+  field.type = shown ? 'password' : 'text';
+  document.getElementById('pwToggle')
+    .setAttribute('aria-label', shown ? 'Show password' : 'Hide password');
+  field.focus();
 }
 
 async function signIn() {
