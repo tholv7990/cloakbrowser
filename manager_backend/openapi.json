@@ -3919,6 +3919,74 @@
         }
       }
     },
+    "/api/v1/proxies/{proxy_id}/password": {
+      "get": {
+        "summary": "Reveal Password",
+        "description": "Return a stored proxy password to the signed-in owner, on explicit request.\n\nPasswords stay out of the list/detail payloads so they are not cached or logged\nwith every render \u2014 but they are the owner's own credentials on their own\nmachine, and a store you cannot read back is a store that loses them.",
+        "operationId": "reveal_password_api_v1_proxies__proxy_id__password_get",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "proxy_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Proxy Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProxyPasswordRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/proxies/test": {
       "post": {
         "summary": "Quick Test Adhoc",
@@ -13040,6 +13108,28 @@
           "raw"
         ],
         "title": "ProxyParseRequest"
+      },
+      "ProxyPasswordRead": {
+        "properties": {
+          "password": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "title": "ProxyPasswordRead",
+        "description": "Returned only from the explicit reveal endpoint, never from list/detail."
       },
       "ProxyProviderConfigWrite": {
         "properties": {

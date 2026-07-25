@@ -153,3 +153,9 @@ class ProxyQualityReportRead(StrictModel):
     report_path: str | None
     observed_scope: str
     checked_at: datetime
+
+
+class ProxyPasswordRead(StrictModel):
+    """Returned only from the explicit reveal endpoint, never from list/detail."""
+
+    password: str | None

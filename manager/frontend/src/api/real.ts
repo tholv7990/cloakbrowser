@@ -169,6 +169,8 @@ export const realApi: ApiAdapter = {
 
   listProxies: () => apiRequest<Proxy[]>('/proxies'),
   getProxy: (id) => apiRequest<Proxy>(`/proxies/${id}`),
+  getProxyPassword: (id) =>
+    apiRequest<{ password: string | null }>(`/proxies/${id}/password`),
   createProxy: (payload: ProxyWritePayload) =>
     apiRequest<Proxy>('/proxies', { method: 'POST', body: payload }),
   updateProxy: (id, payload: ProxyWritePayload) =>

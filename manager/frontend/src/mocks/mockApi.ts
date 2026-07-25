@@ -1132,6 +1132,11 @@ export const mockApi: ApiAdapter = {
     await delay(80);
     return structuredClone(mockStore.requireProxy(id));
   },
+  async getProxyPassword(id: string): Promise<{ password: string | null }> {
+    await delay(60);
+    const proxy = mockStore.proxies.find((p) => p.id === id);
+    return { password: proxy?.has_password ? 'mock-proxy-password' : null };
+  },
   async createProxy(payload: ProxyWritePayload): Promise<Proxy> {
     await delay(160);
     const hasPassword = Boolean(payload.password);

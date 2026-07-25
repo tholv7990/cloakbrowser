@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Gauge, Zap } from 'lucide-react';
+import { Eye, EyeOff, Gauge, Zap } from 'lucide-react';
 import type { Proxy, ProxyQualityReport, ProxyQuickTest } from '@/types/api';
 import { Drawer } from '@/components/ui/Drawer';
 import { Button } from '@/components/ui/Button';
@@ -9,6 +9,7 @@ import { Field } from '@/components/ui/Field';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Toggle } from '@/components/ui/Toggle';
+import { api } from '@/api';
 import { useT } from '@/i18n';
 import {
   parseProxyText,
@@ -100,6 +101,25 @@ export function ProxyEditorDrawer({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, proxy, reset]);
+
+  const [showPassword, setShowPassword] = useState(false);
+
+  async function revealPassword() {
+    if (showPassword) {
+      setShowPassword(false);
+      return;
+    }
+    // Fetch the stored secret only when asked for it.
+    if (current?.id && current.has_password) {
+      try {
+        const { password } = await api.getProxyPassword(current.id);
+        if (password) setValue('password', password);
+      } catch {
+        // Leave the field as-is; the toggle still reveals whatever was typed.
+      }
+    }
+    setShowPassword(true);
+  }
 
   // Auto-fill all four fields (incl. password) as the user pastes — no button.
   const applyParse = (text: string) => {
@@ -249,12 +269,29 @@ export function ProxyEditorDrawer({
                 label={t('auth.password')}
                 hint={t(current?.has_password ? 'pxd.pwStored' : 'pxd.pwWriteOnly')}
               >
-                <Input
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder={current?.has_password ? '••••••••' : ''}
-                  {...register('password')}
-                />
+                <div className="relative">
+                  <Input
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    className="pr-9"
+                    placeholder={current?.has_password ? '••••••••' : ''}
+                    {...register('password')}
+                  />
+                  {/* Reveal fetches the stored secret on demand — it is never in
+                      the list/detail payloads, so it can't be lost to the UI. */}
+                  <button
+                    type="button"
+                    aria-label={t(showPassword ? 'common.hidePassword' : 'common.showPassword')}
+                    onClick={revealPassword}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
               </Field>
             </div>
 
