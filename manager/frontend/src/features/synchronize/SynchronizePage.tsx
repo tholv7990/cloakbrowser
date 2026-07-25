@@ -99,11 +99,18 @@ export function SynchronizePage() {
     setResults(Object.fromEntries(res.results.map((r) => [r.profile_id, r])));
   }
 
-  /** What this profile is doing right now, in the user's terms. */
-  function statusLabel(id: string): string {
-    if (isSyncing && id === controlId) return t('sync.control');
-    if (isSyncing && followerIds.includes(id)) return t('sync.following');
-    return t('sync.running');
+  /** What this profile is doing right now, in the user's terms — colour-coded so
+   *  the control and its followers are distinguishable at a glance. */
+  function statusPill(id: string) {
+    const [label, tone] =
+      isSyncing && id === controlId
+        ? [t('sync.control'), 'bg-accent/15 text-accent']
+        : isSyncing && followerIds.includes(id)
+          ? [t('sync.following'), 'bg-success/15 text-success']
+          : [t('sync.running'), 'bg-surface-sunken text-ink-muted'];
+    return (
+      <span className={`rounded-full px-2 py-0.5 text-2xs font-medium ${tone}`}>{label}</span>
+    );
   }
 
   async function onTile() {
@@ -170,6 +177,20 @@ export function SynchronizePage() {
         )}
       </div>
 
+      {/* One line that says what to do next, rather than leaving the order of
+          Tile / control / Start to be discovered by trial. */}
+      {running.length > 0 && (
+        <p className="text-xs text-ink-faint">
+          {isSyncing
+            ? t('sync.stepSyncing')
+            : !controlId
+              ? t('sync.stepPickControl')
+              : followerIds.length === 0
+                ? t('sync.stepNeedFollower')
+                : t('sync.stepReady')}
+        </p>
+      )}
+
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
         {/* Running profiles */}
         <section className="flex min-h-0 flex-col rounded-lg border border-line bg-surface p-3">
@@ -217,7 +238,7 @@ export function SynchronizePage() {
                       </td>
                       <td className="max-w-0 truncate px-2 py-2 text-ink">{p.name}</td>
                       <td className="px-2 py-2 text-xs text-ink-muted">
-                        {statusLabel(p.id)}
+                        {statusPill(p.id)}
                         {resultLabel(p.id) && (
                           <span className="ml-2 text-ink-faint">{resultLabel(p.id)}</span>
                         )}
@@ -240,8 +261,52 @@ export function SynchronizePage() {
           )}
         </section>
 
-        {/* Console */}
-        <section className="min-h-0 space-y-4 overflow-y-auto rounded-lg border border-line bg-surface p-4">
+        {/* Console: send-to-all first — it works without a sync session, so it is
+            the thing most reachable at any moment. Window layout below it. */}
+        <section className="min-h-0 space-y-5 overflow-y-auto rounded-lg border border-line bg-surface p-4">
+          <div className="space-y-2">
+            <h2 className="text-[13px] font-medium text-ink">{t('sync.sendTitle')}</h2>
+            <p className="text-xs text-ink-muted">{t('sync.sendDesc')}</p>
+            <input
+              type="text"
+              value={sendUrl}
+              onChange={(e) => setSendUrl(e.target.value)}
+              placeholder={t('sync.urlPlaceholder')}
+              aria-label={t('sync.openUrl')}
+              className="w-full rounded-md border border-line bg-surface-sunken px-2 py-1.5 text-sm"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onSend({ url: toNavigableUrl(sendUrl) ?? undefined });
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => onSend({ url: toNavigableUrl(sendUrl) ?? undefined })}
+              disabled={!chosenIds.length || !toNavigableUrl(sendUrl) || broadcast.isPending}
+              className="w-full rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+            >
+              {t('sync.openUrl')}
+            </button>
+            <textarea
+              rows={2}
+              value={sendText}
+              onChange={(e) => setSendText(e.target.value)}
+              placeholder={t('sync.textPlaceholder')}
+              aria-label={t('sync.sendText')}
+              className="w-full rounded-md border border-line bg-surface-sunken px-2 py-1.5 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => onSend({ text: sendText })}
+              disabled={!chosenIds.length || !sendText || broadcast.isPending}
+              className="w-full rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink disabled:opacity-40"
+            >
+              {t('sync.sendText')}
+            </button>
+            <p className="text-xs text-ink-faint">{t('sync.textHint')}</p>
+          </div>
+
+          <div className="space-y-3 border-t border-line pt-4">
+            <h2 className="text-[13px] font-medium text-ink">{t('sync.layoutTitle')}</h2>
           <div>
             <label className="mb-1 block text-[13px] font-medium text-ink">
               {t('synchronize.monitor')}
@@ -288,52 +353,7 @@ export function SynchronizePage() {
           >
             {t('synchronize.tile')}
           </button>
-
-          <p className="border-t border-line pt-3 text-xs text-ink-faint">
-            {t('sync.tileHint')}
-          </p>
-
-          {/* Send-to-all: one CDP call per profile, so it reaches background
-              windows without stealing focus (OS-level input cannot). */}
-          <div className="space-y-2 border-t border-line pt-4">
-            <h2 className="text-[13px] font-medium text-ink">{t('sync.sendTitle')}</h2>
-            <p className="text-xs text-ink-muted">{t('sync.sendDesc')}</p>
-            <input
-              type="text"
-              value={sendUrl}
-              onChange={(e) => setSendUrl(e.target.value)}
-              placeholder={t('sync.urlPlaceholder')}
-              aria-label={t('sync.openUrl')}
-              className="w-full rounded-md border border-line bg-surface-sunken px-2 py-1.5 text-sm"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') onSend({ url: toNavigableUrl(sendUrl) ?? undefined });
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => onSend({ url: toNavigableUrl(sendUrl) ?? undefined })}
-              disabled={!chosenIds.length || !toNavigableUrl(sendUrl) || broadcast.isPending}
-              className="w-full rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink disabled:opacity-40"
-            >
-              {t('sync.openUrl')}
-            </button>
-            <textarea
-              rows={2}
-              value={sendText}
-              onChange={(e) => setSendText(e.target.value)}
-              placeholder={t('sync.textPlaceholder')}
-              aria-label={t('sync.sendText')}
-              className="w-full rounded-md border border-line bg-surface-sunken px-2 py-1.5 text-sm"
-            />
-            <button
-              type="button"
-              onClick={() => onSend({ text: sendText })}
-              disabled={!chosenIds.length || !sendText || broadcast.isPending}
-              className="w-full rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink disabled:opacity-40"
-            >
-              {t('sync.sendText')}
-            </button>
-            <p className="text-xs text-ink-faint">{t('sync.textHint')}</p>
+            <p className="text-xs text-ink-faint">{t('sync.tileHint')}</p>
           </div>
         </section>
       </div>
