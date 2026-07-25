@@ -20,6 +20,9 @@ class ProfileWorker(threading.Thread):
     # silently continuing on a dead proxy.
     _PROXY_HEALTH_INTERVAL = 120.0
     _PROXY_HEALTH_FAILURES = 2
+    # How often to check the window still fits the spoofed screen. A user can
+    # maximise at any moment and every page load after that leaks.
+    _WINDOW_GUARD_INTERVAL = 2.0
 
     def __init__(
         self,
@@ -81,6 +84,21 @@ class ProfileWorker(threading.Thread):
                 runtime = session.get(RuntimeSession, self.runtime_id)
                 if runtime is not None:
                     set_runtime_message(session, runtime, message)
+        except Exception:
+            pass
+
+    def _guard_window_size(self) -> None:
+        """Keep the window inside the screen the fingerprint claims (see
+        windows.clamp_window_to_screen). Best-effort: never disturb the run."""
+        try:
+            from .launcher import spoofed_screen_size
+            from .windows import WINDOW_MANAGER, clamp_window_to_screen
+
+            clamp_window_to_screen(
+                str(self.snapshot["profile_dir"] / "user-data"),
+                spoofed_screen_size(),
+                WINDOW_MANAGER,
+            )
         except Exception:
             pass
 
@@ -188,6 +206,7 @@ class ProfileWorker(threading.Thread):
 
             proxy_failures = 0
             last_health_check = time.monotonic()
+            last_window_guard = time.monotonic()
             while True:
                 try:
                     command = self._commands.get(timeout=0.1)
@@ -199,6 +218,10 @@ class ProfileWorker(threading.Thread):
                     self._transition("stopped")
                     self._append_log("runtime.exited")
                     break
+                now = time.monotonic()
+                if now - last_window_guard >= self._WINDOW_GUARD_INTERVAL:
+                    last_window_guard = now
+                    self._guard_window_size()
                 if self._monitors_proxy():
                     now = time.monotonic()
                     if now - last_health_check >= self._PROXY_HEALTH_INTERVAL:

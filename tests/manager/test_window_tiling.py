@@ -241,3 +241,49 @@ def test_custom_window_size_is_capped_to_the_spoofed_screen():
         headless=False,
     )
     assert "--window-size=1920,1080" in kwargs["args"]
+
+
+class _GuardManager:
+    """Fake window manager recording what the guard tried to do."""
+
+    def __init__(self, rect, hwnd=42):
+        self.rect, self.hwnd, self.moved = rect, hwnd, []
+
+    def list_monitors(self):
+        return []
+
+    def find_main_window(self, user_data_dir):
+        return self.hwnd
+
+    def window_rect(self, hwnd):
+        return self.rect
+
+    def move_window(self, hwnd, rect):
+        self.moved.append(rect)
+        return True
+
+
+def test_window_guard_shrinks_a_window_larger_than_the_spoofed_screen():
+    from manager_backend.features.runtime.windows import clamp_window_to_screen
+
+    # Maximised on a 3440x1440 monitor while the fingerprint claims 1920x1080:
+    # innerWidth/Height would report the real viewport and betray the spoof.
+    manager = _GuardManager((0, 0, 3440, 1400))
+    assert clamp_window_to_screen("udd", (1920, 1080), manager) is True
+    assert manager.moved == [(0, 0, 1920, 1080)]
+
+
+def test_window_guard_leaves_a_window_that_already_fits_alone():
+    from manager_backend.features.runtime.windows import clamp_window_to_screen
+
+    manager = _GuardManager((100, 50, 1280, 800))
+    assert clamp_window_to_screen("udd", (1920, 1080), manager) is False
+    assert manager.moved == []  # never fight a window that is not leaking
+
+
+def test_window_guard_is_inert_without_a_window():
+    from manager_backend.features.runtime.windows import clamp_window_to_screen
+
+    manager = _GuardManager((0, 0, 4000, 4000), hwnd=None)
+    assert clamp_window_to_screen("udd", (1920, 1080), manager) is False
+    assert manager.moved == []

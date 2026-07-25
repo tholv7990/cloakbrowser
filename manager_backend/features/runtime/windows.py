@@ -86,7 +86,52 @@ class Monitor:
 class WindowManagerProtocol(Protocol):
     def list_monitors(self) -> list[Monitor]: ...
     def find_main_window(self, user_data_dir: str) -> int | None: ...
+    def window_rect(self, hwnd: int) -> Rect | None:
+        if sys.platform != "win32":
+            return None
+        try:
+            import ctypes
+
+            class _R(ctypes.Structure):
+                _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                            ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+            rc = _R()
+            if not ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rc)):
+                return None
+            return (rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top)
+        except Exception:
+            return None
+
     def move_window(self, hwnd: int, rect: Rect) -> bool: ...
+    def window_rect(self, hwnd: int) -> Rect | None: ...
+
+
+def clamp_window_to_screen(
+    user_data_dir: str, max_size: tuple[int, int], manager: WindowManagerProtocol
+) -> bool:
+    """Shrink a profile window back inside the screen its fingerprint claims.
+
+    A window larger than the spoofed screen leaks the real viewport: the binary
+    clamps `screen` and `outerWidth/Height`, but `innerWidth/innerHeight` still
+    reports the truth, so a page sees a viewport bigger than its own window - which
+    is impossible, and proves spoofing rather than merely looking unremarkable.
+    Tiling and custom sizes are already capped; this catches the case we cannot
+    prevent up front, a user maximising the window on a larger monitor.
+
+    Returns True only when a window was actually resized.
+    """
+    hwnd = manager.find_main_window(user_data_dir)
+    if hwnd is None:
+        return False
+    rect = manager.window_rect(hwnd)
+    if rect is None:
+        return False
+    x, y, width, height = rect
+    max_w, max_h = max_size
+    if width <= max_w and height <= max_h:
+        return False
+    return bool(manager.move_window(hwnd, (x, y, min(width, max_w), min(height, max_h))))
 
 
 def safe_profile_id(profile_id: str) -> bool:
@@ -193,6 +238,23 @@ class WindowManager:
             if not pids:
                 return None
             return self._main_window_for_pids(pids)
+        except Exception:
+            return None
+
+    def window_rect(self, hwnd: int) -> Rect | None:
+        if sys.platform != "win32":
+            return None
+        try:
+            import ctypes
+
+            class _R(ctypes.Structure):
+                _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                            ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+            rc = _R()
+            if not ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rc)):
+                return None
+            return (rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top)
         except Exception:
             return None
 
