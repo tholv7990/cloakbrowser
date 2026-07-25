@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Plasma admin</title>
+<style>
+  :root{--bg:#0f1115;--panel:#161a22;--line:#242a35;--ink:#e8eaed;--muted:#8b93a7;
+        --accent:#5b9dff;--danger:#ff6b6b;--ok:#4ade80}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 "Segoe UI",system-ui,sans-serif}
+  header{display:flex;align-items:center;gap:16px;padding:14px 22px;
+         border-bottom:1px solid var(--line);background:var(--panel)}
+  header h1{font-size:15px;margin:0;letter-spacing:.02em}
+  header .who{margin-left:auto;color:var(--muted);font-size:12px}
+  nav{display:flex;gap:4px;padding:10px 22px;border-bottom:1px solid var(--line)}
+  nav button{background:none;border:1px solid transparent;color:var(--muted);
+             padding:6px 12px;border-radius:7px;cursor:pointer;font:inherit}
+  nav button[aria-selected="true"]{background:#1d2430;color:var(--ink);border-color:var(--line)}
+  main{padding:22px;max-width:1100px}
+  .cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+        padding:14px 18px;min-width:150px}
+  .card b{display:block;font-size:24px;font-weight:600}
+  .card span{color:var(--muted);font-size:12px}
+  table{width:100%;border-collapse:collapse;background:var(--panel);
+        border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);font-size:13px}
+  th{color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;
+     letter-spacing:.06em}
+  tr:last-child td{border-bottom:0}
+  input,select{background:#10141b;border:1px solid var(--line);color:var(--ink);
+               border-radius:7px;padding:7px 10px;font:inherit}
+  button.act{background:var(--accent);border:0;color:#fff;border-radius:7px;
+             padding:7px 12px;cursor:pointer;font:inherit}
+  button.act.warn{background:var(--danger)}
+  button.act.ghost{background:none;border:1px solid var(--line);color:var(--ink)}
+  .row{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+  .pill{font-size:11px;padding:2px 8px;border-radius:99px;background:#1d2430;color:var(--muted)}
+  .pill.ok{background:rgba(74,222,128,.15);color:var(--ok)}
+  .pill.bad{background:rgba(255,107,107,.15);color:var(--danger)}
+  .keys{background:#10141b;border:1px solid var(--line);border-radius:8px;padding:12px;
+        font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:pre-wrap;
+        margin-top:12px}
+  .warnbox{border:1px solid rgba(255,107,107,.35);background:rgba(255,107,107,.08);
+           border-radius:8px;padding:10px 12px;font-size:12px;margin-top:10px}
+  #login{max-width:320px;margin:12vh auto;background:var(--panel);
+         border:1px solid var(--line);border-radius:12px;padding:22px}
+  #login h1{font-size:16px;margin:0 0 4px}
+  #login p{color:var(--muted);font-size:12px;margin:0 0 16px}
+  #login input{width:100%;margin-bottom:9px}
+  #login button{width:100%}
+  .err{color:var(--danger);font-size:12px;min-height:17px}
+  .hide{display:none}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <h1>Plasma admin</h1>
+  <p>Super-admin access. All actions are recorded.</p>
+  <input id="email" type="email" placeholder="Email" autocomplete="username">
+  <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+  <button class="act" onclick="signIn()">Sign in</button>
+  <div class="err" id="loginErr"></div>
+</div>
+
+<div id="app" class="hide">
+  <header>
+    <h1>Plasma admin</h1>
+    <span class="who" id="who"></span>
+    <button class="act ghost" onclick="signOut()">Sign out</button>
+  </header>
+  <nav>
+    <button onclick="show('overview')" id="tab-overview">Overview</button>
+    <button onclick="show('users')" id="tab-users">Users</button>
+    <button onclick="show('keys')" id="tab-keys">Licences</button>
+    <button onclick="show('audit')" id="tab-audit">Audit</button>
+  </nav>
+  <main>
+    <section id="v-overview"><div class="cards" id="cards"></div></section>
+
+    <section id="v-users" class="hide">
+      <div class="row">
+        <input id="q" placeholder="Search email…" onkeydown="if(event.key==='Enter')loadUsers()">
+        <button class="act" onclick="loadUsers()">Search</button>
+      </div>
+      <table><thead><tr><th>Email</th><th>Status</th><th>Role</th><th>Joined</th><th></th></tr></thead>
+        <tbody id="users"></tbody></table>
+    </section>
+
+    <section id="v-keys" class="hide">
+      <div class="row">
+        <input id="planId" placeholder="Plan id (e.g. pro)" style="width:170px">
+        <input id="count" type="number" value="1" min="1" max="500" style="width:80px">
+        <button class="act" onclick="issueKeys()">Issue licences</button>
+        <span style="flex:1"></span>
+        <input id="keyq" placeholder="Key prefix…" onkeydown="if(event.key==='Enter')lookupKeys()">
+        <button class="act ghost" onclick="lookupKeys()">Look up</button>
+      </div>
+      <div id="issued"></div>
+      <table><thead><tr><th>Key id</th><th>Plan</th><th>Status</th><th>Uses left</th><th>Expires</th><th></th></tr></thead>
+        <tbody id="keys"></tbody></table>
+    </section>
+
+    <section id="v-audit" class="hide">
+      <table><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Subject</th><th>Detail</th></tr></thead>
+        <tbody id="audit"></tbody></table>
+    </section>
+  </main>
+</div>
+
+<script>
+const T = () => sessionStorage.getItem('plasma_admin_token');
+const esc = (v) => String(v ?? '').replace(/[<>&"]/g, c =>
+  ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+const when = (v) => v ? new Date(v).toLocaleString() : '—';
+
+async function api(path, options = {}) {
+  const res = await fetch('/admin' + path, {
+    ...options,
+    headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + T(),
+              ...(options.headers || {})},
+  });
+  if (res.status === 401 || res.status === 403) { signOut(); throw new Error('unauthorized'); }
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error?.code || res.statusText);
+  return res.status === 204 ? null : res.json();
+}
+
+async function signIn() {
+  const err = document.getElementById('loginErr');
+  err.textContent = '';
+  try {
+    const res = await fetch('/admin/login', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email: document.getElementById('email').value,
+                            password: document.getElementById('password').value}),
+    });
+    if (!res.ok) throw new Error('Sign-in failed');
+    const body = await res.json();
+    sessionStorage.setItem('plasma_admin_token', body.access_token);
+    sessionStorage.setItem('plasma_admin_email', body.email);
+    start();
+  } catch (e) { err.textContent = 'Sign-in failed'; }
+}
+
+function signOut() {
+  sessionStorage.removeItem('plasma_admin_token');
+  document.getElementById('app').classList.add('hide');
+  document.getElementById('login').classList.remove('hide');
+}
+
+function show(view) {
+  for (const v of ['overview', 'users', 'keys', 'audit']) {
+    document.getElementById('v-' + v).classList.toggle('hide', v !== view);
+    document.getElementById('tab-' + v).setAttribute('aria-selected', String(v === view));
+  }
+  ({overview: loadOverview, users: loadUsers, keys: lookupKeys, audit: loadAudit})[view]();
+}
+
+async function loadOverview() {
+  const o = await api('/overview');
+  const labels = {users: 'Users', users_suspended: 'Suspended', keys: 'Licences',
+                  keys_active: 'Active licences', redemptions: 'Activations',
+                  keys_expiring_30d: 'Expiring in 30d'};
+  document.getElementById('cards').innerHTML = Object.entries(labels)
+    .map(([k, l]) => `<div class="card"><b>${o[k] ?? 0}</b><span>${l}</span></div>`).join('');
+}
+
+async function loadUsers() {
+  const q = document.getElementById('q').value.trim();
+  const page = await api('/users' + (q ? '?query=' + encodeURIComponent(q) : ''));
+  document.getElementById('users').innerHTML = page.items.map(u => `
+    <tr><td>${esc(u.email)}</td>
+        <td><span class="pill ${u.status === 'active' ? 'ok' : 'bad'}">${esc(u.status)}</span></td>
+        <td>${esc(u.role)}</td><td>${when(u.created_at)}</td>
+        <td><button class="act ${u.status === 'active' ? 'warn' : ''}"
+             onclick="setUserStatus('${u.id}','${u.status === 'active' ? 'suspended' : 'active'}')">
+             ${u.status === 'active' ? 'Suspend' : 'Restore'}</button></td></tr>`).join('')
+    || '<tr><td colspan="5">No users</td></tr>';
+}
+
+async function setUserStatus(id, status) {
+  if (status === 'suspended' &&
+      !confirm('Suspend this account? Their live sessions end immediately.')) return;
+  await api(`/users/${id}/status`, {method: 'POST', body: JSON.stringify({status})});
+  loadUsers();
+}
+
+async function issueKeys() {
+  const plan_id = document.getElementById('planId').value.trim();
+  const count = Number(document.getElementById('count').value || 1);
+  if (!plan_id) return alert('Enter a plan id');
+  try {
+    const issued = await api('/keys', {method: 'POST',
+      body: JSON.stringify({plan_id, count})});
+    // Shown once — the server stores only a verifier and can never show them again.
+    document.getElementById('issued').innerHTML =
+      `<div class="warnbox">Copy these now — they cannot be shown again.</div>
+       <div class="keys">${issued.map(k => esc(k.key)).join('\n')}</div>`;
+    lookupKeys();
+  } catch (e) { alert('Could not issue: ' + e.message); }
+}
+
+async function lookupKeys() {
+  const q = document.getElementById('keyq').value.trim();
+  const rows = await api('/keys' + (q ? '?prefix=' + encodeURIComponent(q) : ''));
+  document.getElementById('keys').innerHTML = (rows || []).map(k => `
+    <tr><td>${esc(k.id ?? k.key_id)}</td><td>${esc(k.plan_id)}</td>
+        <td><span class="pill ${k.status === 'active' ? 'ok' : 'bad'}">${esc(k.status)}</span></td>
+        <td>${esc(k.uses_remaining)}</td><td>${when(k.expires_at)}</td>
+        <td>${k.status === 'revoked' ? '' :
+          `<button class="act warn" onclick="revokeKey('${k.id ?? k.key_id}')">Revoke</button>`}</td>
+    </tr>`).join('') || '<tr><td colspan="6">No licences</td></tr>';
+}
+
+async function revokeKey(id) {
+  if (!confirm('Revoke this licence? It cannot be used again.')) return;
+  await api(`/keys/${id}/status`, {method: 'POST', body: JSON.stringify({status: 'revoked'})});
+  lookupKeys();
+}
+
+async function loadAudit() {
+  const rows = await api('/audit');
+  document.getElementById('audit').innerHTML = rows.map(e => `
+    <tr><td>${when(e.created_at)}</td><td>${esc(e.actor)}</td><td>${esc(e.action)}</td>
+        <td>${esc(e.subject_type)}/${esc(e.subject_id).slice(0, 8)}</td>
+        <td>${esc(JSON.stringify(e.data))}</td></tr>`).join('')
+    || '<tr><td colspan="5">Nothing recorded yet</td></tr>';
+}
+
+function start() {
+  document.getElementById('login').classList.add('hide');
+  document.getElementById('app').classList.remove('hide');
+  document.getElementById('who').textContent = sessionStorage.getItem('plasma_admin_email') || '';
+  show('overview');
+}
+
+if (T()) start();
+</script>
+</body>
+</html>

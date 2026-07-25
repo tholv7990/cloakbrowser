@@ -17,18 +17,34 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Literal
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ... import admin as admin_ops
 from ... import audit, models
+from ... import throttle
 from ...deps import get_session, require_access
+from ...features.auth import service as auth_service
+from ...tokens import mint_access_token
 from ...errors import CloudError
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+_PAGE = Path(__file__).with_name("static") / "index.html"
+
+
+@router.get("", include_in_schema=False)
+@router.get("/", include_in_schema=False)
+def dashboard() -> HTMLResponse:
+    """The dashboard itself. Unauthenticated on purpose - it is a static shell that
+    holds no data; every byte it displays comes from the role-gated API below."""
+    return HTMLResponse(_PAGE.read_text(encoding="utf-8"))
+
 SessionDep = Annotated[Session, Depends(get_session)]
 
 
@@ -48,6 +64,64 @@ def require_admin(
 
 
 AdminDep = Annotated[models.User, Depends(require_admin)]
+
+
+# --------------------------------------------------------------------------- #
+# Admin sign-in
+# --------------------------------------------------------------------------- #
+
+class AdminLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class AdminLoginResponse(BaseModel):
+    access_token: str
+    email: EmailStr
+
+
+@router.post("/login", response_model=AdminLoginResponse)
+def admin_login(payload: AdminLoginRequest, request: Request, session: SessionDep):
+    """Email + password only.
+
+    The customer login binds a session to a device with an Ed25519 signature; an
+    admin is not running the product, so requiring a registered device would be
+    ceremony without benefit. Same throttle as the customer path, and a failure
+    here is deliberately indistinguishable from a non-admin account.
+    """
+    settings = request.app.state.settings
+    factory = request.app.state.session_factory
+    identifier = str(payload.email)
+    try:
+        throttle.enforce_not_locked(factory, scope="admin-login", identifier=identifier)
+    except throttle.ThrottleError as error:
+        raise CloudError("throttled") from error
+    try:
+        user = auth_service.authenticate(session, email=payload.email, password=payload.password)
+    except Exception as error:
+        throttle.record_failure(factory, scope="admin-login", identifier=identifier,
+                                max_attempts=5, lockout=timedelta(minutes=15))
+        raise CloudError("unauthorized") from error
+    if user.role != "admin" or user.status != "active":
+        # Same error as bad credentials: do not reveal that the account exists.
+        throttle.record_failure(factory, scope="admin-login", identifier=identifier,
+                                max_attempts=5, lockout=timedelta(minutes=15))
+        raise CloudError("unauthorized")
+    throttle.record_success(factory, scope="admin-login", identifier=identifier)
+    token = mint_access_token(
+        user_id=user.id,
+        session_id="admin",
+        device_id="admin",
+        private_key=settings.signing_private_key,
+        now=datetime.now(timezone.utc),
+        ttl=timedelta(hours=8),
+    )
+    audit.record(
+        session, actor=user.email, action="admin.login",
+        subject_type="user", subject_id=user.id, data={},
+    )
+    session.commit()
+    return {"access_token": token, "email": user.email}
 
 
 # --------------------------------------------------------------------------- #

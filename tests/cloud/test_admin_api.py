@@ -162,3 +162,53 @@ def test_overview_counts_users_and_keys(ctx):
     assert body["users"] == 2
     assert body["keys"] == 2
     assert body["keys_active"] == 2
+
+
+def _password_user(ctx, email, password, role):
+    """A user whose password actually verifies, for the login path."""
+    from cloud.features.auth import service as auth
+    with ctx["factory"]() as session:
+        user = models.User(
+            email=email, password_hash=auth.hash_password(password),
+            status="active", role=role,
+        )
+        session.add(user)
+        session.commit()
+        return user.id
+
+
+def test_admin_can_sign_in_with_email_and_password(ctx):
+    _password_user(ctx, "boss@example.com", "correct horse battery", "admin")
+    response = ctx["client"].post(
+        "/admin/login",
+        json={"email": "boss@example.com", "password": "correct horse battery"},
+    )
+    assert response.status_code == 200
+    token = response.json()["access_token"]
+    # The token it returns actually opens the admin surface.
+    listed = ctx["client"].get("/admin/users", headers={"Authorization": f"Bearer {token}"})
+    assert listed.status_code == 200
+    assert len(_audit(ctx, "admin.login")) == 1
+
+
+def test_a_non_admin_with_the_right_password_is_refused_like_a_bad_one(ctx):
+    """Must not reveal that the account exists but lacks the role."""
+    _password_user(ctx, "member2@example.com", "correct horse battery", "user")
+    good = ctx["client"].post(
+        "/admin/login",
+        json={"email": "member2@example.com", "password": "correct horse battery"},
+    )
+    bad = ctx["client"].post(
+        "/admin/login", json={"email": "member2@example.com", "password": "wrong"}
+    )
+    assert good.status_code == bad.status_code == 401
+
+
+def test_the_dashboard_page_is_served_and_holds_no_data(ctx):
+    response = ctx["client"].get("/admin/")
+    assert response.status_code == 200
+    body = response.text
+    assert "Plasma admin" in body
+    # A static shell: it must not embed users, keys or tokens.
+    assert "admin@example.com" not in body
+    assert "Bearer " not in body.split("Authorization")[0]
