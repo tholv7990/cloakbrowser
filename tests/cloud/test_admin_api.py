@@ -304,3 +304,18 @@ def test_a_malformed_checksum_is_rejected_before_publishing(ctx):
         "/admin/releases", headers=ctx["admin_auth"], json={**_RELEASE, "sha256": "short"}
     )
     assert response.status_code == 422
+
+
+def test_the_dashboard_stylesheet_actually_contains_its_rules(ctx):
+    """Tailwind tree-shakes @layer components against `content`. A wrong content
+    path silently purges every rule and still emits a valid-looking stylesheet -
+    which shipped a completely unstyled dashboard once. Assert the layout rules
+    are really there, not merely that the route returns 200.
+    """
+    response = ctx["client"].get("/admin/admin.css")
+    assert response.status_code == 200
+    css = response.text
+    assert "--cb-surface" in css                  # real tokens, not copies
+    for rule in (".side", ".card", ".pill", "#login"):
+        assert rule in css, f"{rule} was purged from the stylesheet"
+    assert len(css) > 12_000, "stylesheet looks tree-shaken to nothing"

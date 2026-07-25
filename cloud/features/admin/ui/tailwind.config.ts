@@ -9,5 +9,7 @@ import base from '../../../../manager/frontend/tailwind.config';
 
 export default {
   ...base,
-  content: ['../static/index.html'],
+  // NB: resolved relative to Tailwind's CWD (manager/frontend), not this file.
+  // Getting this wrong silently purges the whole @layer components block.
+  content: ['../../cloud/features/admin/static/index.html'],
 } satisfies Config;
