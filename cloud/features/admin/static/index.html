@@ -102,7 +102,10 @@
   }
 
   .err{color:var(--danger);font-size:12px;min-height:17px}
+  /* #login sets display:grid on an ID selector, which outranks a bare .hide
+     class - so hiding it needs equal specificity or it silently stays on screen. */
   .hide{display:none}
+  #login.hide,#app.hide{display:none}
 
   /* Phones: let wide tables scroll rather than squeezing columns, and give the
      header and nav room to wrap. */
