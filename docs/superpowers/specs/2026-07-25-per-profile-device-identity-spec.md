@@ -20,6 +20,24 @@ default `consistent` preset) were probed and diffed:
 The seed varies the hashable noise but **not the declared device**. Every profile
 this product creates reports the same machine.
 
+Follow-up measurement — is the machinery there but unused? No:
+
+| preset | seed | reported |
+|---|---|---|
+| `consistent` | 111111 | `1920x1080` · 8 cores · 8 GB · Win32 |
+| `consistent` | 999999 | `1920x1080` · 8 cores · 8 GB · Win32 |
+| `default` | 111111 | `1920x1080` · 8 cores · 8 GB · Win32 |
+
+Neither the seed nor the preset moves screen, cores or memory. There is no device
+variation to switch on — the binary reports one hardcoded machine, so this is a
+build, not a flag. (`--window-size=3000,1400` also leaves the reported screen at
+`1920x1080`, so the wrapper cannot influence it indirectly either.)
+
+What *does* already vary per seed, and should be preserved: GPU model **and** PCI
+device id (measured `RTX 3060 Laptop 0x00002560` vs `RTX 3060 0x00002503`), canvas,
+and font metrics. So per-seed device derivation already exists for the GPU — the
+same mechanism extended to screen/cores/memory is the change being asked for.
+
 ## Why this matters more than it looks
 
 The threat model is not anonymity (one user avoiding uniqueness). It is
