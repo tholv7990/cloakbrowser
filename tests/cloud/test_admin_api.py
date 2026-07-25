@@ -267,3 +267,40 @@ def test_user_detail_reports_no_plan_rather_than_guessing_one(ctx):
         f"/admin/users/{ctx['ids']['admin']}", headers=ctx["admin_auth"]
     ).json()
     assert body["plan"] is None
+
+
+_RELEASE = {
+    "channel": "stable",
+    "version": "1.4.0",
+    "min_supported_version": "1.0.0",
+    "artifact_url": "https://example.test/plasma-1.4.0.msi",
+    "sha256": "a" * 64,
+    "signature": "sig",
+}
+
+
+def test_publishing_a_release_lists_it_and_is_audited(ctx):
+    response = ctx["client"].post("/admin/releases", headers=ctx["admin_auth"], json=_RELEASE)
+    assert response.status_code == 200
+    rows = ctx["client"].get("/admin/releases", headers=ctx["admin_auth"]).json()
+    assert [r["version"] for r in rows] == ["1.4.0"]
+    assert len(_audit(ctx, "admin.release.publish")) == 1
+
+
+def test_a_published_version_cannot_be_republished(ctx):
+    """Clients were already told what they installed; the row must not change."""
+    ctx["client"].post("/admin/releases", headers=ctx["admin_auth"], json=_RELEASE)
+    again = ctx["client"].post(
+        "/admin/releases", headers=ctx["admin_auth"],
+        json={**_RELEASE, "artifact_url": "https://example.test/swapped.msi"},
+    )
+    assert again.status_code == 409
+    rows = ctx["client"].get("/admin/releases", headers=ctx["admin_auth"]).json()
+    assert rows[0]["artifact_url"] == _RELEASE["artifact_url"]
+
+
+def test_a_malformed_checksum_is_rejected_before_publishing(ctx):
+    response = ctx["client"].post(
+        "/admin/releases", headers=ctx["admin_auth"], json={**_RELEASE, "sha256": "short"}
+    )
+    assert response.status_code == 422

@@ -402,6 +402,71 @@ def release_device(device_id: str, session: SessionDep, admin: AdminDep) -> dict
 
 
 # --------------------------------------------------------------------------- #
+# Releases
+# --------------------------------------------------------------------------- #
+
+class ReleaseRequest(BaseModel):
+    channel: Literal["stable", "beta"] = "stable"
+    version: str = Field(min_length=1, max_length=32)
+    min_supported_version: str = Field(min_length=1, max_length=32)
+    artifact_url: str = Field(min_length=1)
+    sha256: str = Field(min_length=64, max_length=64)
+    signature: str = Field(min_length=1)
+
+
+@router.get("/releases")
+def list_releases(session: SessionDep, _admin: AdminDep) -> list[dict[str, Any]]:
+    rows = session.scalars(
+        select(models.UpdateRelease).order_by(models.UpdateRelease.published_at.desc())
+    ).all()
+    return [
+        {
+            "id": r.id,
+            "channel": r.channel,
+            "version": r.version,
+            "min_supported_version": r.min_supported_version,
+            "artifact_url": r.artifact_url,
+            "sha256": r.sha256,
+            "published_at": r.published_at,
+        }
+        for r in rows
+    ]
+
+
+@router.post("/releases")
+def publish_release(
+    payload: ReleaseRequest, session: SessionDep, admin: AdminDep
+) -> dict[str, Any]:
+    """Publish an update. Every client on the channel will be offered this, so the
+    checksum and signature are recorded exactly as given - the updater verifies
+    them, and a wrong value here is a failed update for everyone, not a silent one.
+    """
+    existing = session.scalars(
+        select(models.UpdateRelease).where(
+            models.UpdateRelease.channel == payload.channel,
+            models.UpdateRelease.version == payload.version,
+        )
+    ).first()
+    if existing is not None:
+        # Releases are immutable: re-publishing a version would change what
+        # already-updated clients were told they installed.
+        raise CloudError("redeem_conflict")
+    release = models.UpdateRelease(**payload.model_dump())
+    session.add(release)
+    audit.record(
+        session,
+        actor=admin.email,
+        action="admin.release.publish",
+        subject_type="release",
+        subject_id=payload.version,
+        data={"channel": payload.channel, "sha256": payload.sha256},
+    )
+    session.commit()
+    session.refresh(release)
+    return {"id": release.id, "channel": release.channel, "version": release.version}
+
+
+# --------------------------------------------------------------------------- #
 # Overview + audit
 # --------------------------------------------------------------------------- #
 

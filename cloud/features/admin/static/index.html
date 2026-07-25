@@ -112,6 +112,7 @@
     <button onclick="show('users')" id="tab-users">Users</button>
     <button onclick="show('keys')" id="tab-keys">Licences</button>
     <button onclick="show('plans')" id="tab-plans">Plans</button>
+    <button onclick="show('releases')" id="tab-releases">Releases</button>
     <button onclick="show('audit')" id="tab-audit">Audit</button>
   </nav>
   <main>
@@ -158,6 +159,25 @@
     <section id="v-plans" class="hide">
       <table><thead><tr><th>Plan</th><th>Name</th><th>Seats</th><th>Profiles</th><th>Sessions</th></tr></thead>
         <tbody id="plans"></tbody></table>
+    </section>
+
+    <section id="v-releases" class="hide">
+      <div class="row">
+        <select id="r-channel"><option>stable</option><option>beta</option></select>
+        <input id="r-version" placeholder="Version (1.2.0)" class="w-plan">
+        <input id="r-min" placeholder="Min supported" class="w-plan">
+        <button class="act" onclick="publishRelease()">Publish</button>
+      </div>
+      <div class="row">
+        <input id="r-url" placeholder="Artifact URL" style="flex:1 1 260px;min-width:0">
+        <input id="r-sha" placeholder="SHA-256 (64 hex)" style="flex:1 1 220px;min-width:0">
+        <input id="r-sig" placeholder="Signature" style="flex:1 1 200px;min-width:0">
+      </div>
+      <table><thead><tr><th>Channel</th><th>Version</th><th>Min supported</th><th>Published</th></tr></thead>
+        <tbody id="releases"></tbody></table>
+      <p style="color:var(--muted);font-size:12px;margin-top:14px">
+        Published releases are immutable - every client on the channel is offered
+        this build, so a version is never republished.</p>
     </section>
 
     <section id="v-audit" class="hide">
@@ -208,14 +228,14 @@ function signOut() {
 }
 
 function show(view) {
-  for (const v of ['overview', 'users', 'keys', 'plans', 'audit', 'user']) {
+  for (const v of ['overview', 'users', 'keys', 'plans', 'releases', 'audit', 'user']) {
     document.getElementById('v-' + v).classList.toggle('hide', v !== view);
     // The detail view has no tab of its own; it hangs off Users.
     document.getElementById('tab-' + v)
       ?.setAttribute('aria-selected', String(v === view || (view === 'user' && v === 'users')));
   }
   ({overview: loadOverview, users: loadUsers, keys: lookupKeys, plans: loadPlans,
-    audit: loadAudit, user: () => {}})[view]();
+    releases: loadReleases, audit: loadAudit, user: () => {}})[view]();
 }
 
 async function loadOverview() {
@@ -327,6 +347,31 @@ async function loadPlans() {
     <tr><td>${esc(p.id)}</td><td>${esc(p.name)}</td><td>${esc(p.max_devices)}</td>
         <td>${esc(p.max_profiles)}</td><td>${esc(p.max_sessions)}</td></tr>`).join('')
     || '<tr><td colspan="5">No plans</td></tr>';
+}
+
+async function loadReleases() {
+  const rows = await api('/releases');
+  document.getElementById('releases').innerHTML = rows.map(r => `
+    <tr><td><span class="pill">${esc(r.channel)}</span></td><td>${esc(r.version)}</td>
+        <td>${esc(r.min_supported_version)}</td><td>${when(r.published_at)}</td></tr>`).join('')
+    || '<tr><td colspan="4">Nothing published</td></tr>';
+}
+
+async function publishRelease() {
+  const body = {
+    channel: document.getElementById('r-channel').value,
+    version: document.getElementById('r-version').value.trim(),
+    min_supported_version: document.getElementById('r-min').value.trim(),
+    artifact_url: document.getElementById('r-url').value.trim(),
+    sha256: document.getElementById('r-sha').value.trim(),
+    signature: document.getElementById('r-sig').value.trim(),
+  };
+  if (!confirm(`Publish ${body.version} to ${body.channel}? Every client on that ` +
+               `channel will be offered it, and it cannot be republished.`)) return;
+  try {
+    await api('/releases', {method: 'POST', body: JSON.stringify(body)});
+    loadReleases();
+  } catch (e) { alert('Could not publish: ' + e.message); }
 }
 
 async function loadAudit() {
