@@ -20,6 +20,7 @@ from typing import Annotated, Any, Literal
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi import Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select
@@ -36,6 +37,16 @@ from ...errors import CloudError
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 _PAGE = Path(__file__).with_name("static") / "index.html"
+
+
+@router.get("/admin.css", include_in_schema=False)
+def dashboard_css() -> Response:
+    """Generated from manager/frontend's own Tailwind config and tokens, so the
+    dashboard cannot drift from the product's design system."""
+    return Response(
+        (Path(__file__).with_name("static") / "admin.css").read_text(encoding="utf-8"),
+        media_type="text/css",
+    )
 
 
 @router.get("", include_in_schema=False)

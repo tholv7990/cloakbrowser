@@ -1,0 +1,105 @@
+/* The real token definitions, not a copy of their values. */
+@import '../../../../manager/frontend/src/styles/tokens.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Every rule below is expressed in the manager frontend's own scale (surface,
+   line, ink, accent, radii, shadows). Nothing here hard-codes a colour, so the
+   dashboard moves with the design system instead of drifting from it. */
+@layer components {
+  body { @apply bg-canvas text-ink font-sans text-sm; margin: 0; }
+  .display { @apply font-display font-semibold tracking-tight; }
+
+  /* Shell */
+  #app { @apply grid min-h-[100dvh]; grid-template-columns: 232px 1fr; }
+  .side { @apply flex flex-col gap-4 border-r border-line bg-surface p-3; }
+  .side-brand { @apply flex items-center gap-2.5 px-2 py-1.5; }
+  .side-sub { @apply text-2xs uppercase tracking-[0.13em] text-ink-muted; }
+  .side nav { @apply flex flex-col gap-0.5; }
+  .side nav button { @apply flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2
+                     text-left text-[13px] text-ink-muted hover:bg-surface-raised hover:text-ink; }
+  .side nav button svg { @apply h-[17px] w-[17px] shrink-0 fill-none stroke-current;
+                         stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .side nav button[aria-selected="true"] { @apply bg-surface-raised text-ink; }
+  .side-foot { @apply mt-auto flex flex-col gap-2 border-t border-line pt-3; }
+  .side-foot .who { @apply px-2 text-xs text-ink-muted break-all; }
+  main { @apply max-w-5xl p-6; }
+
+  /* Surfaces + data */
+  .cards { @apply mb-5 flex flex-wrap gap-3; }
+  .card { @apply min-w-[150px] flex-1 rounded-xl border border-line bg-surface px-4 py-3.5; }
+  .card b { @apply block font-display text-2xl font-semibold; }
+  .card span { @apply text-xs text-ink-muted; }
+  table { @apply w-full overflow-hidden rounded-xl border border-line bg-surface; border-collapse: collapse; }
+  th, td { @apply border-b border-line px-3 py-2.5 text-left text-[13px]; }
+  th { @apply text-2xs font-medium uppercase tracking-wide text-ink-muted; }
+  tr:last-child td { @apply border-b-0; }
+
+  /* Controls */
+  input, select, textarea { @apply min-h-[44px] rounded-lg border border-line bg-surface-sunken
+                            px-3 py-2.5 text-base text-ink; }
+  input:focus, select:focus, textarea:focus { @apply border-accent outline-none shadow-focus; }
+  button.act { @apply min-h-[44px] rounded-lg bg-accent px-3.5 py-2.5 text-sm font-medium
+               text-accent-fg hover:bg-accent-hover disabled:opacity-40; }
+  button.act.warn { @apply bg-danger text-white hover:bg-danger; }
+  button.act.ghost { @apply border border-line bg-transparent text-ink hover:bg-surface-raised; }
+  .row { @apply mb-3.5 flex flex-wrap items-center gap-2.5; }
+  .lbl { @apply mb-1.5 block text-xs font-medium text-ink; }
+
+  /* Status */
+  .pill { @apply rounded-full bg-surface-sunken px-2 py-0.5 text-2xs font-medium text-ink-muted; }
+  .pill.ok { @apply bg-success/15 text-success; }
+  .pill.bad { @apply bg-danger/15 text-danger; }
+  .err { @apply min-h-[17px] text-xs text-danger; }
+  .keys { @apply mt-3 rounded-lg border border-line bg-surface-sunken p-3 font-mono text-xs; white-space: pre-wrap; }
+  .warnbox { @apply mt-2.5 rounded-lg border border-danger/35 bg-danger/10 p-2.5 text-xs; }
+
+  /* Sign-in: brand hero + form panel, the app's own two-panel shape */
+  #login { @apply grid min-h-[100dvh]; grid-template-columns: 1fr; }
+  #login .hero { @apply hidden; }
+  #login .pane { @apply flex items-center justify-center bg-canvas px-5 py-7; }
+  #login .card-auth { @apply w-full max-w-sm rounded-2xl border border-line bg-surface p-6; }
+  #login h1 { @apply mb-1.5 text-lg; }
+  #login p { @apply mb-5 text-[13px] text-ink-muted; }
+  #login input { @apply mb-3.5 w-full bg-canvas; }
+  #login button { @apply mt-0.5 w-full; }
+  #login .pw { @apply relative mb-3.5; }
+  #login .pw input { @apply mb-0 w-full pr-10; }
+  #login .pw button { @apply absolute right-1.5 top-1/2 flex h-8 w-8 min-h-0 -translate-y-1/2
+                      items-center justify-center border-0 bg-transparent p-0 text-ink-muted hover:text-ink; }
+}
+
+@media (min-width: 1024px) {
+  #login { grid-template-columns: 1.1fr 1fr; }
+  #login .hero {
+    @apply relative flex flex-col justify-between overflow-hidden p-10 text-white;
+    background:
+      radial-gradient(1200px 600px at 20% 80%, rgb(20 90 120 / .55), transparent 60%),
+      linear-gradient(160deg, rgb(16 34 72), rgb(12 18 34) 70%);
+  }
+  #login .hero::before {
+    content: ""; position: absolute; inset: 0; opacity: .25;
+    background-image: linear-gradient(rgb(255 255 255 / .06) 1px, transparent 1px),
+                      linear-gradient(90deg, rgb(255 255 255 / .06) 1px, transparent 1px);
+    background-size: 46px 46px;
+  }
+  #login .hero > * { position: relative; z-index: 1; }
+  #login .hero-brand { @apply flex items-center gap-2.5; }
+  #login .hero-copy h2 { @apply m-0 max-w-[15ch] text-[32px] leading-[1.15]; }
+  #login .hero-copy p { @apply mb-0 mt-4 max-w-[46ch] text-[15px] leading-relaxed text-white/70; }
+  #login .hero-foot { @apply m-0 text-2xs uppercase tracking-[0.14em] text-white/45; }
+}
+
+@media (max-width: 1023px) {
+  #app { grid-template-columns: 1fr; }
+  .side { @apply flex-row items-center gap-2.5 overflow-x-auto border-b border-r-0 px-3 py-2.5; }
+  .side-brand, .side-foot .who { @apply hidden; }
+  .side nav { @apply flex-row; }
+  .side nav button { white-space: nowrap; }
+  .side-foot { @apply ml-auto mt-0 flex-row items-center border-0 p-0; }
+  main { @apply p-4; }
+  section table { @apply block overflow-x-auto; white-space: nowrap; }
+}
+
+.hide, #login.hide, #app.hide { display: none; }
