@@ -38,6 +38,8 @@ STATUS: dict[str, int] = {
     "token_expired": 401,
     "throttled": 429,
     "not_found": 404,
+    # admin surface
+    "admin_forbidden": 403,
 }
 
 

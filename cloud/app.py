@@ -19,6 +19,7 @@ from .features.auth.routes import router as auth_router
 from .features.devices.routes import router as devices_router
 from .features.oauth.routes import router as oauth_router
 from .features.updates.routes import router as updates_router
+from .features.admin.routes import router as admin_router
 
 
 def create_app(
@@ -41,6 +42,7 @@ def create_app(
     app.include_router(devices_router)
     app.include_router(activation_router)
     app.include_router(updates_router)
+    app.include_router(admin_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:
