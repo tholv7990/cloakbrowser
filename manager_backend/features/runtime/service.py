@@ -102,6 +102,26 @@ def transition_runtime(
     return runtime
 
 
+def end_orphaned_runtime(
+    session: Session, runtime: RuntimeSession, message: str = "manager_restarted"
+) -> RuntimeSession:
+    """Close out a session whose browser was gone when the manager came back up.
+
+    Deliberately bypasses _TRANSITIONS: the stored state is whatever the run was
+    doing when the manager died (queued/starting/running/stopping) and none of those
+    legally reach "stopped" — but the session really is over. Recording it as
+    "crashed" told the user their browser had failed when the app had simply been
+    restarted, which is alarming and wrong.
+    """
+    now = utc_now()
+    runtime.state = "stopped"
+    runtime.last_message = message
+    runtime.stopped_at = now
+    session.commit()
+    session.refresh(runtime)
+    return runtime
+
+
 def set_runtime_message(
     session: Session, runtime: RuntimeSession, message: str
 ) -> RuntimeSession:

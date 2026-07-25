@@ -12,7 +12,7 @@ from sqlalchemy import select
 from ...config import ManagerSettings
 from ...models import RuntimeSession
 from .logs import append_profile_log
-from .service import ACTIVE_STATES, transition_runtime
+from .service import ACTIVE_STATES, end_orphaned_runtime, transition_runtime
 
 
 Inspection = Literal["missing", "unsafe", "owned"]
@@ -94,7 +94,7 @@ def reconcile_runtimes(
 ) -> dict[str, int]:
     process_inspector = inspector or PsutilProcessInspector()
     try_reconnect = reconnect or (lambda _runtime: False)
-    summary = {"crashed": 0, "detached": 0, "reconnected": 0}
+    summary = {"ended": 0, "detached": 0, "reconnected": 0}
     with session_factory() as session:
         runtimes = list(
             session.scalars(
@@ -105,14 +105,14 @@ def reconcile_runtimes(
             profile_dir = settings.profile_root / runtime.profile_id
             inspection = process_inspector.inspect(runtime, profile_dir)
             if inspection == "missing":
-                transition_runtime(
-                    session, runtime, "crashed", message="manager_restarted"
-                )
+                # The manager restarted and this browser is gone: the session ended,
+                # it did not crash. Logged at info for the same reason.
+                end_orphaned_runtime(session, runtime, message="manager_restarted")
                 append_profile_log(
                     session,
                     runtime.profile_id,
-                    "error",
-                    "runtime.crashed",
+                    "info",
+                    "runtime.exited",
                     settings=settings,
                 )
                 append_profile_log(
@@ -122,7 +122,7 @@ def reconcile_runtimes(
                     "runtime.reconciled",
                     settings=settings,
                 )
-                summary["crashed"] += 1
+                summary["ended"] += 1
             elif inspection == "owned" and try_reconnect(runtime):
                 runtime.state = "running"
                 runtime.last_message = "browser_reconnected"

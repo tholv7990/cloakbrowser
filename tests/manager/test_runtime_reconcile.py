@@ -41,9 +41,10 @@ def test_restart_marks_runtime_crashed_when_owned_process_is_not_verified(
     )
     with db_session_factory() as session:
         runtime = session.get(RuntimeSession, runtime_id)
-        assert runtime.state == "crashed"
+        # A manager restart ended the session; it is not a browser crash.
+        assert runtime.state == "stopped"
         assert runtime.last_message == "manager_restarted"
-    assert summary == {"crashed": 1, "detached": 0, "reconnected": 0}
+    assert summary == {"ended": 1, "detached": 0, "reconnected": 0}
 
 
 def test_restart_detaches_live_process_that_cannot_be_safely_controlled(
@@ -107,9 +108,9 @@ def test_malformed_lock_is_left_in_place(settings):
 def test_app_startup_runs_runtime_reconciliation(db_session_factory, settings):
     runtime_id = _running_runtime(db_session_factory, "startup")
     with TestClient(create_app(settings)) as client:
-        assert client.app.state.runtime_reconciliation["crashed"] == 1
+        assert client.app.state.runtime_reconciliation["ended"] == 1
         with client.app.state.session_factory() as session:
-            assert session.get(RuntimeSession, runtime_id).state == "crashed"
+            assert session.get(RuntimeSession, runtime_id).state == "stopped"
 
 
 def test_bootstrap_observes_reconciled_stale_runtimes(db_session_factory, settings):
