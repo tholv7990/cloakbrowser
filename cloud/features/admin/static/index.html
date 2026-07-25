@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex,nofollow">
 <title>Plasma admin</title>
 <style>
@@ -27,14 +28,16 @@
   .card span{color:var(--muted);font-size:12px}
   table{width:100%;border-collapse:collapse;background:var(--panel);
         border:1px solid var(--line);border-radius:10px;overflow:hidden}
-  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);font-size:13px}
+  th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--line);font-size:13px}
   th{color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;
      letter-spacing:.06em}
   tr:last-child td{border-bottom:0}
+  /* 16px keeps iOS from zooming the page when a field takes focus. */
   input,select{background:#10141b;border:1px solid var(--line);color:var(--ink);
-               border-radius:7px;padding:7px 10px;font:inherit}
-  button.act{background:var(--accent);border:0;color:#fff;border-radius:7px;
-             padding:7px 12px;cursor:pointer;font:inherit}
+               border-radius:8px;padding:11px 12px;font:inherit;font-size:16px;
+               min-height:44px}
+  button.act{background:var(--accent);border:0;color:#fff;border-radius:8px;
+             padding:11px 14px;cursor:pointer;font:inherit;min-height:44px}
   button.act.warn{background:var(--danger)}
   button.act.ghost{background:none;border:1px solid var(--line);color:var(--ink)}
   .row{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
@@ -46,14 +49,45 @@
         margin-top:12px}
   .warnbox{border:1px solid rgba(255,107,107,.35);background:rgba(255,107,107,.08);
            border-radius:8px;padding:10px 12px;font-size:12px;margin-top:10px}
-  #login{max-width:320px;margin:12vh auto;background:var(--panel);
-         border:1px solid var(--line);border-radius:12px;padding:22px}
+  /* Mobile first: the card fills a phone screen and only becomes a floating
+     panel once there is room for one. */
+  #login{margin:0;background:var(--panel);border:0;border-radius:0;
+         padding:max(28px,env(safe-area-inset-top)) 20px 28px;
+         min-height:100dvh;display:flex;flex-direction:column;justify-content:center}
   #login h1{font-size:16px;margin:0 0 4px}
   #login p{color:var(--muted);font-size:12px;margin:0 0 16px}
   #login input{width:100%;margin-bottom:9px}
   #login button{width:100%}
   .err{color:var(--danger);font-size:12px;min-height:17px}
   .hide{display:none}
+
+  /* Phones: let wide tables scroll rather than squeezing columns, and give the
+     header and nav room to wrap. */
+  main{overflow-x:hidden}
+  section table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;
+                white-space:nowrap}
+  nav{overflow-x:auto;-webkit-overflow-scrolling:touch;padding:10px 14px}
+  nav button{white-space:nowrap;min-height:40px}
+  header{padding:12px 14px;flex-wrap:wrap}
+  main{padding:14px}
+  .row{gap:10px}
+  .row input{flex:1 1 160px;min-width:0}
+  .card{flex:1 1 140px}
+  /* Fixed pixel widths would overflow a phone; let them share the row. */
+  .w-plan{flex:1 1 140px;min-width:0}
+  .w-count{flex:0 0 84px;min-width:0}
+  .row>span[style]{display:none}
+
+  @media (min-width:640px){
+    #login{max-width:340px;margin:12vh auto;min-height:0;border:1px solid var(--line);
+           border-radius:12px;padding:24px;display:block}
+    header{padding:14px 22px}
+    main{padding:22px}
+    nav{padding:10px 22px}
+    section table{display:table;white-space:normal}
+    .w-plan{flex:0 0 170px}
+    .row>span[style]{display:block}
+  }
 </style>
 </head>
 <body>
@@ -93,8 +127,8 @@
 
     <section id="v-keys" class="hide">
       <div class="row">
-        <input id="planId" placeholder="Plan id (e.g. pro)" style="width:170px">
-        <input id="count" type="number" value="1" min="1" max="500" style="width:80px">
+        <input id="planId" placeholder="Plan id (e.g. pro)" class="w-plan">
+        <input id="count" type="number" value="1" min="1" max="500" class="w-count">
         <button class="act" onclick="issueKeys()">Issue licences</button>
         <span style="flex:1"></span>
         <input id="keyq" placeholder="Key prefix…" onkeydown="if(event.key==='Enter')lookupKeys()">
