@@ -232,3 +232,38 @@ def test_user_detail_carries_the_fields_the_seats_screen_renders(ctx):
     ).json()
     # The screen counts a seat as free exactly when revoked_at is set.
     assert after["devices"][0]["revoked_at"] is not None
+
+
+def test_plans_are_listed_with_their_seat_limits(ctx):
+    rows = ctx["client"].get("/admin/plans", headers=ctx["admin_auth"]).json()
+    assert [p["id"] for p in rows] == ["pro"]
+    assert rows[0]["max_devices"] == 3
+
+
+def test_user_detail_resolves_the_plan_from_a_redeemed_key(ctx):
+    """v1 licences are admin-issued, so a user's plan comes from what they redeemed
+    rather than from a subscription."""
+    with ctx["factory"]() as session:
+        key = models.ActivationKey(
+            verifier="v", lookup_prefix="p", last4="1234",
+            plan_id="pro", max_uses=1, uses_remaining=0,
+        )
+        session.add(key)
+        session.flush()
+        session.add(models.Redemption(
+            key_id=key.id, user_id=ctx["ids"]["member"], device_id=ctx["ids"]["device"]
+        ))
+        session.commit()
+
+    body = ctx["client"].get(
+        f"/admin/users/{ctx['ids']['member']}", headers=ctx["admin_auth"]
+    ).json()
+    assert body["plan"]["id"] == "pro"
+    assert body["plan"]["max_devices"] == 3
+
+
+def test_user_detail_reports_no_plan_rather_than_guessing_one(ctx):
+    body = ctx["client"].get(
+        f"/admin/users/{ctx['ids']['admin']}", headers=ctx["admin_auth"]
+    ).json()
+    assert body["plan"] is None

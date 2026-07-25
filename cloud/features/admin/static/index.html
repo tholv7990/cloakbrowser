@@ -111,6 +111,7 @@
     <button onclick="show('overview')" id="tab-overview">Overview</button>
     <button onclick="show('users')" id="tab-users">Users</button>
     <button onclick="show('keys')" id="tab-keys">Licences</button>
+    <button onclick="show('plans')" id="tab-plans">Plans</button>
     <button onclick="show('audit')" id="tab-audit">Audit</button>
   </nav>
   <main>
@@ -152,6 +153,11 @@
       <p style="color:var(--muted);font-size:12px;margin-top:14px">
         Releasing a device frees its seat immediately. Use this when someone
         reinstalled Windows and cannot activate.</p>
+    </section>
+
+    <section id="v-plans" class="hide">
+      <table><thead><tr><th>Plan</th><th>Name</th><th>Seats</th><th>Profiles</th><th>Sessions</th></tr></thead>
+        <tbody id="plans"></tbody></table>
     </section>
 
     <section id="v-audit" class="hide">
@@ -202,14 +208,14 @@ function signOut() {
 }
 
 function show(view) {
-  for (const v of ['overview', 'users', 'keys', 'audit', 'user']) {
+  for (const v of ['overview', 'users', 'keys', 'plans', 'audit', 'user']) {
     document.getElementById('v-' + v).classList.toggle('hide', v !== view);
     // The detail view has no tab of its own; it hangs off Users.
     document.getElementById('tab-' + v)
       ?.setAttribute('aria-selected', String(v === view || (view === 'user' && v === 'users')));
   }
-  ({overview: loadOverview, users: loadUsers, keys: lookupKeys, audit: loadAudit,
-    user: () => {}})[view]();
+  ({overview: loadOverview, users: loadUsers, keys: lookupKeys, plans: loadPlans,
+    audit: loadAudit, user: () => {}})[view]();
 }
 
 async function loadOverview() {
@@ -258,8 +264,13 @@ async function loadUser() {
   status.className = 'pill ' + (d.user.status === 'active' ? 'ok' : 'bad');
 
   const active = d.devices.filter(x => !x.revoked_at);
-  document.getElementById('u-seats').textContent =
-    `${active.length} seat${active.length === 1 ? '' : 's'} in use`;
+  const seats = document.getElementById('u-seats');
+  // Without a resolvable plan, say how many are in use rather than invent a limit.
+  seats.textContent = d.plan
+    ? `${active.length} / ${d.plan.max_devices} seats · ${d.plan.name}`
+    : `${active.length} seat${active.length === 1 ? '' : 's'} in use`;
+  seats.className = 'pill' +
+    (d.plan && active.length >= d.plan.max_devices ? ' bad' : '');
 
   document.getElementById('devices').innerHTML = d.devices.map(x => {
     const live = !x.revoked_at;
@@ -308,6 +319,14 @@ async function revokeKey(id) {
   if (!confirm('Revoke this licence? It cannot be used again.')) return;
   await api(`/keys/${id}/status`, {method: 'POST', body: JSON.stringify({status: 'revoked'})});
   lookupKeys();
+}
+
+async function loadPlans() {
+  const rows = await api('/plans');
+  document.getElementById('plans').innerHTML = rows.map(p => `
+    <tr><td>${esc(p.id)}</td><td>${esc(p.name)}</td><td>${esc(p.max_devices)}</td>
+        <td>${esc(p.max_profiles)}</td><td>${esc(p.max_sessions)}</td></tr>`).join('')
+    || '<tr><td colspan="5">No plans</td></tr>';
 }
 
 async function loadAudit() {

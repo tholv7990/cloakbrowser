@@ -182,8 +182,14 @@ def get_user(user_id: str, session: SessionDep, _admin: AdminDep) -> dict[str, A
     redemptions = session.scalars(
         select(models.Redemption).where(models.Redemption.user_id == user_id)
     ).all()
+    plan = _effective_plan(session, user_id)
     return {
         "user": UserRead.model_validate(user, from_attributes=True).model_dump(),
+        "plan": (
+            {"id": plan.id, "name": plan.name, "max_devices": plan.max_devices}
+            if plan is not None
+            else None
+        ),
         "devices": [
             {
                 "id": d.id,
@@ -199,8 +205,8 @@ def get_user(user_id: str, session: SessionDep, _admin: AdminDep) -> dict[str, A
             {
                 "id": r.id,
                 "key_id": r.key_id,
-                "device_id": getattr(r, "device_id", None),
-                "created_at": getattr(r, "created_at", None),
+                "device_id": r.device_id,
+                "redeemed_at": r.redeemed_at,
             }
             for r in redemptions
         ],
@@ -319,6 +325,50 @@ def set_key_status(
     )
     session.commit()
     return {"key_id": key_id, "status": payload.status}
+
+
+# --------------------------------------------------------------------------- #
+# Plans
+# --------------------------------------------------------------------------- #
+
+@router.get("/plans")
+def list_plans(session: SessionDep, _admin: AdminDep) -> list[dict[str, Any]]:
+    plans = session.scalars(select(models.Plan).order_by(models.Plan.id)).all()
+    return [
+        {
+            "id": p.id,
+            "name": p.name,
+            "max_devices": p.max_devices,
+            "max_profiles": p.max_profiles,
+            "max_sessions": p.max_sessions,
+            "features": p.features,
+        }
+        for p in plans
+    ]
+
+
+def _effective_plan(session: Session, user_id: str) -> models.Plan | None:
+    """The plan a user is actually on.
+
+    A live subscription wins; otherwise fall back to the plan of the most recent
+    key they redeemed, which is how admin-issued licences (the v1 path) work.
+    """
+    subscription = session.scalars(
+        select(models.Subscription)
+        .where(models.Subscription.user_id == user_id, models.Subscription.status == "active")
+        .order_by(models.Subscription.created_at.desc())
+    ).first()
+    if subscription is not None:
+        return session.get(models.Plan, subscription.plan_id)
+    redemption = session.scalars(
+        select(models.Redemption)
+        .where(models.Redemption.user_id == user_id)
+        .order_by(models.Redemption.redeemed_at.desc())
+    ).first()
+    if redemption is None:
+        return None
+    key = session.get(models.ActivationKey, redemption.key_id)
+    return session.get(models.Plan, key.plan_id) if key is not None else None
 
 
 # --------------------------------------------------------------------------- #
