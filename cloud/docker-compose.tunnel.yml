@@ -1,0 +1,9 @@
+# Overlay for hosting behind a Cloudflare Tunnel instead of the bundled Caddy.
+# Cloudflare terminates TLS, so Caddy is not started and the app is published on
+# loopback only - reachable by cloudflared on this machine, not by the LAN.
+#   docker compose -f cloud/docker-compose.yml -f cloud/docker-compose.tunnel.yml \
+#     --env-file cloud/.env up -d postgres app
+services:
+  app:
+    ports:
+      - "127.0.0.1:8000:8000"

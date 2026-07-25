@@ -44,7 +44,11 @@ export function useLogout() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => api.authLogout(),
-    onSuccess: () => {
+    // onSettled, not onSuccess: signing out must end the local session even when
+    // the server call fails. If the session had already expired, logout itself
+    // 401s - and clearing only on success left the user on a dead page that
+    // looked signed in until the next action reported "please log in".
+    onSettled: () => {
       setCsrfToken(null);
       queryClient.clear();
     },
