@@ -7,11 +7,15 @@
 <meta name="robots" content="noindex,nofollow">
 <title>Plasma admin</title>
 <style>
-  :root{--bg:#0f1115;--panel:#161a22;--line:#242a35;--ink:#e8eaed;--muted:#8b93a7;
-        --accent:#5b9dff;--danger:#ff6b6b;--ok:#4ade80}
+  :root{--bg:rgb(23 24 26);--panel:rgb(32 33 36);--raised:rgb(41 42 46);
+        --line:rgb(46 48 52);--ink:rgb(242 243 245);--muted:rgb(168 173 181);
+        --accent:rgb(91 155 245);--danger:#ff6b6b;--ok:#4ade80}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);
        font:14px/1.5 "Segoe UI",system-ui,sans-serif}
+  /* Plasma sets headings in its display face; fall back cleanly when absent. */
+  .display{font-family:"Space Grotesk","Segoe UI",system-ui,sans-serif;
+           font-weight:600;letter-spacing:-.01em}
   header{display:flex;align-items:center;gap:16px;padding:14px 22px;
          border-bottom:1px solid var(--line);background:var(--panel)}
   header h1{font-size:15px;margin:0;letter-spacing:.02em}
@@ -22,6 +26,7 @@
   nav button[aria-selected="true"]{background:#1d2430;color:var(--ink);border-color:var(--line)}
   main{padding:22px;max-width:1100px}
   .cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+  .card b{font-family:"Space Grotesk","Segoe UI",system-ui,sans-serif}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
         padding:14px 18px;min-width:150px}
   .card b{display:block;font-size:24px;font-weight:600}
@@ -51,13 +56,21 @@
            border-radius:8px;padding:10px 12px;font-size:12px;margin-top:10px}
   /* Mobile first: the card fills a phone screen and only becomes a floating
      panel once there is room for one. */
-  #login{margin:0;background:var(--panel);border:0;border-radius:0;
-         padding:max(28px,env(safe-area-inset-top)) 20px 28px;
-         min-height:100dvh;display:flex;flex-direction:column;justify-content:center}
-  #login h1{font-size:16px;margin:0 0 4px}
-  #login p{color:var(--muted);font-size:12px;margin:0 0 16px}
-  #login input{width:100%;margin-bottom:9px}
-  #login button{width:100%}
+  /* Mobile first: brand above a card that fills the screen, becoming a centred
+     panel once there is room - the same shape as the desktop app's form side. */
+  #login{margin:0;background:var(--bg);min-height:100dvh;display:flex;
+         flex-direction:column;justify-content:center;gap:20px;
+         padding:max(28px,env(safe-area-inset-top)) 20px 28px}
+  #login .brand{display:flex;align-items:center;gap:10px}
+  #login .card-auth{background:var(--panel);border:1px solid var(--line);
+                    border-radius:14px;padding:22px}
+  #login h1{font-size:19px;margin:0 0 5px}
+  #login p{color:var(--muted);font-size:13px;margin:0 0 20px}
+  #login .lbl{display:block;font-size:12px;color:var(--muted);margin:0 0 6px}
+  #login input{width:100%;margin-bottom:14px;background:var(--bg)}
+  #login input:focus{outline:none;border-color:var(--accent);
+                     box-shadow:0 0 0 3px rgb(91 155 245 / .30)}
+  #login button{width:100%;margin-top:2px}
   .err{color:var(--danger);font-size:12px;min-height:17px}
   .hide{display:none}
 
@@ -79,8 +92,7 @@
   .row>span[style]{display:none}
 
   @media (min-width:640px){
-    #login{max-width:340px;margin:12vh auto;min-height:0;border:1px solid var(--line);
-           border-radius:12px;padding:24px;display:block}
+    #login{max-width:380px;margin:0 auto;padding:24px}
     header{padding:14px 22px}
     main{padding:22px}
     nav{padding:10px 22px}
@@ -93,17 +105,30 @@
 <body>
 
 <div id="login">
-  <h1>Plasma admin</h1>
-  <p>Super-admin access. All actions are recorded.</p>
-  <input id="email" type="email" placeholder="Email" autocomplete="username">
-  <input id="password" type="password" placeholder="Password" autocomplete="current-password">
-  <button class="act" onclick="signIn()">Sign in</button>
-  <div class="err" id="loginErr"></div>
+  <div class="brand">
+    <svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <path d="M16 2.5 27 6.2v8.3c0 7.2-4.6 12.9-11 15.5-6.4-2.6-11-8.3-11-15.5V6.2L16 2.5Z"
+            fill="rgb(91 155 245 / .15)" stroke="rgb(91 155 245)" stroke-width="1.6"/>
+      <path d="M16 9.2c3.4 0 6.2 2.9 6.2 6.4 0 1.4-.4 2.6-1.1 3.7-1.2-2.6-3-4-5.1-4-2.6 0-4.2 1.9-4.2 4.4 0 .5.1 1 .2 1.4A6.4 6.4 0 0 1 9.8 15.6c0-3.5 2.8-6.4 6.2-6.4Z"
+            fill="rgb(91 155 245)"/>
+    </svg>
+    <span class="display" style="font-size:15px">Plasma</span>
+  </div>
+  <div class="card-auth">
+    <h1 class="display">Admin sign in</h1>
+    <p>Super-admin access. Every action is recorded.</p>
+    <label class="lbl" for="email">Email</label>
+    <input id="email" type="email" autocomplete="username" placeholder="you@useplasma.app">
+    <label class="lbl" for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password" placeholder="••••••••">
+    <button class="act" onclick="signIn()">Sign in</button>
+    <div class="err" id="loginErr"></div>
+  </div>
 </div>
 
 <div id="app" class="hide">
   <header>
-    <h1>Plasma admin</h1>
+    <h1 class="display">Plasma admin</h1>
     <span class="who" id="who"></span>
     <button class="act ghost" onclick="signOut()">Sign out</button>
   </header>
