@@ -60,6 +60,9 @@ function patchProfile(
   );
 }
 
+/** Runs that are over. Their message is history, not current status. */
+const TERMINAL_STATES = new Set(['stopped', 'crashed']);
+
 export function applyEvent(queryClient: QueryClient, event: AppEvent): void {
   switch (event.event) {
     case 'profile.runtime.changed': {
@@ -112,7 +115,14 @@ export function applyEvent(queryClient: QueryClient, event: AppEvent): void {
       for (const runtime of event.data.runtimes) {
         const state = mapRuntimeState(runtime.state);
         patchProfile(queryClient, runtime.profile_id, (p) => ({ ...p, runtime_state: state }));
-        if (runtime.last_message) store.setMessage(runtime.profile_id, runtime.last_message);
+        // Only live runtimes carry a status line here. A snapshot is broadcast
+        // whenever any profile changes state, so re-applying a finished run's
+        // message rewrote every other row's status at that moment - starting one
+        // profile appeared to re-check every other profile's proxy. A terminal
+        // message still arrives live via profile.runtime.changed when it happens.
+        if (runtime.last_message && !TERMINAL_STATES.has(state)) {
+          store.setMessage(runtime.profile_id, runtime.last_message);
+        }
       }
       queryClient.invalidateQueries({ queryKey: ['folders'] });
       break;
