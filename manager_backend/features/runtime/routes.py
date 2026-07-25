@@ -10,6 +10,7 @@ from ...dependencies import get_session
 from ...errors import ManagerError
 from ...models import RuntimeSession
 from .input_sync import broadcast
+from .launcher import spoofed_screen_size
 from .schemas import (
     ArrangeRequest,
     ArrangeResponse,
@@ -111,7 +112,11 @@ def arrange(payload: ArrangeRequest, request: Request):
             items.append((pid, str(settings.profile_root / pid / "user-data")))
         else:
             items.append((pid, None))
-    results = arrange_windows(items, monitor.work_area, payload.layout, manager)
+    # Cap tiles at the spoofed screen: on a monitor larger than it, a one- or
+    # two-window tile would otherwise hand every page an impossible viewport.
+    results = arrange_windows(
+        items, monitor.work_area, payload.layout, manager, spoofed_screen_size()
+    )
     return {"results": results}
 
 

@@ -210,3 +210,34 @@ def test_arrange_no_monitor_all_not_running(client, auth_headers):
         json={"profile_ids": ["p1"], "monitor_id": "0", "layout": "grid"},
     )
     assert resp.json()["results"][0]["error"] == "not_running"
+
+
+def test_tiles_never_exceed_the_spoofed_screen():
+    """A window bigger than the spoofed screen leaks the real viewport: the binary
+    clamps screen/outerWidth but innerWidth/Height still reports the truth, so a
+    page sees a viewport larger than its own window. Verified live on a 3440x1440
+    monitor (inner 2984x1219 vs screen 1920x1080)."""
+    ultrawide = (0, 0, 3440, 1400)
+    # One window would otherwise fill the whole ultrawide work area.
+    (x, y, w, h) = compute_layout(1, ultrawide, "grid", (1920, 1080))[0]
+    assert (w, h) == (1920, 1080)
+    # Two side-by-side tiles are 1720 wide — under the cap, so untouched.
+    assert [r[2] for r in compute_layout(2, ultrawide, "grid", (1920, 1080))] == [1720, 1720]
+    # Cascade is capped too (0.6 * 3440 = 2064 > 1920).
+    assert compute_layout(1, ultrawide, "cascade", (1920, 1080))[0][2] == 1920
+    # No cap given -> unchanged behaviour.
+    assert compute_layout(1, ultrawide, "grid")[0][2] == 3440
+
+
+def test_custom_window_size_is_capped_to_the_spoofed_screen():
+    from manager_backend.features.runtime.launcher import persistent_context_kwargs
+
+    kwargs = persistent_context_kwargs(
+        {
+            "fingerprint_seed": 1,
+            "fingerprint_preset": "consistent",
+            "window": {"mode": "custom", "width": 3000, "height": 1400},
+        },
+        headless=False,
+    )
+    assert "--window-size=1920,1080" in kwargs["args"]

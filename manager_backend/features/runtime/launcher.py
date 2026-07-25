@@ -270,10 +270,22 @@ def urls_to_open(profile_dir: Path, startup_urls: list[str]) -> list[str]:
 _DEFAULT_WINDOW_SIZE = (1920, 1080)
 
 
+def spoofed_screen_size() -> tuple[int, int]:
+    """The screen size the fingerprint reports to pages. Nothing may exceed it: a
+    window larger than the spoofed screen leaks the real viewport through
+    innerWidth/innerHeight while screen/outerWidth stay spoofed."""
+    return _DEFAULT_WINDOW_SIZE
+
+
 def _window_size_arg(window: dict[str, Any]) -> str:
+    max_w, max_h = _DEFAULT_WINDOW_SIZE
     if window.get("mode") == "custom" and window.get("width") and window.get("height"):
-        return f"--window-size={int(window['width'])},{int(window['height'])}"
-    return f"--window-size={_DEFAULT_WINDOW_SIZE[0]},{_DEFAULT_WINDOW_SIZE[1]}"
+        # Clamped: a custom size bigger than the spoofed screen is the same leak.
+        return (
+            f"--window-size={min(int(window['width']), max_w)},"
+            f"{min(int(window['height']), max_h)}"
+        )
+    return f"--window-size={max_w},{max_h}"
 
 
 # Manager permission key -> Playwright permission token(s). Playwright grants only

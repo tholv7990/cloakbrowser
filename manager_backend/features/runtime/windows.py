@@ -21,12 +21,30 @@ WorkArea = tuple[int, int, int, int]   # x, y, w, h
 _CASCADE_STEP = 32
 
 
-def compute_layout(n: int, work_area: WorkArea, layout: str) -> list[Rect]:
+def _clamp(rects: list[Rect], max_size: tuple[int, int] | None) -> list[Rect]:
+    """Never size a window past the screen the fingerprint claims to have.
+
+    A window wider or taller than the spoofed screen leaks: the binary clamps
+    `screen` and `outerWidth/Height`, but `innerWidth/Height` still reports the
+    real viewport, so a page sees a viewport larger than its own window — which is
+    impossible, and trivially checked. On a 3440x1440 monitor a one- or two-window
+    tile would otherwise exceed a 1920x1080 spoofed screen every time.
+    """
+    if max_size is None:
+        return rects
+    max_w, max_h = max_size
+    return [(x, y, min(w, max_w), min(h, max_h)) for x, y, w, h in rects]
+
+
+def compute_layout(
+    n: int, work_area: WorkArea, layout: str, max_size: tuple[int, int] | None = None
+) -> list[Rect]:
     """Absolute (x, y, w, h) rects for `n` windows on `work_area`.
 
     grid: ceil(sqrt(n)) columns; the right/bottom cells extend to the work-area
     edge so integer division leaves no gap. cascade: fixed-size windows stepped
-    by 32px, wrapping before they leave the work area."""
+    by 32px, wrapping before they leave the work area. `max_size` caps each window
+    to the spoofed screen (see _clamp)."""
     if n <= 0:
         return []
     wx, wy, width, height = work_area
@@ -34,10 +52,13 @@ def compute_layout(n: int, work_area: WorkArea, layout: str) -> list[Rect]:
         cw = max(1, round(width * 0.6))
         ch = max(1, round(height * 0.7))
         slots = max(1, min((width - cw) // _CASCADE_STEP, (height - ch) // _CASCADE_STEP))
-        return [
-            (wx + (i % slots) * _CASCADE_STEP, wy + (i % slots) * _CASCADE_STEP, cw, ch)
-            for i in range(n)
-        ]
+        return _clamp(
+            [
+                (wx + (i % slots) * _CASCADE_STEP, wy + (i % slots) * _CASCADE_STEP, cw, ch)
+                for i in range(n)
+            ],
+            max_size,
+        )
     cols = math.ceil(math.sqrt(n))
     rows = math.ceil(n / cols)
     cell_w = width // cols
@@ -49,7 +70,7 @@ def compute_layout(n: int, work_area: WorkArea, layout: str) -> list[Rect]:
         w = (width - col * cell_w) if col == cols - 1 else cell_w
         h = (height - row * cell_h) if row == rows - 1 else cell_h
         rects.append((x, y, w, h))
-    return rects
+    return _clamp(rects, max_size)
 
 
 @dataclass
@@ -81,6 +102,7 @@ def arrange_windows(
     work_area: WorkArea,
     layout: str,
     manager: WindowManagerProtocol,
+    max_size: tuple[int, int] | None = None,
 ) -> list[dict]:
     """Position the running profiles' windows on `work_area`. `items` is
     (profile_id, user_data_dir|None); a None dir or a profile with no live
@@ -93,7 +115,7 @@ def arrange_windows(
             results[index] = {"profile_id": profile_id, "ok": False, "error": "not_running"}
         else:
             running.append((index, hwnd))
-    rects = compute_layout(len(running), work_area, layout)
+    rects = compute_layout(len(running), work_area, layout, max_size)
     for (index, hwnd), rect in zip(running, rects):
         ok = bool(manager.move_window(hwnd, rect))
         results[index] = {
