@@ -121,11 +121,16 @@ export function applyEvent(queryClient: QueryClient, event: AppEvent): void {
         const state = mapRuntimeState(runtime.state);
         // The snapshot contains the latest historical session for every profile,
         // including runs that crashed or stopped long ago. ProfileRead is the
-        // source of truth for idle rows, so only live sessions may override it.
-        // Otherwise starting profile A can repaint profile B with an old crash.
-        if (!TERMINAL_STATES.has(state)) {
-          patchProfile(queryClient, runtime.profile_id, (p) => ({ ...p, runtime_state: state }));
-        }
+        // source of truth for idle rows, so an old terminal session must not
+        // repaint them (starting profile A repainted B with an ancient crash).
+        // But a row still showing a live state must be ended by a terminal
+        // session: closing the browser window (X) is only ever reported through
+        // this snapshot, and skipping it left the row spinning forever.
+        patchProfile(queryClient, runtime.profile_id, (p) =>
+          TERMINAL_STATES.has(state) && TERMINAL_STATES.has(p.runtime_state)
+            ? p
+            : { ...p, runtime_state: state },
+        );
         // Only live runtimes carry a status line here. A snapshot is broadcast
         // whenever any profile changes state, so re-applying a finished run's
         // message rewrote every other row's status at that moment - starting one

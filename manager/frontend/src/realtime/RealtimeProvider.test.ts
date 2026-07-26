@@ -94,6 +94,35 @@ describe('runtime.snapshot messages', () => {
     ]);
   });
 
+  it('ends a live row when its latest runtime turns terminal (browser closed via X)', () => {
+    // Closing the browser window is only ever reported through the snapshot —
+    // the real backend has no per-profile runtime.changed event. Skipping all
+    // terminal states left the row spinning on "Starting"/"Running" forever.
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(['profiles'], {
+      items: [
+        { id: 'closed', runtime_state: 'running' },
+        { id: 'died', runtime_state: 'starting' },
+      ],
+      page: 1,
+      pages: 1,
+      total: 2,
+      page_size: 25,
+    });
+
+    applyEvent(queryClient, snapshot([
+      { profile_id: 'closed', state: 'stopped', last_message: 'stopped' },
+      { profile_id: 'died', state: 'crashed', last_message: 'browser_launch_failed' },
+    ]) as never);
+
+    expect(queryClient.getQueryData<{ items: Array<{ id: string; runtime_state: string }> }>(
+      ['profiles'],
+    )?.items).toEqual([
+      { id: 'closed', runtime_state: 'stopped' },
+      { id: 'died', runtime_state: 'crashed' },
+    ]);
+  });
+
   it('clears a row live message when its runtime becomes terminal', () => {
     useRuntimeStore.setState({ messages: { p1: 'running' } });
 
