@@ -10,45 +10,47 @@
   input,
   select,
   textarea {
-    @apply rounded border border-line-strong bg-surface-sunken px-4 py-3 text-sm text-ink transition-all;
+    @apply rounded-md border border-line bg-surface-sunken px-4 py-3 text-sm font-normal text-ink transition-all duration-200;
     min-height: 2.75rem;
   }
 
   input::placeholder,
   textarea::placeholder {
-    @apply text-ink-muted opacity-75;
+    @apply text-ink-muted;
   }
 
   input:hover,
   select:hover,
   textarea:hover {
-    @apply border-line-strong/70;
+    @apply border-line-strong bg-surface-sunken;
   }
 
   input:focus,
   select:focus,
   textarea:focus {
+    /* Focus is the ring, not a thicker border - border-2 grew the box 1px and
+       made the input jump on every focus. */
     @apply border-accent bg-surface outline-none;
-    box-shadow: 0 0 0 4px rgb(var(--cb-accent) / 0.15);
+    box-shadow: 0 0 0 6px rgb(var(--cb-accent) / 0.1);
   }
 }
 
 @layer components {
   .input-field {
-    @apply w-full rounded border border-line-strong bg-surface-sunken px-4 py-3 text-sm text-ink transition-all;
+    @apply w-full rounded-md border border-line bg-surface-sunken px-4 py-3 text-sm font-normal text-ink transition-all duration-200;
     min-height: 2.75rem;
   }
 
   .input-field::placeholder {
-    @apply text-ink-muted opacity-75;
+    @apply text-ink-muted;
   }
 
   .input-field:hover {
-    @apply border-line-strong/70 bg-surface-raised;
+    @apply border-line-strong bg-surface-sunken;
   }
 
   .input-field:focus {
     @apply border-accent bg-surface outline-none;
-    box-shadow: 0 0 0 4px rgb(var(--cb-accent) / 0.15);
+    box-shadow: 0 0 0 6px rgb(var(--cb-accent) / 0.1);
   }
 }

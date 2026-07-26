@@ -59,7 +59,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       </aside>
 
       <div className="flex flex-1 flex-col items-center justify-start px-6 pt-16 lg:justify-center lg:pt-0">
-        <form onSubmit={handleSubmit} className="w-full max-w-xs">
+        <form onSubmit={handleSubmit} className="w-full max-w-sm">
           <div className="mb-8">
             <h1 className="mb-3 text-3xl font-bold leading-tight text-ink">Admin sign in</h1>
             <p className="text-sm leading-relaxed text-ink-muted">Super-admin access. Every action is recorded.</p>
@@ -74,7 +74,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               placeholder="you@useplasma.app"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="input-field"
+              className="input-field w-full"
             />
           </div>
 
@@ -88,7 +88,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 placeholder="Enter your password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="input-field pr-12"
+                className="input-field w-full pr-12"
               />
               <button
                 type="button"
