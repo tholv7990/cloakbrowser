@@ -5,5 +5,8 @@
 #     --env-file cloud/.env up -d postgres app
 services:
   app:
-    ports:
+    # !override REPLACES the base file's ports instead of merging with them.
+    # A plain list merge kept 0.0.0.0:8000 from the base and then failed to
+    # bind this loopback entry on the same port ("address already in use").
+    ports: !override
       - "127.0.0.1:8000:8000"
