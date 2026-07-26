@@ -9,6 +9,7 @@ CLI (secrets from the environment, same as the service):
     python -m cloud.admin suspend-user --email a@b.com   # ban: blocks login + kicks sessions
     python -m cloud.admin restore-user --email a@b.com
     python -m cloud.admin lookup  [--prefix PLASMA-XXXX | --key-id <id>]
+    python -m cloud.admin create-admin --email a@b.com   # password from PLASMA_ADMIN_PASSWORD
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from .audit import record
 from .db import create_engine_for, create_session_factory, database_url, utc_now
 from .features.auth import service as auth
 from .keys import generate_activation_key, key_verifier, normalize_email
+from .passwords import hash_password
 
 
 def issue_key(
@@ -106,6 +108,30 @@ def set_user_status(session, *, email: str, status: str, actor: str = "admin") -
     return True
 
 
+def ensure_admin(session, *, email: str, password: str) -> models.User:
+    """Create or promote the dashboard super-admin. Idempotent bootstrap: the
+    dashboard has no signup, so the first admin must come from the CLI. An
+    existing account is promoted and gets its password reset."""
+    normalized = normalize_email(email)
+    user = session.scalar(select(models.User).where(models.User.email == normalized))
+    if user is None:
+        user = models.User(email=normalized, password_hash=hash_password(password))
+        session.add(user)
+    else:
+        user.password_hash = hash_password(password)
+    user.role = "admin"
+    user.status = "active"
+    session.flush()
+    record(
+        session,
+        actor="system",
+        action="user.admin_bootstrap",
+        subject_type="user",
+        subject_id=user.id,
+    )
+    return user
+
+
 def lookup_key(
     session, *, lookup_prefix: str | None = None, key_id: str | None = None
 ) -> list[dict[str, Any]]:
@@ -148,6 +174,11 @@ def _cli() -> None:
     look = sub.add_parser("lookup")
     look.add_argument("--prefix")
     look.add_argument("--key-id")
+    boot = sub.add_parser(
+        "create-admin",
+        help="create/promote the dashboard super-admin (password from PLASMA_ADMIN_PASSWORD)",
+    )
+    boot.add_argument("--email", required=True)
     args = parser.parse_args()
 
     factory = create_session_factory(create_engine_for(database_url()))
@@ -184,6 +215,15 @@ def _cli() -> None:
                 print(row)
             if not rows:
                 print("no match")
+        elif args.cmd == "create-admin":
+            password = os.environ.get("PLASMA_ADMIN_PASSWORD", "")
+            if len(password) < 12:
+                raise SystemExit(
+                    "Set PLASMA_ADMIN_PASSWORD (at least 12 characters) in the environment."
+                )
+            user = ensure_admin(session, email=args.email, password=password)
+            session.commit()
+            print(f"admin ready: {user.email} (id={user.id})")
 
 
 if __name__ == "__main__":  # pragma: no cover

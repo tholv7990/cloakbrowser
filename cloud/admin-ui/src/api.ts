@@ -18,7 +18,10 @@ export async function apiCall<T>(
     },
   });
 
-  if (res.status === 401 || res.status === 403) {
+  // An expired/revoked session bounces back to the sign-in page — but never
+  // for the login call itself: reloading on a wrong password silently ate the
+  // error and the form appeared to do nothing.
+  if ((res.status === 401 || res.status === 403) && path !== '/login') {
     sessionStorage.removeItem('plasma_admin_token');
     window.location.href = '/admin/';
     throw new ApiError(res.status, 'Unauthorized');
@@ -26,7 +29,9 @@ export async function apiCall<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({})) as any;
-    throw new ApiError(res.status, body.error?.code || res.statusText);
+    // The backend error shape is {"error": "<code>"} (a string).
+    const code = typeof body.error === 'string' ? body.error : body.error?.code;
+    throw new ApiError(res.status, code || res.statusText);
   }
 
   return res.status === 204 ? (null as T) : res.json();
