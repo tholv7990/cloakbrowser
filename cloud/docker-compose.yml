@@ -29,8 +29,8 @@ services:
       PLASMA_CLOUD_DATABASE_URL: postgresql+psycopg://plasma:${POSTGRES_PASSWORD}@postgres:5432/plasma
       PLASMA_ACTIVATION_PEPPER: ${PLASMA_ACTIVATION_PEPPER:?set PLASMA_ACTIVATION_PEPPER}
       PLASMA_SIGNING_PRIVATE_KEY_PEM: ${PLASMA_SIGNING_PRIVATE_KEY_PEM:?set PLASMA_SIGNING_PRIVATE_KEY_PEM}
-    expose:
-      - "8000"
+    ports:
+      - "8000:8000"
 
   caddy:
     image: caddy:2-alpine

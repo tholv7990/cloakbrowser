@@ -1,47 +1,65 @@
-# Task 6 Report: Documentation and Deterministic Verification
+# Task 6 report: Frontend — `accountRegister` API surface
 
-## Status
+## Status: DONE
 
-Completed the requested documentation updates in `README.md` and `docs/CODEBASE_FUNCTIONALITY.md`. No production code or tests were modified. No commit was created.
+## Commit
 
-## Documentation delivered
+`f6858f0` — `feat(frontend): accountRegister API surface (real + mock) + useAccountRegister`
+5 files changed, 27 insertions(+), 0 deletions.
 
-- Added the required PowerShell installation, environment-only proxy configuration, full-scan, and browser-skip commands to `README.md`.
-- Documented all summary fields and values: `type`, `type_confidence`, `reputation`, and `suitable_for_protected_sites`.
-- Explained that network classification and reputation are independent, and that `clean_observed` is timestamped, site-specific, and not permanent or universal.
-- Described the single initial browser navigations to the Cloudflare third-party Turnstile demo and Google, with no CAPTCHA clicking or solving, and the browser-skip option.
-- Documented environment-only credentials, redacted endpoints, cached dataset provenance/checksums, upstream availability limitations, and source attribution/licensing.
-- Added functionality-guide links to the scanner design/specification, implementation plan, implementation modules, and primary source map.
+## What changed
+
+Transcribed the brief's code verbatim into the real files — the actual file structure matched the
+brief exactly (no adaptations needed):
+
+- `manager/frontend/src/types/api.ts` — added `trial_end?: number | null;` to `LicenseStatus`,
+  after `grace_deadline` (before `detail`).
+- `manager/frontend/src/api/adapter.ts` — added
+  `accountRegister(payload: EmailPasswordRequest): Promise<LicenseStatus>;` to the `ApiAdapter`
+  interface, right after `accountActivate`. `EmailPasswordRequest` and `LicenseStatus` were already
+  imported.
+- `manager/frontend/src/api/real.ts` — added `accountRegister` after `accountActivate`, calling
+  `apiRequest<LicenseStatus>('/account/register', { method: 'POST', body: payload })`.
+- `manager/frontend/src/mocks/mockApi.ts` — added `accountRegister` after `accountActivate`: sets
+  `mockStore.account` to signed-in with the payload email, sets `mockStore.license` to an active
+  `plan: 'trial'` license with `trial_end: null`, returns it.
+- `manager/frontend/src/features/account/api.ts` — added `useAccountRegister()`: a
+  `useMutation` wrapping `api.accountRegister(payload)`, with `onSuccess: refresh` where `refresh`
+  is the existing `useRefreshGate()` (invalidates both the `LICENSE_KEY` and `ACCOUNT_KEY` react-query
+  caches), placed right after `useAccountActivate()`.
 
 ## Verification
 
-No credentialed or live proxy scan was run.
-
-```powershell
-python -m py_compile benchmarks/proxy_quality_models.py benchmarks/proxy_intelligence.py benchmarks/proxy_site_checks.py benchmarks/proxy_quality.py
-```
-
-Result: passed (exit code 0).
-
-```powershell
-python -m pytest tests/test_proxy_quality_models.py tests/test_proxy_intelligence.py tests/test_proxy_site_checks.py tests/test_proxy_quality_cli.py tests/test_fingerprint_scanners.py -q
-```
-
-Result: passed — 69 passed in 1.58s.
-
-```powershell
-python -m pytest tests/test_fingerprint_preset.py tests/test_session.py tests/test_launch.py tests/test_persistent_context.py -q
-```
-
-Result: passed — 36 passed in 7.92s.
+- `npm --prefix manager/frontend run typecheck` → clean, no errors (confirms both `realApi` and
+  `mockApi` satisfy the extended `ApiAdapter` interface).
+- `npm --prefix manager/frontend run test` → **26 test files / 115 tests passed**, no regressions.
 
 ## Self-review
 
-- The requested commands are present verbatim, using only the non-working placeholder endpoint.
-- Documentation contains no real proxy credentials or endpoint details.
-- The implementation/source-map links resolve from their respective documentation files.
-- No live result or scanner outcome is claimed.
+- Mock return shape: `accountRegister` returns `mockStore.license` populated with all
+  `LicenseStatus` fields including the new optional `trial_end: null` — satisfies the type, and
+  matches the brief's exact object literal.
+- Hook wiring: `useAccountRegister()` uses `useRefreshGate()` (the same shared helper
+  `useAccountLogin`/`useAccountActivate`/`useAccountRefresh`/`useAccountLogout` all use), so a
+  successful register invalidates both `['license']` and `['account']` query keys — consistent with
+  every other account mutation in the file.
+- Real adapter: path `/account/register`, method `POST`, body `payload` (an
+  `EmailPasswordRequest` — `{ email, password }`), matches the backend route added in Task 5
+  (`manager_backend/features/account/routes.py`, `POST /account/register` accepting
+  `RegisterRequest` which has the same `email`/`password` shape) and returns `LicenseStatusRead`
+  which is what `LicenseStatus` types.
+- No new request type was introduced — reused `EmailPasswordRequest` as instructed (its shape,
+  `{ email: string; password: string }`, matches the backend's `RegisterRequest`).
 
 ## Concerns
 
-None for Task 6. The controller must perform any credentialed live scan separately; its credentials and endpoint must not be included in agent reports.
+None. No adaptations from the brief were needed — the file structure, existing imports, and
+placement conventions (`accountRegister` next to `accountActivate` in each file) matched exactly.
+
+## Note on working-tree noise
+
+The working tree contains many unrelated modified/deleted files from other concurrent SDD task
+runs (`.superpowers/sdd/task-1..6-*.md` other than this report, `.superpowers/sdd/progress.md`,
+`.impeccable/hook.cache.json`, a deleted `Velas Component Colors.dc.html`). None of these were
+touched or staged by this task — only the 5 files listed above were staged and committed, per the
+brief's instructions.

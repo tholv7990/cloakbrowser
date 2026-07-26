@@ -1,74 +1,212 @@
-### Task 2: Connectivity and cache primitives
+### Task 2: Cloud — `signup_trial` service
 
-Create `benchmarks/proxy_intelligence.py`, `tests/test_proxy_intelligence.py`, and only the small fixture files needed by these tests.
+**Files:**
+- Modify: `cloud/features/auth/service.py`
+- Test: `tests/cloud/test_signup.py` (create)
 
-Consume `redact_proxy` from `benchmarks.proxy_quality_models`.
+**Interfaces:**
+- Consumes: `_issue_entitlement`/`redeem_key` trial_end behavior (Task 1); `issue_key` (`cloud/admin.py`), `redeem_key` (`cloud/licensing.py`), `register_device` + the device-challenge format (`cloud/features/devices/service.py`), `create_session` + `normalize_email` + `hash_password` (this module / `cloud/keys.py` / `cloud/passwords.py`).
+- Produces:
+  - `TRIAL_PLAN_ID = "trial"`, `TRIAL_DAYS = 30`
+  - `ensure_trial_plan(session) -> models.Plan`
+  - `@dataclass SignupResult` with `tokens: IssuedTokens`, `entitlement_token: str`
+  - `signup_trial(session, *, email: str, password: str, device_public_key: str, device_signature: str, device_name: str = "Plasma Desktop", settings: CloudSettings, now: datetime | None = None, trial_days: int = TRIAL_DAYS) -> SignupResult` — raises `AuthError("email_taken")` on a duplicate email; propagates `DeviceError`/`RedeemError`.
 
-Produce exact interfaces:
-
-- `validate_proxy_url(value: str) -> None`.
-- `resolve_exit_ip(proxy: str, *, attempts: int = 3) -> dict[str, object]`.
-- `DatasetCache(root: Path, max_age: timedelta)` with `get(url: str, name: str) -> Path`.
-- `sha256_file(path: Path) -> str`.
-- A dedicated `ProxyConnectivityError` for insufficient successful echo responses.
-
-Required behaviors and tests:
-
-- Reject malformed proxy URLs and credentials without a host.
-- Use monkeypatch/fake HTTP functions so deterministic tests make no network request.
-- Query exactly three times by default, alternating `https://api.ipify.org?format=json` and `https://checkip.amazonaws.com/`.
-- Normalize all responses with `ipaddress.ip_address`.
-- Select the majority IP. `exit_ip_agreement` is true only when all successful responses agree.
-- Record three latency values when three calls succeed.
-- Require at least two successful responses, otherwise raise `ProxyConnectivityError`.
-- Use `httpx.Client(proxy=proxy, timeout=10.0, follow_redirects=False)`.
-- Document in an error that SOCKS URLs require `pip install -e ".[geoip]"` when `socksio` is unavailable.
-
-Representative test:
+- [ ] **Step 1: Write the failing test** (`tests/cloud/test_signup.py`)
 
 ```python
-def test_resolve_exit_ip_requires_echo_agreement(monkeypatch):
-    responses = iter(["203.0.113.10", "203.0.113.10", "203.0.113.11"])
-    monkeypatch.setattr("benchmarks.proxy_intelligence._fetch_echo_ip", lambda *a, **k: next(responses))
-    result = resolve_exit_ip("socks5://u:p@proxy.example:1080", attempts=3)
-    assert result["exit_ip"] == "203.0.113.10"
-    assert result["exit_ip_agreement"] is False
-    assert len(result["latency_ms"]) == 3
+from __future__ import annotations
+
+import base64
+from datetime import datetime, timedelta, timezone
+
+import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from sqlalchemy import select
+
+from cloud import models
+from cloud.config import generate_test_settings
+from cloud.db import Base, create_engine_for, create_session_factory
+from cloud.entitlements import public_key_to_b64, verify_entitlement
+from cloud.features.auth.service import AuthError, signup_trial
+
+NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def session_factory(tmp_path):
+    engine = create_engine_for(f"sqlite:///{(tmp_path / 'cloud.db').as_posix()}")
+    Base.metadata.create_all(engine)
+    return create_session_factory(engine)
+
+
+def _device():
+    private = Ed25519PrivateKey.generate()
+    public_b64 = public_key_to_b64(private.public_key())
+    challenge = f"plasma-device:{public_b64}"
+    signature_b64 = base64.b64encode(private.sign(challenge.encode())).decode("ascii")
+    return public_b64, signature_b64
+
+
+def test_signup_creates_active_user_trial_key_and_entitlement(session_factory):
+    settings = generate_test_settings()
+    pub, sig = _device()
+    with session_factory() as session:
+        result = signup_trial(
+            session,
+            email="New@Example.com",
+            password="correct horse battery staple",
+            device_public_key=pub,
+            device_signature=sig,
+            settings=settings,
+            now=NOW,
+        )
+        session.commit()
+        user = session.execute(
+            select(models.User).where(models.User.email == "new@example.com")
+        ).scalar_one()
+        assert user.status == "active"
+
+    claims = verify_entitlement(result.entitlement_token, settings.signing_public_key)
+    assert claims["plan"] == "trial"
+    assert claims["trial_end"] == int((NOW + timedelta(days=30)).timestamp())
+    assert result.tokens.refresh_token  # a session was minted
+
+
+def test_signup_duplicate_email_rejected(session_factory):
+    settings = generate_test_settings()
+    pub, sig = _device()
+    with session_factory() as session:
+        signup_trial(
+            session, email="dup@example.com", password="correct horse battery staple",
+            device_public_key=pub, device_signature=sig, settings=settings, now=NOW,
+        )
+        session.commit()
+    pub2, sig2 = _device()
+    with session_factory() as session:
+        with pytest.raises(AuthError) as error:
+            signup_trial(
+                session, email="dup@example.com", password="another good password here",
+                device_public_key=pub2, device_signature=sig2, settings=settings, now=NOW,
+            )
+    assert error.value.code == "email_taken"
 ```
 
-`DatasetCache.get()` must:
+- [ ] **Step 2: Run to verify it fails**
 
-1. Reuse a file younger than `max_age`.
-2. Download to a sibling `.tmp` file.
-3. Hash before `Path.replace()`.
-4. Store `<name>.meta.json` with URL, UTC retrieval time, SHA-256, and byte count.
-5. Remove a temporary file after failure without deleting an older valid cache entry.
+Run: `python -m pytest tests/cloud/test_signup.py -v`
+Expected: FAIL — `ImportError: cannot import name 'signup_trial'`.
 
-Representative cache test:
+- [ ] **Step 3: Implement** — add to `cloud/features/auth/service.py`.
 
+At the top, ensure these imports exist (add any missing): `from datetime import timedelta`, `from ...admin import issue_key`, `from ...licensing import redeem_key`, `from ..devices.service import register_device`, and `from ...keys import normalize_email` (already used by `authenticate`/`register_user`). `IntegrityError`, `models`, `hash_password`, `utc_now`, `create_session`, `IssuedTokens`, `CloudSettings` are already imported/defined in this module.
+
+Add:
 ```python
-def test_cache_reuses_fresh_file(tmp_path, monkeypatch):
-    cache = DatasetCache(tmp_path, timedelta(hours=24))
-    existing = tmp_path / "ipsum.txt"
-    existing.write_text("203.0.113.0/24\t3\n", encoding="utf-8")
-    monkeypatch.setattr("benchmarks.proxy_intelligence._download_atomic", lambda *a: (_ for _ in ()).throw(AssertionError()))
-    assert cache.get("https://example.invalid/ipsum.txt", "ipsum.txt") == existing
+TRIAL_PLAN_ID = "trial"
+TRIAL_DAYS = 30
+
+
+def ensure_trial_plan(session) -> models.Plan:
+    """Get-or-create the trial plan (idempotent; safe on a fresh DB and across
+    concurrent signups). Reused instead of a seed migration so signup is
+    self-contained."""
+    plan = session.get(models.Plan, TRIAL_PLAN_ID)
+    if plan is not None:
+        return plan
+    plan = models.Plan(
+        id=TRIAL_PLAN_ID, name="Trial", max_devices=1, max_profiles=50,
+        max_sessions=5, features={},
+    )
+    session.add(plan)
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()  # a concurrent signup created it first
+        plan = session.get(models.Plan, TRIAL_PLAN_ID)
+    return plan
+
+
+@dataclass
+class SignupResult:
+    tokens: IssuedTokens
+    entitlement_token: str
+
+
+def signup_trial(
+    session,
+    *,
+    email: str,
+    password: str,
+    device_public_key: str,
+    device_signature: str,
+    device_name: str = "Plasma Desktop",
+    settings: CloudSettings,
+    now: datetime | None = None,
+    trial_days: int = TRIAL_DAYS,
+) -> SignupResult:
+    """Register an ACTIVE account (no email verification), grant a `trial_days`
+    trial license, attach the device, and redeem the key — all in one transaction.
+    Returns the session tokens + the signed trial entitlement."""
+    now = now or utc_now()
+    user = models.User(
+        email=normalize_email(email),
+        password_hash=hash_password(password),
+        status="active",
+    )
+    session.add(user)
+    try:
+        session.flush()
+    except IntegrityError as error:
+        session.rollback()
+        raise AuthError("email_taken") from error
+
+    ensure_trial_plan(session)
+    display, _key = issue_key(
+        session,
+        plan_id=TRIAL_PLAN_ID,
+        pepper=settings.activation_pepper,
+        max_uses=1,
+        expires_at=now + timedelta(days=trial_days),
+        created_by="system",
+    )
+    # Canonical device possession challenge — mirrors auth/routes.device_challenge.
+    device = register_device(
+        session,
+        user=user,
+        public_key_b64=device_public_key,
+        challenge=f"plasma-device:{device_public_key}",
+        signature_b64=device_signature,
+        name=device_name,
+    )
+    issued = create_session(session, user=user, device=device, settings=settings, now=now)
+    redeemed = redeem_key(
+        session,
+        raw_key=display,
+        user_id=user.id,
+        device_id=device.id,
+        pepper=settings.activation_pepper,
+        private_key=settings.signing_private_key,
+        now=now,
+        ttl=settings.entitlement_ttl,
+        grace=settings.offline_grace,
+    )
+    return SignupResult(tokens=issued, entitlement_token=redeemed.token)
 ```
 
-Global constraints:
+If `register_device`'s keyword names differ from `public_key_b64`/`challenge`/`signature_b64`/`name`, read `cloud/features/devices/service.py::register_device` and match its exact signature.
 
-- Credentials must never appear in logs, exceptions, or serialized metadata.
-- Public exit IPs may appear.
-- Deterministic tests require no internet access.
-- Follow TDD and record RED/GREEN evidence.
-- Do not implement intelligence-list parsing yet; that is Task 3.
-- This is not a Git repository; do not commit.
+- [ ] **Step 4: Run to verify it passes**
 
-Verification:
+Run: `python -m pytest tests/cloud/test_signup.py -v`
+Expected: PASS (2 tests).
 
-```powershell
-python -m pytest tests/test_proxy_intelligence.py -q
-python -m py_compile benchmarks/proxy_intelligence.py
+- [ ] **Step 5: Commit**
+
+```bash
+git add cloud/features/auth/service.py tests/cloud/test_signup.py
+git commit -m "feat(cloud): signup_trial service (active user + 30-day trial + redeem)"
 ```
 
-Write the full report to `.superpowers/sdd/task-2-report.md`.
+---
+

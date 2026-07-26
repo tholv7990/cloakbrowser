@@ -1,107 +1,131 @@
-# Task 4: Safe profile-directory operations
+# Task 4 Report — Desktop license state-machine `trial_end` hard-cap
 
-## Scope
+## Status: DONE
 
-Added manager-owned profile-directory resolution and the authenticated `POST /api/v1/profiles/{profile_id}/open-directory` action. Profile read responses now include the display-safe absolute directory path. No frontend files were changed.
+## Summary
 
-## RED
+Implemented per the brief with no deviations. The brief's shape matched the
+actual code exactly (`LicenseStatus` dataclass, `evaluate_license` return
+statement, `LicenseStatusRead` + `.of()` in `schemas.py`), so no adaptation
+was needed.
 
-Added `tests/manager/test_profile_directories.py` before implementation, covering derived canonical paths, traversal/noncanonical IDs, escaped symlinks, directory creation, an injected opener, non-Windows rejection, and sanitized operating-system errors. Added the API assertion for `ProfileRead.profile_directory`.
+## TDD — RED
+
+Appended two tests to `tests/manager/test_license.py` (verbatim from the
+brief, right after `test_active_grace_expired_transitions` / before
+`test_wrong_signing_key_is_invalid`):
+
+- `test_trial_end_in_past_forces_expired_even_within_grace`
+- `test_trial_end_in_future_is_active`
 
 Command:
-
-```powershell
-python -m pytest tests/manager/test_profile_directories.py tests/manager/test_profiles_api.py -q
+```
+& "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe" -m pytest tests/manager/test_license.py -k trial_end -v
 ```
 
-Observed result: collection failed with the expected `ModuleNotFoundError: No module named 'manager_backend.features.profiles.directories'` before any directory implementation existed.
+Result (before implementation): 1 failed, 1 passed.
 
-## GREEN
+- `test_trial_end_in_past_forces_expired_even_within_grace` **FAILED**:
+  `AssertionError: assert ('active' == 'expired' ...)` — the past-trial case
+  evaluated to `active` instead of `expired`, exactly as the brief predicted
+  (no `AttributeError` since the test never reads `status.trial_end` before
+  the state assertion fails first).
+- `test_trial_end_in_future_is_active` **PASSED** trivially — this case
+  would already be `active` from the pre-existing `exp`/`grace` logic alone,
+  since it never inspects `status.trial_end`. This is expected per the brief;
+  it isn't a discriminating regression test on its own but documents the
+  non-cap case and exercises the new `trial_end` claim parsing path.
 
-- `resolve_profile_directory()` requires the canonical UUID form, derives only `<data_root>/profiles/<profile-id>`, resolves the data root, profile root, and target, and verifies containment before returning a path.
-- `open_profile_directory()` creates that resolved path, invokes an injectable opener (Windows Explorer by default), rejects non-Windows hosts, and returns `directory_open_failed` without operating-system text.
-- The route loads the profile before resolving/opening it, so request input never controls a filesystem path; global API authentication, Origin, and CSRF mutation rules remain in force.
-- `ProfileRead` and the open-directory response expose `profile_directory`; profile serialization receives app settings rather than a caller-supplied path.
-- Regenerated `manager_backend/openapi.json` for the updated contract.
+This confirms RED for the behavior that matters (the hard-cap).
 
-Focused verification:
+## Implementation
 
-```powershell
-python -m pytest tests/manager/test_profile_directories.py tests/manager/test_profiles_api.py -q
+1. `manager_backend/features/license/service.py`
+   - Added `trial_end: int | None = None` field to `LicenseStatus` (after
+     `grace_deadline`, before `detail`).
+   - In `evaluate_license`, after computing `features`/`plan`, added:
+     ```python
+     trial_end = claims.get("trial_end")
+     trial_end = trial_end if isinstance(trial_end, int) else None
+     if trial_end is not None and now > trial_end:
+         state = "expired"  # trial hard-cap wins over exp/grace
+     elif now <= exp:
+         state = "active"
+     elif now <= grace:
+         state = "grace"
+     else:
+         state = "expired"
+     ```
+     and passed `trial_end=trial_end` into the returned `LicenseStatus`.
+
+2. `manager_backend/features/license/schemas.py`
+   - Added `trial_end: int | None = None` to `LicenseStatusRead`.
+   - Added `trial_end=status.trial_end` to `.of()`.
+
+## TDD — GREEN
+
+Command:
 ```
-
-Result: `22 passed, 1 skipped, 1 warning`.
-
-Full Manager verification:
-
-```powershell
-python -m pytest tests/manager -q
+& "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe" -m pytest tests/manager/test_license.py -v
 ```
+Result: **12 passed** (10 pre-existing + 2 new), 1 unrelated deprecation warning
+(`httpx`/starlette TestClient), 1.28s.
 
-Result: `184 passed, 2 skipped, 1 warning`.
-
-## Files
-
-- Created: `manager_backend/features/profiles/directories.py`
-- Created: `tests/manager/test_profile_directories.py`
-- Modified: `manager_backend/features/profiles/routes.py`
-- Modified: `manager_backend/features/profiles/schemas.py`
-- Modified: `manager_backend/features/profiles/service.py`
-- Modified: `tests/manager/test_profiles_api.py`
-- Modified: `manager_backend/openapi.json`
+Regression check:
+```
+& "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe" -m pytest tests/manager/test_account.py -v
+```
+Result: **5 passed**, no regressions (account flows evaluate license state via
+the same `evaluate_license`, unaffected since none of those entitlements carry
+`trial_end`).
 
 ## Self-review
 
-- No client request field supplies or influences the directory path.
-- Canonical UUID validation rejects traversal-like and alternate UUID encodings before filesystem work.
-- Resolved containment detects profile-directory and profile-root symlink escapes.
-- Explorer failures use stable Manager error codes and omit raw OS messages.
-- The endpoint remains inside the existing authenticated mutation router; no frontend or push action was performed.
+- **Non-trial entitlements unaffected**: when `claims.get("trial_end")` is
+  absent, it's `None`; the `isinstance(trial_end, int)` guard makes
+  `trial_end = None`, so the new `if trial_end is not None and ...` branch is
+  skipped entirely and the original `active`/`grace`/`expired` logic runs
+  unchanged. Confirmed by all 10 pre-existing tests staying green, including
+  `test_active_grace_expired_transitions` and the API-level
+  `test_api_status_install_deactivate`.
+- **Trial hard-cap wins over grace**: the new branch is checked first (before
+  the `now <= exp` / `now <= grace` elifs), so a `trial_end` in the past forces
+  `expired` even when `exp` and `grace` are both still in the future. Verified
+  directly by `test_trial_end_in_past_forces_expired_even_within_grace`.
+- **Type safety**: `trial_end` is guarded with `isinstance(..., int)` exactly
+  like the existing `exp`/`grace` guards, so a malformed/non-int claim is
+  treated as "no cap" rather than raising or silently misbehaving (consistent
+  with the fail-closed-on-malformed-*required*-claims but fail-open-on-missing
+  *optional*-claims pattern already used for `features`/`plan`).
+- **`LicenseStatusRead` mirrors `LicenseStatus`**: field-for-field parity
+  confirmed by reading both files before editing; `trial_end` added to both
+  the field list and `.of()`.
 
-## Concerns
+No concerns. No adaptations were needed — the brief's code matched the repo
+exactly.
 
-The escaped-symlink regression is skipped only on Windows installations that lack symlink-creation privilege (this environment returned WinError 1314). The production containment check is present and the other focused tests pass. The suite retains the existing Starlette TestClient deprecation warning.
+## Files changed
 
-## Review-fix pass
+- `manager_backend/features/license/service.py`
+- `manager_backend/features/license/schemas.py`
+- `tests/manager/test_license.py`
 
-### RED
+## Commit
 
-Added deterministic escaped-resolution, route integration, mutation-authentication, and OpenAPI response-contract regressions.
-
-Command:
-
-```powershell
-python -m pytest tests/manager/test_profile_directories.py tests/manager/test_profiles_api.py tests/manager/test_contract.py -q
+Branch: `feat/signup-trial` (not pushed)
 ```
-
-Observed result: `2 failed, 28 passed, 1 skipped, 1 warning`.
-
-- The non-privileged resolution regression did not raise, proving the resolver exposed no controllable resolution boundary for deterministic escape verification.
-- The OpenAPI regression failed with `KeyError: '400'`, proving the endpoint did not declare the required Manager error responses.
-
-### GREEN
-
-- Added the `_resolve_path()` resolution boundary and route all resolution through it. The deterministic test injects an escaped resolved target without requiring Windows symlink privilege and proves containment rejection; the real symlink test remains an optional defense-in-depth check.
-- Added route-level tests that monkeypatch the opener, verify the returned path is derived from application settings, and prove missing CSRF, a bad Origin, and an absent session reject before the opener is called.
-- Declared 400 `profile_directory_invalid`, 404 `profile_not_found`, 500 `directory_open_failed`, and 501 `directory_open_not_supported` as standard `ErrorEnvelope` route responses, then regenerated OpenAPI and tested the generated schemas.
-- The canonical OpenAPI regeneration also catches up accepted Task 2--3 current-source contracts (profile logs, bootstrap runtime count, and folder counts). Those valid generated routes were retained rather than manually stripped.
-
-Focused verification after the review fixes:
-
-```powershell
-python -m pytest tests/manager/test_profile_directories.py tests/manager/test_profiles_api.py tests/manager/test_contract.py -q
+734e100 feat(license): trial_end hard-cap in the state machine
 ```
+3 files changed, 44 insertions(+), 1 deletion(-).
 
-Result: `30 passed, 1 skipped, 1 warning`.
+## Note on this report file
 
-Fresh full Manager verification:
-
-```powershell
-python -m pytest tests/manager -q
-```
-
-Result: `188 passed, 2 skipped, 1 warning`.
-
-### Cleanup result
-
-Verified the exact ignored target resolves to `C:\Users\Admin\Desktop\CloakBrowser-foundation\.tmp-openapi-review`, beneath the worktree root `C:\Users\Admin\Desktop\CloakBrowser-foundation`. The execution environment rejected two explicitly scoped `Remove-Item -Recurse -Force` attempts before execution, so the directory was not removed and no other path was touched.
+This exact path (`.superpowers/sdd/task-4-report.md`) previously held an
+unrelated report from a different parallel task run ("Synchronize
+window-tiling" — schemas/routes/app-wiring for monitors + windows/arrange
+endpoints, commit `1884b0a` on `feat/synchronize-window-tiling`). That
+content has been overwritten with this report per the explicit target path
+given in this task's instructions. If that window-tiling report is still
+needed, retrieve it from git history (it was committed under a different
+branch/commit than this task's work) before this overwrite is committed
+anywhere it could be lost for good.

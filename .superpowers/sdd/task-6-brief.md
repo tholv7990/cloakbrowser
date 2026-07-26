@@ -1,45 +1,70 @@
-### Task 6: Documentation and deterministic verification
+### Task 6: Frontend — `accountRegister` API surface
 
-Modify `README.md` and `docs/CODEBASE_FUNCTIONALITY.md`. Do not run the credentialed live scan; the controller will perform it after review so credentials never enter agent reports.
+**Files:**
+- Modify: `manager/frontend/src/types/api.ts`, `api/adapter.ts`, `api/real.ts`, `mocks/mockApi.ts`, `features/account/api.ts`
 
-Document these commands:
+**Interfaces:**
+- Produces: `LicenseStatus.trial_end?: number | null`; `api.accountRegister(payload: EmailPasswordRequest): Promise<LicenseStatus>`; `useAccountRegister()` hook.
 
-```powershell
-python -m pip install -e ".[geoip]"
-$env:CLOAK_TEST_PROXY = "socks5://user:password@host:port"
-python -m benchmarks.proxy_quality
+- [ ] **Step 1: Add the type field** — in `manager/frontend/src/types/api.ts`, add to `LicenseStatus` (after `grace_deadline`):
+```ts
+  trial_end?: number | null;
+```
+(Optional, so existing `LicenseStatus` literals in mocks/tests don't need changes.)
 
-$env:PROXY_QUALITY_SKIP_BROWSER = "1"
-python -m benchmarks.proxy_quality
+- [ ] **Step 2: Adapter method** — in `manager/frontend/src/api/adapter.ts`, add to the account/license block (after `accountActivate`):
+```ts
+  accountRegister(payload: EmailPasswordRequest): Promise<LicenseStatus>;
+```
+(`EmailPasswordRequest` and `LicenseStatus` are already imported there.)
+
+- [ ] **Step 3: Real adapter** — in `manager/frontend/src/api/real.ts`, add (after `accountActivate`):
+```ts
+  accountRegister: (payload: EmailPasswordRequest) =>
+    apiRequest<LicenseStatus>('/account/register', { method: 'POST', body: payload }),
 ```
 
-Explain:
-
-- `type`: `mobile`, `residential_or_isp`, `datacenter_or_hosting`, or `unknown`.
-- `type_confidence`: high/medium/low; heuristic-only can never be high.
-- `reputation`: clean_observed/questionable/blocked/unknown.
-- `suitable_for_protected_sites`: yes/no/uncertain.
-- Network type and reputation are independent: residential/mobile does not imply clean; datacenter does not automatically imply blocked.
-- `clean_observed` is timestamped and site-specific, never universal/permanent.
-- Browser checks make one initial navigation each to the Cloudflare third-party Turnstile demo and Google, never click/solve CAPTCHA, and can be skipped.
-- Credentials are environment-only and reports contain a redacted endpoint.
-- Datasets are cached with provenance/checksum.
-- Attribute/link: ipinfo/cli (Apache-2.0, optional API), sapics/ip-location-db with per-dataset licensing, stamparm/ipsum (Unlicense), and FireHOL blocklist-ipsets with source-specific licenses. Explain source availability limitations.
-- Link the design/spec and implementation files in the functionality guide/source map.
-
-Run fresh deterministic verification:
-
-```powershell
-python -m py_compile benchmarks/proxy_quality_models.py benchmarks/proxy_intelligence.py benchmarks/proxy_site_checks.py benchmarks/proxy_quality.py
-python -m pytest tests/test_proxy_quality_models.py tests/test_proxy_intelligence.py tests/test_proxy_site_checks.py tests/test_proxy_quality_cli.py tests/test_fingerprint_scanners.py -q
-python -m pytest tests/test_fingerprint_preset.py tests/test_session.py tests/test_launch.py tests/test_persistent_context.py -q
+- [ ] **Step 4: Mock adapter** — in `manager/frontend/src/mocks/mockApi.ts`, add (after `accountActivate`):
+```ts
+  async accountRegister(payload: EmailPasswordRequest): Promise<LicenseStatus> {
+    await delay(160);
+    mockStore.account = { cloud_configured: true, signed_in: true, email: payload.email };
+    mockStore.license = {
+      state: 'active',
+      allowed: true,
+      plan: 'trial',
+      features: [],
+      expires_at: null,
+      grace_deadline: null,
+      trial_end: null,
+      detail: null,
+    };
+    return mockStore.license;
+  },
 ```
 
-Global constraints:
+- [ ] **Step 5: Hook** — in `manager/frontend/src/features/account/api.ts`, add:
+```ts
+export function useAccountRegister() {
+  const refresh = useRefreshGate();
+  return useMutation({
+    mutationFn: (payload: EmailPasswordRequest) => api.accountRegister(payload),
+    onSuccess: refresh,
+  });
+}
+```
 
-- Never include real proxy details or credentials in docs/report.
-- Do not claim a live result; controller has not run it yet.
-- Do not modify production code/tests.
-- This is not Git; do not commit.
+- [ ] **Step 6: Verify typecheck**
 
-Write full report to `.superpowers/sdd/task-6-report.md`.
+Run: `npm --prefix manager/frontend run typecheck`
+Expected: clean (mock + real both satisfy the extended `ApiAdapter`).
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add manager/frontend/src/types/api.ts manager/frontend/src/api/adapter.ts manager/frontend/src/api/real.ts manager/frontend/src/mocks/mockApi.ts manager/frontend/src/features/account/api.ts
+git commit -m "feat(frontend): accountRegister API surface (real + mock) + useAccountRegister"
+```
+
+---
+

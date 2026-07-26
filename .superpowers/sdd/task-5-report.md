@@ -1,113 +1,138 @@
-# Task 5 Report: True Partial PATCH with Optimistic Concurrency
+# Task 5 Report: Desktop — register bridge (client + service + schema + route)
 
-## Status
+## Status: DONE
 
-Implemented and verified. The profile PATCH endpoint now accepts independently defined partial payloads, requires an `expected_updated_at` concurrency token, preserves omitted values, clears only nullable values on explicit `null`, replaces nested objects atomically, and returns a safe 409 conflict response for stale writers.
+Note: this path previously held a report for an unrelated, concurrently-running "Task 5" from a
+different SDD cycle (frontend monitors/arrangeWindows API surface, branch
+`feat/synchronize-window-tiling`). That content is superseded here per this task's brief
+instruction to write to this exact path; retrieve it via
+`git log -p -- .superpowers/sdd/task-5-report.md` if needed.
 
-## Implementation
+## Pre-implementation verification
 
-- Replaced `ProfilePatch(ProfileCreate)` with an independent strict schema.
-- Made `expected_updated_at` the only required PATCH field.
-- Kept non-nullable PATCH fields omittable while rejecting explicit `null`.
-- Kept nullable relationship and identity-mode values clearable with explicit `null`.
-- Removed `fingerprint_seed` from the PATCH schema; regeneration remains action-only.
-- Applied only fields present in `payload.model_fields_set`.
-- Preserved atomic validation/replacement for `location`, `window`, and `behavior`.
-- Canonicalized stored and supplied timestamps to UTC before comparison and normalized profile timestamp output to UTC.
-- Added a conditional SQL update guard on the stored timestamp. This holds the write version transactionally so two writers with the same token cannot both commit.
-- Returned HTTP 409 `profile_conflict` with the current serialized `ProfileRead` under `error.field_errors.current_profile`.
-- Updated `updated_at` only for semantic changes, including tags-only changes; empty and same-value PATCH requests remain unchanged.
-- Recomputed fingerprint identity only after fingerprint candidate fields changed. The revision increments exactly once per request only when the canonical fingerprint hash changes.
-- Declared the PATCH 409 response in the live FastAPI OpenAPI contract. The checked-in `manager_backend/openapi.json` remains untouched for Task 7 regeneration.
+Before transcribing the brief's code, verified all referenced pieces against the real repo:
 
-## TDD Evidence
+- `manager_backend/features/account/cloud_client.py`: `login()` and `_post()` match the brief's
+  description exactly; `DeviceIdentity` is already imported at module top (`from .device import
+  DeviceIdentity`), so `register()` needed no new import.
+- `manager_backend/features/account/service.py`: `login()`/`activate()`, `REFRESH_REF`,
+  `get_or_create_device`, `_manager_error`, `_CLOUD_ERRORS` all present and match.
+- `manager_backend/features/account/schemas.py`: `LoginRequest` matches the mirror pattern.
+- `manager_backend/features/account/routes.py`: `LicenseStatusRead` import and route pattern match.
+- `tests/manager/test_account.py`: `cloud` fixture builds a real in-process cloud app via
+  `create_cloud_app` — the same app that serves `/auth/signup` (added in Tasks 1-3). It pins a
+  seeded Pro plan/key for the login+activate tests but does not limit which routes are reachable,
+  so `register()` (which mints its own trial via `/auth/signup`) needs no seeded key.
+- `cloud/features/auth/routes.py` + `cloud/features/auth/service.py`: confirmed `POST /auth/signup`
+  returns `SignupResponse(access_token, refresh_token, expires_in, entitlement_token)`, and
+  `signup_trial()` raises `AuthError("email_taken")` on a duplicate email (via `IntegrityError` on
+  user insert), which `cloud/errors.py` maps to HTTP 409 with body `{"error": "email_taken"}`.
+  This is exactly what `CloudClientError` surfaces to the service layer. No adaptation needed —
+  the brief's code was correct as written.
 
-1. Baseline: `python -m pytest tests/manager/test_profiles_api.py tests/manager/test_schemas.py -q`
-   - 31 passed.
-2. RED after adding Task 5 tests:
-   - 12 failed, 35 passed.
-   - Failures were the expected missing-token, inherited-full-schema, null-handling, concurrency, and revision failures.
-3. Initial GREEN:
-   - 47 passed for profile/schema tests.
-4. Expanded focused verification including the legacy proxy PATCH contract:
-   - 56 passed.
-5. Transactional race stress:
-   - The two-session race test passed 10 consecutive runs; each run produced exactly one successful writer and one `profile_conflict`.
+## TDD
 
-## Coverage Added
+### RED
 
-- Required concurrency token and provided-field tracking.
-- Empty PATCH behavior.
-- Metadata-only PATCH and fingerprint stability.
-- Nullable clear versus non-nullable rejection.
-- Atomic nested replacement.
-- Equivalent timezone-offset timestamp acceptance.
-- Stale conflict response and safe current profile payload.
-- Multiple fingerprint field changes incrementing revision once.
-- Same-value and operational-only behavior changes not incrementing revision.
-- OpenAPI schema required/nullable/read-only shape.
-- Concurrent writers using separate database sessions.
-- Existing proxy-reference PATCH updated to send the concurrency token.
+Appended the two tests from the brief to `tests/manager/test_account.py` (verbatim, per the brief).
 
-## Verification
+Command: `& "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe" -m pytest tests/manager/test_account.py -k register -v`
 
-- Focused Manager tests: 56 passed, 0 failed.
-- Full Manager suite before final audit: 204 passed, 2 skipped, 0 failed.
-- Final full Manager suite after all additions: 206 passed, 2 skipped, 0 failed.
-- `python -m compileall -q manager_backend`: passed.
-- Scoped `git diff --check`: passed.
-- The commit hash is recorded in the task handoff.
+Result: 2 failed as expected:
+```
+tests/manager/test_account.py::test_register_creates_trial_and_unlocks FAILED
+tests/manager/test_account.py::test_register_duplicate_email_is_safe_error FAILED
+...
+E       AttributeError: 'AccountService' object has no attribute 'register'
+```
+(same AttributeError for both tests)
 
-## Files Changed
+### GREEN
 
-- `manager_backend/features/profiles/schemas.py`
-- `manager_backend/features/profiles/service.py`
-- `manager_backend/features/profiles/routes.py`
-- `tests/manager/test_profiles_api.py`
-- `tests/manager/test_schemas.py`
-- `tests/manager/test_proxy_api.py`
-- `.superpowers/sdd/task-5-report.md`
+Implemented exactly per brief:
+- `CloudClient.register(*, email, password, device)` in `cloud_client.py`, added after `login()`.
+- `AccountService.register(*, email, password)` in `service.py`, added after `login()`; added
+  `"email_taken": ("An account with this email already exists.", 409)` to `_CLOUD_ERRORS`.
+- `RegisterRequest` in `schemas.py` (`email: EmailStr`, `password: Field(min_length=12,
+  max_length=1024)`), added after `LoginRequest`.
+- `POST /account/register` in `routes.py` (imports `RegisterRequest`, added between `login` and
+  `activate`).
 
-## Concerns / Follow-up
+Command: `& "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe" -m pytest tests/manager/test_account.py -v`
 
-- The Manager suite emits one pre-existing Starlette deprecation warning about `httpx`; it is unrelated to Task 5.
-- Two environment/platform-dependent Manager tests remain skipped, as before.
-- The checked-in OpenAPI artifact is intentionally deferred to Task 7, per the approved plan; the live app schema already reflects `ProfilePatch` and the 409 response.
-- Unrelated pre-existing edits in `.superpowers/sdd/progress.md` and task brief files were preserved and excluded from this task's commit.
+Result: 7 passed (all pre-existing account tests + the 2 new ones).
 
-## Important Findings Follow-up
+Command: `& "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe" -m pytest tests/manager -q`
 
-### Corrections
+First run surfaced 1 unrelated regression: `test_openapi_static.py::
+test_checked_in_openapi_matches_generated_application_contract` — the checked-in
+`manager_backend/openapi.json` contract diverged because the new `/account/register` route wasn't
+reflected in it. This is a generated artifact (`manager_backend/export_openapi.py`), not called
+out in the brief, but the prior login/activate task's commit (`3ab4920`) also touched
+`openapi.json` for the same reason, so I followed the same precedent. Regenerated it with:
 
-- Semantic updates now assign `updated_at = max(canonical_utc(utc_now()), canonical_stored + 1 microsecond)`, so a frozen or backward-moving clock cannot leave the optimistic-concurrency token reusable.
-- The conditional profile UPDATE now reserves SQLite's writer/CAS transaction before any folder, workflow-status, tag, or proxy lookup. Reference validation therefore observes state serialized after whichever writer obtained the reservation first.
-- SQLite write-upgrade/lock failures at the CAS boundary are rolled back and returned as the existing safe `profile_conflict` response with the current profile.
-- Proxy deletion now reserves its write before checking profile assignments. If PATCH already won the reservation, deletion observes the committed assignment and returns typed `proxy_in_use`; if a write-upgrade conflict still occurs, it is mapped to a safe proxy conflict rather than exposing SQLite state.
-- Profile changes and tag-association writes are explicitly flushed inside the guarded transaction. Residual foreign-key `IntegrityError` failures are rolled back and mapped to HTTP 422 `invalid_profile_reference` with `references=changed_during_update`; no SQL or database text escapes.
-- Omitted/null behavior, atomic nested replacement, fingerprint revision/hash rules, and the safe stale-profile payload remain unchanged.
+`& "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe" -m manager_backend.export_openapi`
 
-### Follow-up TDD Evidence
+Re-ran the full suite: 795 passed, 5 skipped (skips are pre-existing/unrelated), 0 failures.
 
-1. RED command targeted the frozen-clock writer race, proxy soft-delete interleaving, tag hard-delete interleaving, and residual association FK failure.
-   - 4 failed, 0 passed.
-   - Observed failures: both frozen-clock writers committed; a deleted proxy was assigned; tag deletion leaked an SQLAlchemy `IntegrityError`; and the injected FK failure exposed raw database exception details.
-2. GREEN after the transaction/timestamp fix:
-   - 4 passed, 0 failed.
-3. RED inverse-order proxy test:
-   - 1 failed, 0 passed.
-   - PATCH reserved first, but the delete-side stale in-use count let both operations succeed and left the profile assigned to a soft-deleted proxy.
-4. GREEN after reserving the proxy delete transaction before its in-use check:
-   - 1 passed, 0 failed.
-5. Broader profile/schema/proxy/catalog focused suite:
-   - 71 passed, 0 failed.
-6. Deterministic race stress:
-   - All 5 regression tests passed in 10 consecutive runs (50/50 executions).
-7. Full Manager suite after the follow-up implementation:
-   - 210 passed, 2 skipped, 0 failed.
+## Files changed
 
-### Follow-up Files Changed
+- `manager_backend/features/account/cloud_client.py` — added `register()`.
+- `manager_backend/features/account/service.py` — added `register()`, added `"email_taken"` to
+  `_CLOUD_ERRORS`.
+- `manager_backend/features/account/schemas.py` — added `RegisterRequest`.
+- `manager_backend/features/account/routes.py` — added `RegisterRequest` import + `POST /register`.
+- `manager_backend/openapi.json` — regenerated (adaptation beyond the brief; see above).
+- `tests/manager/test_account.py` — appended the two tests from the brief.
+- `.superpowers/sdd/task-5-report.md` — this report (overwrote unrelated concurrent-cycle content).
 
-- `manager_backend/features/profiles/service.py`
-- `manager_backend/features/proxies/service.py`
-- `tests/manager/test_profiles_api.py`
-- `.superpowers/sdd/task-5-report.md`
+## Adaptations from the brief
+
+1. Regenerated and committed `manager_backend/openapi.json`. The brief's `git add` list didn't
+   mention it, but without it `tests/manager/test_openapi_static.py` fails — a real regression
+   caused by adding the route, not a pre-existing one — and the precedent commit for the
+   login/activate route (`3ab4920`) updated the same file the same way. Staged only the four
+   account files + this generated file + the test file, keeping to the spirit of the brief's scope
+   instruction (did not touch the many other unrelated modified files sitting in the working tree
+   from other concurrent SDD tasks — `.superpowers/sdd/task-1..6-*`, `progress.md`, etc.).
+
+No other deviations — the brief's code for `cloud_client.py`, `service.py`, `schemas.py`, and
+`routes.py` was transcribed verbatim and worked first try.
+
+## Self-review
+
+- Register stores the session AND installs the entitlement: confirmed —
+  `self._secrets.put(REFRESH_REF, ...)`, `self._save_state({"email": email})`, then
+  `license_service.install_entitlement(...)` is returned, in that order, matching `login()` +
+  `activate()`'s combined effect.
+- On cloud failure nothing partial is stored: confirmed — `client.register(...)` is the only
+  statement inside the `try`; a `CloudClientError` raises `_manager_error(error)` before any of
+  `_secrets.put`, `_save_state`, or `install_entitlement` run. No partial state possible.
+- `email_taken` mapped: confirmed — `_CLOUD_ERRORS["email_taken"]` -> message + 409, and
+  `_manager_error` prefixes to `cloud_email_taken`, matching
+  `test_register_duplicate_email_is_safe_error`'s assertion.
+
+## Concerns
+
+- No route-level (HTTP, via `TestClient`) test exercises `POST /api/v1/account/register` or the
+  `RegisterRequest` min_length=12 validation directly — the brief's two tests only exercise
+  `AccountService.register()` at the service layer (same scope as the brief specified; the
+  existing `test_routes_login_activate_reflect_in_license` route-level test wasn't extended for
+  register). Minor coverage gap, not a functional concern — the route is a thin pass-through
+  identical in shape to `activate`'s route, which is covered at the route level.
+- The working tree has many unrelated modified/deleted files from other concurrent work
+  (`.superpowers/sdd/task-1..6-*`, `progress.md`, `.impeccable/hook.cache.json`, a deleted
+  `Velas Component Colors.dc.html`). None of these were touched or staged by this task.
+
+## Commit
+
+`d6b7dfd` — `feat(account): register bridge -> cloud signup + install trial entitlement`
+(local commit on `feat/signup-trial`, not pushed).
+
+Files changed: 6 files, 160 insertions(+), 1 deletion(-)
+- `manager_backend/features/account/cloud_client.py`
+- `manager_backend/features/account/routes.py`
+- `manager_backend/features/account/schemas.py`
+- `manager_backend/features/account/service.py`
+- `manager_backend/openapi.json`
+- `tests/manager/test_account.py`

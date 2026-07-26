@@ -1,56 +1,110 @@
-### Task 5: CLI orchestration, safe report writing, and exit codes
+### Task 5: Desktop — register bridge (client + service + schema + route)
 
-Create `benchmarks/proxy_quality.py` and `tests/test_proxy_quality_cli.py`; modify `benchmarks/__init__.py` only if required.
+**Files:**
+- Modify: `manager_backend/features/account/cloud_client.py`, `service.py`, `schemas.py`, `routes.py`
+- Test: `tests/manager/test_account.py`
 
-Consume the existing Task 1-4 interfaces. Produce:
+**Interfaces:**
+- Consumes: cloud `POST /auth/signup` (Task 3); `install_entitlement` + `LicenseStatus` (license service).
+- Produces:
+  - `CloudClient.register(*, email, password, device) -> dict` (`{access_token, refresh_token, expires_in, entitlement_token}`)
+  - `AccountService.register(*, email, password) -> LicenseStatus`
+  - `RegisterRequest { email, password }` (password `min_length=12`)
+  - `POST /api/v1/account/register` → `LicenseStatusRead`
 
-- `run_proxy_quality_scan(proxy: str, output_dir: Path, *, browser_checks: bool, ipinfo_token: str | None) -> dict[str, object]`.
-- CLI `python -m benchmarks.proxy_quality`.
+- [ ] **Step 1: Write the failing test** (append to `tests/manager/test_account.py`)
 
-Execution order:
+Uses the existing `cloud` + `account` fixtures (a real in-process cloud app + a fake-client-backed `AccountService`):
 
-1. Read/validate environment.
-2. Resolve exit IP/latency.
-3. Collect intelligence with per-source isolation.
-4. Classify network.
-5. Run or skip browser checks.
-6. Aggregate summary.
-7. Build secret set from raw proxy and parsed username/password.
-8. Run `assert_no_secrets()` on report and console payload.
-9. Write JSON atomically via sibling `.tmp`, flush/fsync, replace.
-10. Print only redacted endpoint, summary, and artifact path.
+```python
+def test_register_creates_trial_and_unlocks(cloud, account):
+    svc, settings = account
+    status = svc.register(email="fresh@example.com", password="correct horse battery staple")
+    assert status.state == "active" and status.allowed
+    assert status.trial_end is not None
+    assert svc.status().signed_in is True
+    assert license_service.evaluate_license(settings).state == "active"
 
-CLI rules/tests:
 
-- Proxy comes only from `CLOAK_TEST_PROXY`; never CLI argument.
-- Missing proxy exits 2 without environment contents.
-- Connectivity failure exits 3.
-- Artifact write failure exits 4.
-- Bad reputation is a valid completed scan and exits 0.
-- `PROXY_QUALITY_SKIP_BROWSER=1` produces site `skipped` and summary `unknown` unless intelligence/alignment makes it questionable/blocked.
-- Timestamped output contains `report.json` and `sources.json`.
-- Nested credentials abort before final replace.
-- Use `tempfile.TemporaryDirectory()` for browser profile and ensure it is removed after context closes.
-- Output screenshots live only inside timestamped artifact directory.
-- Never serialize raw proxy/token, cookies, HTML, headers, CAPTCHA tokens, or profile paths/storage.
-- Catch known configuration/connectivity/artifact exceptions and scrub unexpected exception text before printing.
-
-Report sections: `connectivity`, `classification`, `reputation_intelligence`, `identity_alignment`, `site_outcomes`, `summary`, `proxy` (redacted only), `timestamp_utc`, `sources_manifest`. The separate `sources.json` contains safe source provenance only.
-
-Global constraints:
-
-- `clean_observed` is timestamp/site-specific.
-- One initial browser navigation per protected site and no CAPTCHA interaction (delegated to Task 4).
-- Deterministic tests must monkeypatch all network/browser calls.
-- Follow TDD with RED/GREEN evidence.
-- This is not Git; do not commit.
-
-Verification:
-
-```powershell
-python -m pytest tests/test_proxy_quality_cli.py -q
-python -m pytest tests/test_proxy_quality_models.py tests/test_proxy_intelligence.py tests/test_proxy_site_checks.py tests/test_proxy_quality_cli.py tests/test_fingerprint_scanners.py -q
-python -m py_compile benchmarks/proxy_quality.py
+def test_register_duplicate_email_is_safe_error(cloud, account):
+    svc, _ = account
+    svc.register(email="taken@example.com", password="correct horse battery staple")
+    with pytest.raises(ManagerError) as err:
+        svc.register(email="taken@example.com", password="correct horse battery staple")
+    assert err.value.code == "cloud_email_taken"
 ```
 
-Write full report to `.superpowers/sdd/task-5-report.md`.
+`license_service`, `ManagerError`, `pytest` are already imported in this module.
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `python -m pytest tests/manager/test_account.py -k register -v`
+Expected: FAIL — `AttributeError: 'AccountService' object has no attribute 'register'`.
+
+- [ ] **Step 3a: `CloudClient.register`** — add to `manager_backend/features/account/cloud_client.py` (after `login`):
+```python
+    def register(self, *, email: str, password: str, device: DeviceIdentity) -> dict:
+        """Create a trial account + attach this device -> {access_token,
+        refresh_token, expires_in, entitlement_token}."""
+        return self._post(
+            "/auth/signup",
+            {
+                "email": email,
+                "password": password,
+                "device_public_key": device.public_key_b64,
+                "device_signature": device.signature_b64(),
+                "device_name": "Plasma Desktop",
+            },
+        )
+```
+
+- [ ] **Step 3b: `AccountService.register`** — add to `manager_backend/features/account/service.py` (after `login`), and add the `email_taken` mapping to `_CLOUD_ERRORS`:
+```python
+    def register(self, *, email: str, password: str) -> LicenseStatus:
+        client = self._client()
+        device = get_or_create_device(self._secrets)
+        try:
+            result = client.register(email=email, password=password, device=device)
+        except CloudClientError as error:
+            raise _manager_error(error) from error
+        self._secrets.put(REFRESH_REF, result["refresh_token"])
+        self._save_state({"email": email})
+        return license_service.install_entitlement(self._settings, result["entitlement_token"])
+```
+Add to the `_CLOUD_ERRORS` dict:
+```python
+    "email_taken": ("An account with this email already exists.", 409),
+```
+
+- [ ] **Step 3c: `RegisterRequest`** — add to `manager_backend/features/account/schemas.py`:
+```python
+class RegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    password: str = Field(min_length=12, max_length=1024)
+```
+
+- [ ] **Step 3d: route** — in `manager_backend/features/account/routes.py`, add `RegisterRequest` to the `.schemas` import and add:
+```python
+@router.post("/register", response_model=LicenseStatusRead, operation_id="account_register")
+def register(request: Request, payload: RegisterRequest) -> LicenseStatusRead:
+    return LicenseStatusRead.of(
+        _service(request).register(email=str(payload.email), password=payload.password)
+    )
+```
+
+- [ ] **Step 4: Run to verify it passes**
+
+Run: `python -m pytest tests/manager/test_account.py -v`
+Expected: PASS. Then `python -m pytest tests/manager -q` → all pass (no regressions).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add manager_backend/features/account/ tests/manager/test_account.py
+git commit -m "feat(account): register bridge -> cloud signup + install trial entitlement"
+```
+
+---
+

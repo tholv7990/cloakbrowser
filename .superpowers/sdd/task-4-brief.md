@@ -1,59 +1,113 @@
-### Task 4: Browser site-state checks without challenge interaction
+### Task 4: Desktop — license state-machine `trial_end` hard-cap
 
-Create `benchmarks/proxy_site_checks.py`, `tests/test_proxy_site_checks.py`, and sanitized text fixtures under `tests/fixtures/proxy_quality/`.
+**Files:**
+- Modify: `manager_backend/features/license/service.py`, `manager_backend/features/license/schemas.py`
+- Test: `tests/manager/test_license.py`
 
-Produce exact interfaces:
+**Interfaces:**
+- Produces: `LicenseStatus` gains `trial_end: int | None = None`; `evaluate_license` forces `state="expired"` when `now > trial_end` (a claim), regardless of `exp`/grace; `LicenseStatusRead` surfaces `trial_end`.
 
-- `parse_google_state(url: str, body_text: str, *, search_container_visible: bool, recaptcha_visible: bool) -> str`.
-- `parse_cloudflare_state(body_text: str, *, token_present: bool, challenge_visible: bool) -> str`.
-- `run_browser_checks(proxy: str, profile_dir: Path, screenshot_dir: Path) -> dict[str, object]`.
+- [ ] **Step 1: Write the failing test** (append to `tests/manager/test_license.py`)
 
-Google priority: `/sorry/` or visible reCAPTCHA -> `captcha`; explicit access denial -> `blocked`; visible `#search` -> `results`; consent form -> `consent`; otherwise `unknown`. Arbitrary result text mentioning reCAPTCHA must not cause a challenge verdict.
-
-Cloudflare priority: nonempty token plus no visible challenge -> `passed`; visible challenge -> `interactive`; explicit error -> `error`; widget without verdict -> `pending`; otherwise `unknown`.
-
-Required representative tests:
+The existing `_entitlement` helper builds claims — extend a copy for trial_end, or add the kwarg. Add these tests (they construct claims directly, so they don't need the cloud endpoint):
 
 ```python
-def test_google_results_text_that_mentions_recaptcha_is_not_a_challenge():
-    assert parse_google_state(
-        "https://www.google.com/search?q=test",
-        "A search result discussing reCAPTCHA performance",
-        search_container_visible=True,
-        recaptcha_visible=False,
-    ) == "results"
+def test_trial_end_in_past_forces_expired_even_within_grace(tmp_path):
+    priv, pub = _keypair()
+    s = _settings(tmp_path, pubkey=pub)
+    now = 1_000_000
+    # exp + grace are both in the FUTURE (would normally be "active"), but the trial
+    # ended → hard expired.
+    claims = {
+        "exp": now + 1000,
+        "offline_grace_deadline": now + 10_000,
+        "plan": "trial",
+        "features": [],
+        "trial_end": now - 1,
+    }
+    service.save_entitlement(s, sign_entitlement(claims, priv))
+    status = service.evaluate_license(s, now=now)
+    assert status.state == "expired" and not status.allowed
+    assert status.trial_end == now - 1
 
-def test_google_sorry_redirect_is_captcha():
-    assert parse_google_state(
-        "https://www.google.com/sorry/index?continue=x",
-        "Our systems have detected unusual traffic",
-        search_container_visible=False,
-        recaptcha_visible=True,
-    ) == "captcha"
 
-def test_cloudflare_token_without_interaction_passes():
-    assert parse_cloudflare_state("Success!", token_present=True, challenge_visible=False) == "passed"
+def test_trial_end_in_future_is_active(tmp_path):
+    priv, pub = _keypair()
+    s = _settings(tmp_path, pubkey=pub)
+    now = 1_000_000
+    claims = {
+        "exp": now + 1000,
+        "offline_grace_deadline": now + 10_000,
+        "plan": "trial",
+        "features": [],
+        "trial_end": now + 100_000,
+    }
+    service.save_entitlement(s, sign_entitlement(claims, priv))
+    status = service.evaluate_license(s, now=now)
+    assert status.state == "active" and status.allowed
 ```
 
-Browser flow requirements:
+`_keypair`, `_settings`, `sign_entitlement`, `service` are already imported/defined in this test module.
 
-- Launch `launch_persistent_context()` using the supplied temporary `profile_dir`, `fingerprint_preset="consistent"`, `args=["--fingerprint=63003"]`, `geoip=True`, `humanize=True`, and proxy.
-- Caller/orchestrator will place profile inside `tempfile.TemporaryDirectory`; this function must close context in `finally` before returning.
-- Visit `https://turnstiledemo.lusostreams.com/` once; wait up to 20 seconds for passed/interactive/error; never click. It is a third-party Cloudflare widget demo, not a universal reputation verdict.
-- Visit one fixed Google query once; wait up to 15 seconds for results/challenge/consent; never click.
-- Capture `cloudflare.png` and `google.png` after state detection.
-- Return only verdicts and safe booleans. Never return/persist CAPTCHA token values, cookies, HTML, headers, or storage state.
-- Browser navigation errors become per-site `error`/`unknown` results and must still close context.
+- [ ] **Step 2: Run to verify it fails**
 
-Global constraints:
+Run: `python -m pytest tests/manager/test_license.py -k trial_end -v`
+Expected: FAIL — `AttributeError: 'LicenseStatus' object has no attribute 'trial_end'` (and the past-trial case would be `active`, not `expired`).
 
-- One initial navigation per protected site; no retries and no CAPTCHA interaction.
-- Credentials/tokens/cookies/storage never appear in output or exceptions.
-- Parser tests require no network; browser launch must be monkeypatchable.
-- Follow TDD with RED/GREEN evidence.
-- Do not implement CLI orchestration.
-- This is not Git; do not commit.
+- [ ] **Step 3a: Implement** — in `manager_backend/features/license/service.py`.
 
-Verification: `python -m pytest tests/test_proxy_site_checks.py -q` and `python -m py_compile benchmarks/proxy_site_checks.py`.
+Add the field to `LicenseStatus`:
+```python
+@dataclass
+class LicenseStatus:
+    state: str
+    allowed: bool
+    plan: str | None = None
+    features: list[str] = field(default_factory=list)
+    expires_at: int | None = None
+    grace_deadline: int | None = None
+    trial_end: int | None = None  # epoch seconds; hard trial cutoff (trial keys only)
+    detail: str | None = None
+```
 
-Write full report to `.superpowers/sdd/task-4-report.md`.
+In `evaluate_license`, after the `exp`/`grace` `isinstance` guard and before returning, replace the state branch:
+```python
+    features = claims.get("features") or []
+    plan = claims.get("plan")
+    trial_end = claims.get("trial_end")
+    trial_end = trial_end if isinstance(trial_end, int) else None
+    if trial_end is not None and now > trial_end:
+        state = "expired"  # trial hard-cap wins over exp/grace
+    elif now <= exp:
+        state = "active"
+    elif now <= grace:
+        state = "grace"
+    else:
+        state = "expired"
+    return LicenseStatus(
+        state=state,
+        allowed=state in _ALLOWED_STATES,
+        plan=plan,
+        features=list(features),
+        expires_at=exp,
+        grace_deadline=grace,
+        trial_end=trial_end,
+    )
+```
+
+- [ ] **Step 3b: Surface it** — in `manager_backend/features/license/schemas.py`, add `trial_end: int | None = None` to `LicenseStatusRead`'s fields and to its `.of()` classmethod (`trial_end=status.trial_end`).
+
+- [ ] **Step 4: Run to verify it passes**
+
+Run: `python -m pytest tests/manager/test_license.py -v`
+Expected: PASS (new + existing).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add manager_backend/features/license/service.py manager_backend/features/license/schemas.py tests/manager/test_license.py
+git commit -m "feat(license): trial_end hard-cap in the state machine"
+```
+
+---
+
