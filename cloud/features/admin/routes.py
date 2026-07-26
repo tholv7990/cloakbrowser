@@ -19,9 +19,11 @@ from typing import Annotated, Any, Literal
 
 from pathlib import Path
 
+from typing import Union
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi import Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -36,7 +38,10 @@ from ...errors import CloudError
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
-_PAGE = Path(__file__).with_name("static") / "index.html"
+_STATIC = Path(__file__).with_name("static")
+_DIST = _STATIC / "dist"
+_INDEX = _DIST / "index.html"
+_PAGE_FALLBACK = _STATIC / "index.html"
 
 
 @router.get("/admin.css", include_in_schema=False)
@@ -44,17 +49,27 @@ def dashboard_css() -> Response:
     """Generated from manager/frontend's own Tailwind config and tokens, so the
     dashboard cannot drift from the product's design system."""
     return Response(
-        (Path(__file__).with_name("static") / "admin.css").read_text(encoding="utf-8"),
+        (_STATIC / "admin.css").read_text(encoding="utf-8"),
         media_type="text/css",
     )
 
 
-@router.get("", include_in_schema=False)
-@router.get("/", include_in_schema=False)
-def dashboard() -> HTMLResponse:
-    """The dashboard itself. Unauthenticated on purpose - it is a static shell that
-    holds no data; every byte it displays comes from the role-gated API below."""
-    return HTMLResponse(_PAGE.read_text(encoding="utf-8"))
+
+
+def _get_dashboard_page() -> HTMLResponse:
+    """The dashboard HTML."""
+    page = _INDEX if _INDEX.exists() else _PAGE_FALLBACK
+    return HTMLResponse(page.read_text(encoding="utf-8"))
+
+
+@router.get("/{path_name:path}", include_in_schema=False)
+def dashboard_spa(path_name: str):
+    """SPA fallback - serve index.html for all non-API routes under /admin."""
+    if path_name.startswith("dist/"):
+        file_full_path = (_DIST / path_name[5:]).resolve()
+        if file_full_path.exists() and str(file_full_path).startswith(str(_DIST)):
+            return FileResponse(file_full_path)
+    return _get_dashboard_page()
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
@@ -534,3 +549,5 @@ def audit_log(
         }
         for e in rows
     ]
+
+
