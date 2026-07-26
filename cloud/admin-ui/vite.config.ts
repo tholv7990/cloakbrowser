@@ -13,12 +13,7 @@ export default defineConfig({
   build: {
     outDir: './dist',
     emptyOutDir: true,
-    rollupOptions: {
-      output: {
-        entryFileNames: '[name].js',
-        chunkFileNames: '[name].js',
-        assetFileNames: '[name][extname]',
-      },
-    },
+    // Default hashed filenames on purpose: Cloudflare caches /admin/dist/* for
+    // hours, so a fixed index.css name kept serving stale UI after every deploy.
   },
 });

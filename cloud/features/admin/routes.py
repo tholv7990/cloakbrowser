@@ -57,19 +57,14 @@ def dashboard_css() -> Response:
 
 
 def _get_dashboard_page() -> HTMLResponse:
-    """The dashboard HTML."""
+    """The dashboard HTML. Never cached: it is the one URL that must always
+    point at the current hashed bundle names."""
     page = _INDEX if _INDEX.exists() else _PAGE_FALLBACK
-    return HTMLResponse(page.read_text(encoding="utf-8"))
+    return HTMLResponse(
+        page.read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-cache"},
+    )
 
-
-@router.get("/{path_name:path}", include_in_schema=False)
-def dashboard_spa(path_name: str):
-    """SPA fallback - serve index.html for all non-API routes under /admin."""
-    if path_name.startswith("dist/"):
-        file_full_path = (_DIST / path_name[5:]).resolve()
-        if file_full_path.exists() and str(file_full_path).startswith(str(_DIST)):
-            return FileResponse(file_full_path)
-    return _get_dashboard_page()
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
@@ -549,5 +544,23 @@ def audit_log(
         }
         for e in rows
     ]
+
+
+# MUST stay the last route on this router: Starlette matches in registration
+# order, and this catch-all registered any earlier shadowed every admin GET
+# API above (they returned the SPA HTML instead of JSON).
+@router.get("/{path_name:path}", include_in_schema=False)
+def dashboard_spa(path_name: str):
+    """SPA fallback - serve index.html for all non-API routes under /admin."""
+    if path_name.startswith("dist/"):
+        file_full_path = (_DIST / path_name[5:]).resolve()
+        if file_full_path.exists() and str(file_full_path).startswith(str(_DIST)):
+            # Bundle filenames are content-hashed, so edge/browser caches may
+            # keep them forever; a new build references new names.
+            return FileResponse(
+                file_full_path,
+                headers={"Cache-Control": "public, max-age=31536000, immutable"},
+            )
+    return _get_dashboard_page()
 
 
