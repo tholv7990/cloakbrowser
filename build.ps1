@@ -101,13 +101,18 @@ $dest = Join-Path $binaries "plasma-backend-$triple.exe"
 Copy-Item $frozen $dest -Force
 Write-Host "    -> $dest"
 
-# --- 3. frontend deps ---------------------------------------------------------
+# --- 3. frontend deps + build -------------------------------------------------
 if ($SkipFrontendInstall) {
   Write-Host "==> [3/4] Skipping frontend deps (-SkipFrontendInstall)" -ForegroundColor Cyan
 } else {
   Write-Host "==> [3/4] Installing frontend deps" -ForegroundColor Cyan
   Invoke-Native "npm install" { npm --prefix manager/frontend install }
 }
+# Built here, not via beforeBuildCommand: the Tauri CLI runs hooks from the
+# nearest package.json directory it can find, and with no root package.json
+# that scan landed on cloud/admin-ui, so a cwd-relative --prefix broke.
+Write-Host "==> [3/4] Building the frontend" -ForegroundColor Cyan
+Invoke-Native "frontend build" { npm --prefix manager/frontend run build }
 
 # --- 4. build the app + installer --------------------------------------------
 Write-Host "==> [4/4] Building the app + NSIS installer" -ForegroundColor Cyan

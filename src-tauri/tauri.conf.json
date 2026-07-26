@@ -7,7 +7,7 @@
     "frontendDist": "../manager/frontend/dist",
     "devUrl": "http://127.0.0.1:5273",
     "beforeDevCommand": "npm --prefix ../manager/frontend run dev",
-    "beforeBuildCommand": "npm --prefix ../manager/frontend run build"
+    "beforeBuildCommand": ""
   },
   "app": {
     "withGlobalTauri": false,

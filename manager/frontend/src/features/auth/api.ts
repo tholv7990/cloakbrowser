@@ -50,7 +50,13 @@ export function useLogout() {
     // looked signed in until the next action reported "please log in".
     onSettled: () => {
       setCsrfToken(null);
-      queryClient.clear();
+      queryClient.removeQueries({
+        predicate: (query) => query.queryKey[0] !== 'auth',
+      });
+      void queryClient.resetQueries({
+        queryKey: ['auth', 'session'],
+        exact: true,
+      });
     },
   });
 }

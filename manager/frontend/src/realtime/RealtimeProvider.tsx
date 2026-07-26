@@ -68,7 +68,12 @@ export function applyEvent(queryClient: QueryClient, event: AppEvent): void {
     case 'profile.runtime.changed': {
       const { profile_id, runtime_state, message } = event.data;
       patchProfile(queryClient, profile_id, (p) => ({ ...p, runtime_state }));
-      if (message) useRuntimeStore.getState().setMessage(profile_id, message);
+      const store = useRuntimeStore.getState();
+      if (TERMINAL_STATES.has(runtime_state)) {
+        store.clearMessage(profile_id);
+      } else if (message) {
+        store.setMessage(profile_id, message);
+      }
       queryClient.invalidateQueries({ queryKey: ['bootstrap'] });
       queryClient.invalidateQueries({ queryKey: ['folders'] });
       break;
@@ -114,13 +119,21 @@ export function applyEvent(queryClient: QueryClient, event: AppEvent): void {
       store.setRunningCount(event.data.running_session_count);
       for (const runtime of event.data.runtimes) {
         const state = mapRuntimeState(runtime.state);
-        patchProfile(queryClient, runtime.profile_id, (p) => ({ ...p, runtime_state: state }));
+        // The snapshot contains the latest historical session for every profile,
+        // including runs that crashed or stopped long ago. ProfileRead is the
+        // source of truth for idle rows, so only live sessions may override it.
+        // Otherwise starting profile A can repaint profile B with an old crash.
+        if (!TERMINAL_STATES.has(state)) {
+          patchProfile(queryClient, runtime.profile_id, (p) => ({ ...p, runtime_state: state }));
+        }
         // Only live runtimes carry a status line here. A snapshot is broadcast
         // whenever any profile changes state, so re-applying a finished run's
         // message rewrote every other row's status at that moment - starting one
-        // profile appeared to re-check every other profile's proxy. A terminal
-        // message still arrives live via profile.runtime.changed when it happens.
-        if (runtime.last_message && !TERMINAL_STATES.has(state)) {
+        // profile appeared to re-check every other profile's proxy. Terminal
+        // rows use their state-derived fallback instead of stale transient text.
+        if (TERMINAL_STATES.has(state)) {
+          store.clearMessage(runtime.profile_id);
+        } else if (runtime.last_message) {
           store.setMessage(runtime.profile_id, runtime.last_message);
         }
       }

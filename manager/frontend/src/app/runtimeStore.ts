@@ -9,6 +9,7 @@ interface RuntimeState {
   messages: Record<string, string>;
   runningCount: number | null;
   setMessage: (profileId: string, message: string) => void;
+  clearMessage: (profileId: string) => void;
   setRunningCount: (count: number) => void;
 }
 
@@ -17,5 +18,12 @@ export const useRuntimeStore = create<RuntimeState>((set) => ({
   runningCount: null,
   setMessage: (profileId, message) =>
     set((state) => ({ messages: { ...state.messages, [profileId]: message } })),
+  clearMessage: (profileId) =>
+    set((state) => {
+      if (!(profileId in state.messages)) return state;
+      const messages = { ...state.messages };
+      delete messages[profileId];
+      return { messages };
+    }),
   setRunningCount: (runningCount) => set({ runningCount }),
 }));

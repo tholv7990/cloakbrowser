@@ -48,11 +48,18 @@ Rust (`rustup`), Tauri CLI (`npm i -g @tauri-apps/cli`), `pip install pyinstalle
    ```
    tauri icon path\to\plasma-1024.png     # writes src-tauri/icons/*
    ```
-3. **Build the app + installer**:
+3. **Build the frontend, then the app + installer**:
    ```
-   tauri build     # runs `npm run build` for the frontend, compiles the shell, bundles NSIS
+   npm --prefix manager/frontend run build    # from the repo root; build.ps1 does this
+   tauri build                                # compiles the shell, bundles NSIS
    ```
    Output: `src-tauri/target/release/bundle/nsis/Plasma_1.0.0_x64-setup.exe`.
+
+   `beforeBuildCommand` is deliberately empty: the Tauri CLI runs hooks from the
+   nearest directory containing a `package.json` (with no root package.json its
+   scan picked `cloud/admin-ui`), so a cwd-relative npm prefix silently built the
+   wrong tree. The frontend is built explicitly before `tauri build` instead;
+   `frontendDist` stays relative to `src-tauri`.
 
 ## To verify before shipping
 
