@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-surface text-ink font-sans;
+  }
+
+  input,
+  select,
+  textarea {
+    @apply rounded border border-line-strong bg-surface-sunken px-4 py-3 text-sm text-ink transition-all;
+    min-height: 2.75rem;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    @apply text-ink-muted opacity-75;
+  }
+
+  input:hover,
+  select:hover,
+  textarea:hover {
+    @apply border-line-strong/70;
+  }
+
+  input:focus,
+  select:focus,
+  textarea:focus {
+    @apply border-accent bg-surface outline-none;
+    box-shadow: 0 0 0 4px rgb(var(--cb-accent) / 0.15);
+  }
+}
+
+@layer components {
+  .input-field {
+    @apply w-full rounded border border-line-strong bg-surface-sunken px-4 py-3 text-sm text-ink transition-all;
+    min-height: 2.75rem;
+  }
+
+  .input-field::placeholder {
+    @apply text-ink-muted opacity-75;
+  }
+
+  .input-field:hover {
+    @apply border-line-strong/70 bg-surface-raised;
+  }
+
+  .input-field:focus {
+    @apply border-accent bg-surface outline-none;
+    box-shadow: 0 0 0 4px rgb(var(--cb-accent) / 0.15);
+  }
+}
