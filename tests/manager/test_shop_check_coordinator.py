@@ -20,7 +20,13 @@ def _ok():
 
 
 class FakeProvider:
+    def __init__(self):
+        self.calls = 0
+        self._lock = threading.Lock()
+
     def generate(self, provider, credential, count, country, session_type):
+        with self._lock:
+            self.calls += 1
         return [GeneratedProxy("global.711proxy.com", 20000, "u", "GEN-SECRET") for _ in range(count)]
 
 
@@ -211,6 +217,80 @@ def test_no_secret_leaks_end_to_end(db_session_factory):
         assert sentinel_email not in blob
         assert "ACCT-SECRET" not in blob and "GEN-SECRET" not in blob
         assert all("ACCT-SECRET" not in (e or "") for e in worker_errors)
+    finally:
+        coord.shutdown()
+
+
+from manager_backend.features.shop_check import provisioner as _prov  # noqa: E402
+
+
+def _interrupted(db_session_factory, store, n, per=5):
+    run_id = _make_run(db_session_factory, store, _emails(n), per=per)
+    with db_session_factory() as session:
+        _prov.group_workers(session, run_id)
+        run = service.require_run(session, run_id)
+        run.status = "running"
+        run.started_at = datetime(2026, 7, 29, tzinfo=timezone.utc)
+        session.commit()
+    return run_id
+
+
+def test_recover_resumes_interrupted_run(db_session_factory):
+    store = _store()
+    coord = ShopCheckCoordinator(db_session_factory, store, FakeProvider(), FakeTester(),
+                                 FakeLauncher(), process_worker=_mark_all_login)
+    run_id = _interrupted(db_session_factory, store, 10, per=5)  # 2 workers, pending
+    try:
+        assert coord.recover(db_session_factory) == 2
+        detail = _wait(db_session_factory, run_id)
+        assert detail["status"] == "completed"
+        assert detail["terminal_count"] == 10
+    finally:
+        coord.shutdown()
+
+
+def test_recover_reuses_existing_proxy_and_profile(db_session_factory):
+    store = _store()
+    provider = FakeProvider()
+    launcher = FakeLauncher()
+    coord = ShopCheckCoordinator(db_session_factory, store, provider, FakeTester(),
+                                 launcher, process_worker=_mark_all_login)
+    run_id = _interrupted(db_session_factory, store, 5, per=5)  # 1 worker
+    # Simulate a crash AFTER provisioning: worker already owns proxy + profile.
+    with db_session_factory() as session:
+        worker = session.query(ShopCheckWorker).filter_by(run_id=run_id).one()
+        worker.profile_id = "already-owned-profile"
+        worker.proxy_id = "already-owned-proxy"
+        session.commit()
+    try:
+        coord.recover(db_session_factory)
+        detail = _wait(db_session_factory, run_id)
+        assert detail["status"] == "completed"
+        assert provider.calls == 0  # no new proxy generated
+        assert "already-owned-profile" in launcher.started  # resumed at launch
+    finally:
+        coord.shutdown()
+
+
+def test_recover_twice_does_not_double_process(db_session_factory):
+    store = _store()
+    counts: dict[str, int] = {}
+    lock = threading.Lock()
+
+    def counting(ctx):
+        with lock:
+            counts[ctx.worker_id] = counts.get(ctx.worker_id, 0) + 1
+        time.sleep(0.05)
+        _mark_all_login(ctx)
+
+    coord = ShopCheckCoordinator(db_session_factory, store, FakeProvider(), FakeTester(),
+                                 FakeLauncher(), process_worker=counting)
+    run_id = _interrupted(db_session_factory, store, 10, per=5)
+    try:
+        coord.recover(db_session_factory)
+        coord.recover(db_session_factory)  # second, racing pass
+        _wait(db_session_factory, run_id)
+        assert counts and all(c == 1 for c in counts.values())  # each worker once
     finally:
         coord.shutdown()
 

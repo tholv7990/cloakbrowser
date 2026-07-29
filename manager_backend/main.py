@@ -37,6 +37,8 @@ from .features.proxies.quality import ProxyQualityManager, recover_orphan_qualit
 from .features.backups.service import maybe_auto_backup
 from .features.automation.controller import StubAutomationController
 from .features.automation.coordinator import RunCoordinator, recover_interrupted_runs
+from .features.shop_check.coordinator import ShopCheckCoordinator
+from .features.shop_check.launcher import RuntimeManagerLauncher
 from .features.shop_check.service import reconcile_orphan_credentials
 from .features.shopify.clients import HttpOpenAIImageClient, HttpShopifyClient
 from .features.shopify.pipeline import recover_interrupted_plans
@@ -98,6 +100,9 @@ def create_app(
                     application.state.credential_store,
                 )
             )
+            application.state.shop_check_resumed = (
+                application.state.shop_check_coordinator.recover()
+            )
             application.state.shopify_plans_recovered = recover_interrupted_plans(
                 application.state.session_factory
             )
@@ -125,6 +130,7 @@ def create_app(
             application.state.proxy_quality_manager.shutdown()
             # Await workers before disposing the engine — a worker still holding a
             # DB session must not have the engine pulled out from under it.
+            application.state.shop_check_coordinator.shutdown()
             runs_clean = application.state.automation_runs.shutdown()
             if not runs_clean:
                 logging.getLogger("manager").warning(
@@ -199,6 +205,16 @@ def create_app(
         license_gate=make_license_gate(resolved),
     )
     app.state.window_manager = WINDOW_MANAGER
+    # Shop-check run coordinator: provisioning + launch + recovery. process_worker
+    # is left as the default no-op — per-email page automation is a later
+    # checkpoint that injects the real callback; runs are not auto-started here yet.
+    app.state.shop_check_coordinator = ShopCheckCoordinator(
+        app.state.session_factory,
+        app.state.credential_store,
+        app.state.proxy_provider_client,
+        app.state.proxy_quick_tester,
+        RuntimeManagerLauncher(app.state.runtime_manager),
+    )
     app.state.input_sync = InputSyncService()
     app.state.account_service = AccountService(
         resolved, secret_store=KeyringSecretStore()

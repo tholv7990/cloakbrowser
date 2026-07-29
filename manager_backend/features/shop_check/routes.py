@@ -89,5 +89,7 @@ def list_emails(
     response_model=ShopCheckRunDetail,
     operation_id="shop_check_runs_cancel",
 )
-def cancel_run(run_id: str, session: SessionDependency):
-    return service.cancel_run(session, run_id)
+def cancel_run(run_id: str, request: Request, session: SessionDependency):
+    # Route through the coordinator so a live run's workers get the cancel signal;
+    # the persisted status is the source of truth either way.
+    return request.app.state.shop_check_coordinator.cancel(session, run_id)
