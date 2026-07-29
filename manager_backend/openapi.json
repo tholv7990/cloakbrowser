@@ -7679,6 +7679,385 @@
         ]
       }
     },
+    "/api/v1/automations/shop-check/runs": {
+      "get": {
+        "tags": [
+          "shop_check"
+        ],
+        "summary": "List Runs",
+        "operationId": "shop_check_runs_list",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ShopCheckRunSummary"
+                  },
+                  "type": "array",
+                  "title": "Response Shop Check Runs List"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "shop_check"
+        ],
+        "summary": "Create Run",
+        "operationId": "shop_check_runs_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShopCheckRunCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopCheckRunCreateResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ]
+      }
+    },
+    "/api/v1/automations/shop-check/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "shop_check"
+        ],
+        "summary": "Get Run",
+        "operationId": "shop_check_runs_get",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopCheckRunDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/automations/shop-check/runs/{run_id}/emails": {
+      "get": {
+        "tags": [
+          "shop_check"
+        ],
+        "summary": "List Emails",
+        "operationId": "shop_check_runs_emails",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          },
+          {
+            "name": "result",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Result"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopCheckEmailPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/automations/shop-check/runs/{run_id}/cancel": {
+      "post": {
+        "tags": [
+          "shop_check"
+        ],
+        "summary": "Cancel Run",
+        "operationId": "shop_check_runs_cancel",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopCheckRunDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/shopify-builder/stores": {
       "get": {
         "tags": [
@@ -11480,6 +11859,45 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "InputSummary": {
+        "properties": {
+          "total_lines": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Lines"
+          },
+          "valid": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Valid"
+          },
+          "duplicates": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Duplicates"
+          },
+          "invalid": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Invalid"
+          },
+          "worker_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Worker Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "total_lines",
+          "valid",
+          "duplicates",
+          "invalid",
+          "worker_count"
+        ],
+        "title": "InputSummary"
+      },
       "InstallEntitlementRequest": {
         "properties": {
           "entitlement_token": {
@@ -14410,6 +14828,680 @@
           "license"
         ],
         "title": "SettingsRead"
+      },
+      "ShopCheckEmailPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ShopCheckEmailRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Page Size"
+          },
+          "pages": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Pages"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "pages"
+        ],
+        "title": "ShopCheckEmailPage"
+      },
+      "ShopCheckEmailRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "title": "Ordinal"
+          },
+          "email_masked": {
+            "type": "string",
+            "title": "Email Masked"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "terminal"
+            ],
+            "title": "State"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "phone_otp_required",
+                  "email_otp_required",
+                  "login_success",
+                  "account_not_found",
+                  "captcha_or_challenge",
+                  "proxy_failed",
+                  "navigation_failed",
+                  "unknown",
+                  "cancelled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "retryable": {
+            "type": "boolean",
+            "title": "Retryable"
+          },
+          "phone_prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone Prefix"
+          },
+          "phone_suffix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone Suffix"
+          },
+          "phone_country_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone Country Code"
+          },
+          "phone_country_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone Country Name"
+          },
+          "phone_region_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone Region Name"
+          },
+          "phone_confidence": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "exact",
+                  "ambiguous",
+                  "unknown"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone Confidence"
+          },
+          "retry_count": {
+            "type": "integer",
+            "title": "Retry Count"
+          },
+          "worker_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Id"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "ordinal",
+          "email_masked",
+          "state",
+          "result",
+          "retryable",
+          "phone_prefix",
+          "phone_suffix",
+          "phone_country_code",
+          "phone_country_name",
+          "phone_region_name",
+          "phone_confidence",
+          "retry_count",
+          "worker_id",
+          "checked_at"
+        ],
+        "title": "ShopCheckEmailRead"
+      },
+      "ShopCheckRunCreate": {
+        "properties": {
+          "email_text": {
+            "type": "string",
+            "maxLength": 2000000,
+            "minLength": 1,
+            "title": "Email Text",
+            "writeOnly": true
+          },
+          "emails_per_profile": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Emails Per Profile",
+            "default": 5
+          },
+          "max_parallel": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Max Parallel",
+            "default": 3
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "profile_prefix": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Prefix"
+          },
+          "output_dir": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Dir"
+          },
+          "authorized_only_ack": {
+            "type": "boolean",
+            "title": "Authorized Only Ack",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email_text"
+        ],
+        "title": "ShopCheckRunCreate"
+      },
+      "ShopCheckRunCreateResult": {
+        "properties": {
+          "run": {
+            "$ref": "#/components/schemas/ShopCheckRunDetail"
+          },
+          "input_summary": {
+            "$ref": "#/components/schemas/InputSummary"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "run",
+          "input_summary"
+        ],
+        "title": "ShopCheckRunCreateResult"
+      },
+      "ShopCheckRunDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "preparing",
+              "running",
+              "completed",
+              "completed_with_issues",
+              "cancelled",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "emails_per_profile": {
+            "type": "integer",
+            "title": "Emails Per Profile"
+          },
+          "max_parallel": {
+            "type": "integer",
+            "title": "Max Parallel"
+          },
+          "target_url": {
+            "type": "string",
+            "title": "Target Url"
+          },
+          "total_emails": {
+            "type": "integer",
+            "title": "Total Emails"
+          },
+          "terminal_count": {
+            "type": "integer",
+            "title": "Terminal Count"
+          },
+          "retryable_count": {
+            "type": "integer",
+            "title": "Retryable Count"
+          },
+          "worker_count": {
+            "type": "integer",
+            "title": "Worker Count"
+          },
+          "cleanup_state": {
+            "type": "string",
+            "enum": [
+              "none",
+              "in_progress",
+              "partial",
+              "done"
+            ],
+            "title": "Cleanup State"
+          },
+          "result_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Result Counts"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "profile_prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Prefix"
+          },
+          "output_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Dir"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "workers": {
+            "items": {
+              "$ref": "#/components/schemas/ShopCheckWorkerRead"
+            },
+            "type": "array",
+            "title": "Workers"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "region",
+          "emails_per_profile",
+          "max_parallel",
+          "target_url",
+          "total_emails",
+          "terminal_count",
+          "retryable_count",
+          "worker_count",
+          "cleanup_state",
+          "result_counts",
+          "created_at",
+          "started_at",
+          "finished_at",
+          "profile_prefix",
+          "output_dir",
+          "error",
+          "workers"
+        ],
+        "title": "ShopCheckRunDetail"
+      },
+      "ShopCheckRunSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "preparing",
+              "running",
+              "completed",
+              "completed_with_issues",
+              "cancelled",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "emails_per_profile": {
+            "type": "integer",
+            "title": "Emails Per Profile"
+          },
+          "max_parallel": {
+            "type": "integer",
+            "title": "Max Parallel"
+          },
+          "target_url": {
+            "type": "string",
+            "title": "Target Url"
+          },
+          "total_emails": {
+            "type": "integer",
+            "title": "Total Emails"
+          },
+          "terminal_count": {
+            "type": "integer",
+            "title": "Terminal Count"
+          },
+          "retryable_count": {
+            "type": "integer",
+            "title": "Retryable Count"
+          },
+          "worker_count": {
+            "type": "integer",
+            "title": "Worker Count"
+          },
+          "cleanup_state": {
+            "type": "string",
+            "enum": [
+              "none",
+              "in_progress",
+              "partial",
+              "done"
+            ],
+            "title": "Cleanup State"
+          },
+          "result_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Result Counts"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "region",
+          "emails_per_profile",
+          "max_parallel",
+          "target_url",
+          "total_emails",
+          "terminal_count",
+          "retryable_count",
+          "worker_count",
+          "cleanup_state",
+          "result_counts",
+          "created_at",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "ShopCheckRunSummary"
+      },
+      "ShopCheckWorkerRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "title": "Ordinal"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "proxy_check",
+              "profile_create",
+              "launching",
+              "processing",
+              "stopping",
+              "terminal"
+            ],
+            "title": "State"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
+          },
+          "proxy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Id"
+          },
+          "assigned_count": {
+            "type": "integer",
+            "title": "Assigned Count"
+          },
+          "processed_count": {
+            "type": "integer",
+            "title": "Processed Count"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "ordinal",
+          "state",
+          "profile_id",
+          "proxy_id",
+          "assigned_count",
+          "processed_count",
+          "error"
+        ],
+        "title": "ShopCheckWorkerRead"
       },
       "ShopifyStoreRead": {
         "properties": {

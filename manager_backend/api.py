@@ -14,6 +14,7 @@ from .features.resources.routes import router as resources_router
 from .features.backups.routes import router as backups_router
 from .features.media.routes import router as media_router
 from .features.automation.routes import router as automation_router
+from .features.shop_check.routes import router as shop_check_router
 from .features.shopify.routes import router as shopify_router
 from .features.license.routes import router as license_router
 from .features.account.routes import router as account_router
@@ -45,6 +46,7 @@ api_router.include_router(resources_router)
 api_router.include_router(backups_router)
 api_router.include_router(media_router)
 api_router.include_router(automation_router)
+api_router.include_router(shop_check_router)
 api_router.include_router(shopify_router)
 api_router.include_router(license_router)
 api_router.include_router(account_router)
