@@ -119,8 +119,12 @@ def _profile_values(payload: ProfileCreate) -> tuple[dict[str, Any], list[str]]:
     return values, tag_ids
 
 
-def create_profile(session: Session, payload: ProfileCreate) -> Profile:
+def create_profile(
+    session: Session, payload: ProfileCreate, *, profile_id: str | None = None
+) -> Profile:
     values, tag_ids = _profile_values(payload)
+    if profile_id is not None:
+        values["id"] = profile_id
     supplied_seed = values.pop("fingerprint_seed")
     if supplied_seed is not None and _seed_is_taken(session, supplied_seed):
         raise ManagerError(
@@ -156,6 +160,18 @@ def create_profile(session: Session, payload: ProfileCreate) -> Profile:
             409,
         ) from error
     return get_profile(session, profile.id)
+
+
+def create_owned_profile(
+    session: Session, profile_id: str, payload: ProfileCreate
+) -> Profile:
+    """Create a profile with a caller-supplied id, idempotently. Used by the
+    Shop-check provisioner so ownership can be recorded BEFORE the profile exists
+    (durable provenance); a recovery re-invoke with the same id is a no-op."""
+    existing = session.get(Profile, profile_id)
+    if existing is not None:
+        return existing
+    return create_profile(session, payload, profile_id=profile_id)
 
 
 def get_profile(session: Session, profile_id: str) -> Profile:
