@@ -118,6 +118,17 @@ _DUPLICATE_CHECKS: tuple[tuple[str, str], ...] = (
 )
 
 
+# Rows that violate the new terminal-state coherence invariant. Legacy 0017 had
+# no such constraint, so an installed database may hold these; the emails-table
+# rebuild would otherwise fail mid-upgrade (after the worker DDL already ran),
+# leaving a half-migrated database.
+_COHERENCE_INVALID_SQL = (
+    "SELECT count(*) FROM shop_check_emails WHERE NOT ("
+    "(state = 'terminal' AND result IS NOT NULL AND checked_at IS NOT NULL) "
+    "OR (state IN ('pending','running') AND result IS NULL AND checked_at IS NULL))"
+)
+
+
 def _preflight_no_duplicates() -> None:
     """Abort BEFORE any schema change if legacy 0017 data would violate a new
     uniqueness invariant. The message names the invariant and the duplicate-group
@@ -132,6 +143,29 @@ def _preflight_no_duplicates() -> None:
                 f"violate the uniqueness invariant {invariant}. Resolve the "
                 f"duplicates and re-run the upgrade. (No row values are shown.)"
             )
+
+
+def _preflight_coherence() -> None:
+    """Abort BEFORE any schema change if legacy email rows violate the new
+    terminal-state coherence invariant. Reports only the migration id, the
+    invariant name, and the invalid-row count — never a result, fingerprint,
+    ref, email, or any other row value. Rows are never modified or inferred."""
+    bind = op.get_bind()
+    invalid = int(bind.execute(sa.text(_COHERENCE_INVALID_SQL)).scalar() or 0)
+    if invalid:
+        raise RuntimeError(
+            f"0018 migration aborted: {invalid} shop_check_emails row(s) violate the "
+            f"terminal-state coherence invariant (a terminal row requires result and "
+            f"checked_at; a pending/running row must have neither). Repair the rows and "
+            f"re-run the upgrade. (No row values are shown.)"
+        )
+
+
+def _preflight() -> None:
+    """Every data-compatibility check for the new 0018 constraints, run BEFORE any
+    index/trigger/table change so a violating database is never half-migrated."""
+    _preflight_coherence()
+    _preflight_no_duplicates()
 
 
 def _rebuild_emails(
@@ -169,9 +203,10 @@ def _rebuild_emails(
 
 
 def upgrade() -> None:
-    # Fail fast on legacy duplicates BEFORE touching the schema, so a violating
-    # database is never left half-migrated.
-    _preflight_no_duplicates()
+    # Every preflight (coherence + uniqueness) runs BEFORE any index/trigger/table
+    # change, so a database that violates a new 0018 constraint aborts cleanly at
+    # 0017 rather than being left half-migrated (SQLite DDL is non-transactional).
+    _preflight()
 
     # --- workers: additive unique indexes + immutability trigger --------------
     op.drop_index("ix_shop_check_workers_run_ordinal", table_name="shop_check_workers")

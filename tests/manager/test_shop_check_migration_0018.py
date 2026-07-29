@@ -229,6 +229,160 @@ def test_0018_preflight_aborts_on_legacy_duplicates(tmp_path, monkeypatch, invar
         con.close()
 
 
+_TS = "2026-07-29T00:01:00Z"
+_COHERENCE_SENTINELS = ("ZZFP", "ZZREF", "ZZMASK", "ZZWORKER", "ZZPROFILE")
+
+
+def _seed_run(con) -> None:
+    con.execute(
+        "INSERT INTO shop_check_runs (id,status,region,emails_per_profile,max_parallel,"
+        "target_url,total_emails,terminal_count,retryable_count,worker_count,cleanup_state,created_at) "
+        "VALUES ('run-1','running',NULL,5,3,'https://shop.app/',0,0,0,0,'none','2026-07-29T00:00:00Z')"
+    )
+
+
+def _insert_email(con, *, eid, state, result, checked_at, ordinal=0, fp="ZZFP", ref="ZZREF"):
+    con.execute(
+        "INSERT INTO shop_check_emails (id,run_id,worker_id,ordinal,email_fingerprint,"
+        "credential_ref,email_masked,state,result,retry_count,checked_at,created_at) "
+        "VALUES (?,?,NULL,?,?,?,?,?,?,0,?,?)",
+        (eid, "run-1", ordinal, fp, ref, "ZZMASK@ex", state, result, checked_at,
+         "2026-07-29T00:00:00Z"),
+    )
+
+
+def _assert_0017_intact(con, *, invalid_count) -> None:
+    indexes = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+    # original (0017) indexes untouched
+    assert {
+        "ix_shop_check_workers_run_ordinal",
+        "ix_shop_check_workers_run_state",
+        "ix_shop_check_emails_run_ordinal",
+        "ix_shop_check_emails_run_state",
+        "ix_shop_check_emails_worker",
+    } <= indexes
+    # 0018 unique indexes never created
+    assert not ({
+        "uq_shop_check_emails_run_ordinal",
+        "uq_shop_check_emails_run_fingerprint",
+        "uq_shop_check_workers_run_ordinal",
+        "uq_shop_check_workers_profile_id",
+    } & indexes)
+    triggers = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='trigger'")}
+    assert "trg_shop_check_workers_profile_immutable" not in triggers
+    tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "shop_check_emails_new" not in tables
+    version = con.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+    assert version == "0017_shop_check"
+    assert con.execute("SELECT count(*) FROM shop_check_emails").fetchone()[0] == invalid_count
+
+
+@pytest.mark.parametrize(
+    "state, result, checked_at",
+    [
+        ("pending", None, _TS),
+        ("running", None, _TS),
+        ("pending", "login_success", None),
+        ("running", "login_success", None),
+        ("terminal", None, _TS),
+        ("terminal", "login_success", None),
+    ],
+)
+def test_0018_preflight_aborts_on_incoherent_email(tmp_path, monkeypatch, state, result, checked_at):
+    data_root = tmp_path / "coherence"
+    config = _config(monkeypatch, data_root)
+    command.upgrade(config, "0017_shop_check")  # original schema allows the row
+    db = data_root / "manager.db"
+
+    con = sqlite3.connect(db)
+    _seed_run(con)
+    _insert_email(con, eid="em-bad", state=state, result=result, checked_at=checked_at)
+    con.commit()
+    before = con.execute(
+        "SELECT state, result, checked_at, email_fingerprint, credential_ref FROM shop_check_emails"
+    ).fetchall()
+    con.close()
+
+    with pytest.raises(Exception) as excinfo:
+        command.upgrade(config, "head")
+    message = str(excinfo.value)
+    assert "0018" in message
+    assert "terminal-state coherence" in message
+    assert "1 shop_check_emails row" in message  # invalid-row count
+    for leak in _COHERENCE_SENTINELS:
+        assert leak not in message
+
+    con = sqlite3.connect(db)
+    try:
+        _assert_0017_intact(con, invalid_count=1)
+        after = con.execute(
+            "SELECT state, result, checked_at, email_fingerprint, credential_ref FROM shop_check_emails"
+        ).fetchall()
+        assert after == before  # the offending row is preserved exactly
+    finally:
+        con.close()
+
+
+def test_0018_preflight_reports_multiple_incoherent_rows(tmp_path, monkeypatch):
+    data_root = tmp_path / "coherence-multi"
+    config = _config(monkeypatch, data_root)
+    command.upgrade(config, "0017_shop_check")
+    db = data_root / "manager.db"
+
+    con = sqlite3.connect(db)
+    _seed_run(con)
+    _insert_email(con, eid="b1", ordinal=0, state="pending", result=None, checked_at=_TS)
+    _insert_email(con, eid="b2", ordinal=1, state="terminal", result=None, checked_at=None)
+    _insert_email(con, eid="b3", ordinal=2, state="running", result="login_success", checked_at=None)
+    # one VALID row too, to prove the count is exactly the invalid ones
+    _insert_email(con, eid="ok", ordinal=3, state="pending", result=None, checked_at=None)
+    con.commit()
+    con.close()
+
+    with pytest.raises(Exception) as excinfo:
+        command.upgrade(config, "head")
+    message = str(excinfo.value)
+    assert "3 shop_check_emails row" in message  # exactly the 3 invalid rows
+    for leak in _COHERENCE_SENTINELS:
+        assert leak not in message
+
+    con = sqlite3.connect(db)
+    try:
+        _assert_0017_intact(con, invalid_count=4)  # all rows preserved
+    finally:
+        con.close()
+
+
+def test_0018_upgrade_accepts_valid_legacy_email_combinations(tmp_path, monkeypatch):
+    data_root = tmp_path / "coherence-valid"
+    config = _config(monkeypatch, data_root)
+    command.upgrade(config, "0017_shop_check")
+    db = data_root / "manager.db"
+
+    con = sqlite3.connect(db)
+    _seed_run(con)
+    _insert_email(con, eid="v1", ordinal=0, state="pending", result=None, checked_at=None, fp="F1", ref="R1")
+    _insert_email(con, eid="v2", ordinal=1, state="running", result=None, checked_at=None, fp="F2", ref="R2")
+    _insert_email(con, eid="v3", ordinal=2, state="terminal", result="login_success", checked_at=_TS, fp="F3", ref="R3")
+    con.commit()
+    con.close()
+
+    command.upgrade(config, "head")  # every row is coherent -> succeeds
+
+    con = sqlite3.connect(db)
+    try:
+        rows = con.execute(
+            "SELECT id, state, result, checked_at FROM shop_check_emails ORDER BY ordinal"
+        ).fetchall()
+        assert rows == [
+            ("v1", "pending", None, None),
+            ("v2", "running", None, None),
+            ("v3", "terminal", "login_success", _TS),
+        ]
+    finally:
+        con.close()
+
+
 def test_0018_downgrade_restores_0017_shape(tmp_path, monkeypatch):
     data_root = tmp_path / "downgrade"
     config = _config(monkeypatch, data_root)
