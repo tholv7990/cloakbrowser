@@ -135,6 +135,40 @@ def test_cancel_run(client, auth_headers):
     assert response.json()["status"] == "cancelled"
 
 
+# --- validation secrecy (item 4) --------------------------------------------
+# A Pydantic ValidationError carries the full offending input (the entire pasted
+# email_text). These lock down that the global 422 handler never echoes it.
+_SENTINEL = "do-not-leak-3f9a@secret-example.com"
+
+
+def _assert_safe_422(response, sentinel):
+    assert response.status_code == 422
+    assert sentinel not in response.text
+    body = response.json()
+    # standard safe ErrorEnvelope, no raw input echoed
+    assert set(body["error"]) == {"code", "message", "field_errors", "request_id"}
+    assert body["error"]["code"] == "validation_error"
+
+
+def test_over_limit_input_does_not_leak_email_text(client, auth_headers):
+    lines = [_SENTINEL] + [f"user{i}@example.com" for i in range(1001)]
+    response = _create(client, auth_headers, email_text="\n".join(lines))
+    _assert_safe_422(response, _SENTINEL)
+
+
+def test_authorization_failure_does_not_leak_email_text(client, auth_headers):
+    response = _create(
+        client, auth_headers, email_text=_SENTINEL, authorized_only_ack=False
+    )
+    _assert_safe_422(response, _SENTINEL)
+
+
+def test_max_length_failure_does_not_leak_email_text(client, auth_headers):
+    huge = _SENTINEL + "\n" + ("a" * 2_000_001)
+    response = _create(client, auth_headers, email_text=huge)
+    _assert_safe_422(response, _SENTINEL)
+
+
 # --- security ---------------------------------------------------------------
 def test_full_email_never_appears_in_any_response(client, auth_headers):
     _setup(client)

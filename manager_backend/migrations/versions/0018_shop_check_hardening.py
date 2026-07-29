@@ -92,11 +92,62 @@ def _emails_table_sql(*, results: str, coherence: str | None) -> str:
     """
 
 
-def _rebuild_emails(*, results: str, coherence: str | None, unique_ordinal: bool) -> None:
+# Preflight uniqueness checks. Each names the invariant it protects, never any
+# row value, so the abort message is safe to surface.
+_DUPLICATE_CHECKS: tuple[tuple[str, str], ...] = (
+    (
+        "shop_check_workers(run_id, ordinal)",
+        "SELECT count(*) FROM (SELECT 1 FROM shop_check_workers "
+        "GROUP BY run_id, ordinal HAVING count(*) > 1)",
+    ),
+    (
+        "shop_check_workers.profile_id",
+        "SELECT count(*) FROM (SELECT 1 FROM shop_check_workers "
+        "WHERE profile_id IS NOT NULL GROUP BY profile_id HAVING count(*) > 1)",
+    ),
+    (
+        "shop_check_emails(run_id, ordinal)",
+        "SELECT count(*) FROM (SELECT 1 FROM shop_check_emails "
+        "GROUP BY run_id, ordinal HAVING count(*) > 1)",
+    ),
+    (
+        "shop_check_emails(run_id, email_fingerprint)",
+        "SELECT count(*) FROM (SELECT 1 FROM shop_check_emails "
+        "GROUP BY run_id, email_fingerprint HAVING count(*) > 1)",
+    ),
+)
+
+
+def _preflight_no_duplicates() -> None:
+    """Abort BEFORE any schema change if legacy 0017 data would violate a new
+    uniqueness invariant. The message names the invariant and the duplicate-group
+    count only — never a fingerprint, profile id, ref, or email. Rows are never
+    deleted or merged; the operator resolves the duplicates and re-runs."""
+    bind = op.get_bind()
+    for invariant, sql in _DUPLICATE_CHECKS:
+        duplicate_groups = int(bind.execute(sa.text(sql)).scalar() or 0)
+        if duplicate_groups:
+            raise RuntimeError(
+                f"0018 migration aborted: {duplicate_groups} duplicate group(s) "
+                f"violate the uniqueness invariant {invariant}. Resolve the "
+                f"duplicates and re-run the upgrade. (No row values are shown.)"
+            )
+
+
+def _rebuild_emails(
+    *,
+    results: str,
+    coherence: str | None,
+    unique_ordinal: bool,
+    result_select: str = "result",
+) -> None:
     op.execute(_emails_table_sql(results=results, coherence=coherence))
+    # Column list for the SELECT can substitute a transformed `result` expression
+    # (used on downgrade to remap a value the old constraint cannot represent).
+    select_cols = _EMAIL_COLS.replace(" result,", f" {result_select},")
     op.execute(
         f"INSERT INTO shop_check_emails_new ({_EMAIL_COLS}) "
-        f"SELECT {_EMAIL_COLS} FROM shop_check_emails"
+        f"SELECT {select_cols} FROM shop_check_emails"
     )
     op.execute("DROP TABLE shop_check_emails")
     op.execute("ALTER TABLE shop_check_emails_new RENAME TO shop_check_emails")
@@ -118,6 +169,10 @@ def _rebuild_emails(*, results: str, coherence: str | None, unique_ordinal: bool
 
 
 def upgrade() -> None:
+    # Fail fast on legacy duplicates BEFORE touching the schema, so a violating
+    # database is never left half-migrated.
+    _preflight_no_duplicates()
+
     # --- workers: additive unique indexes + immutability trigger --------------
     op.drop_index("ix_shop_check_workers_run_ordinal", table_name="shop_check_workers")
     op.create_index(
@@ -143,12 +198,21 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Revert emails to the original 0017 constraints/indexes.
+    # Revert emails to the original 0017 constraints/indexes. The original result
+    # CHECK cannot represent 'email_rejected', so it is remapped to 'unknown'
+    # during the copy — a deliberate, documented, LOSSY downgrade. account_not_found
+    # is not used, as it would change the row's meaning. No row is dropped and no
+    # other field is altered.
     op.drop_index("ix_shop_check_emails_worker", table_name="shop_check_emails")
     op.drop_index("uq_shop_check_emails_run_fingerprint", table_name="shop_check_emails")
     op.drop_index("uq_shop_check_emails_run_ordinal", table_name="shop_check_emails")
     op.drop_index("ix_shop_check_emails_run_state", table_name="shop_check_emails")
-    _rebuild_emails(results=_RESULTS_V1, coherence=None, unique_ordinal=False)
+    _rebuild_emails(
+        results=_RESULTS_V1,
+        coherence=None,
+        unique_ordinal=False,
+        result_select="CASE WHEN result = 'email_rejected' THEN 'unknown' ELSE result END",
+    )
 
     # Revert workers to the original 0017 indexes and drop the trigger.
     op.execute("DROP TRIGGER IF EXISTS trg_shop_check_workers_profile_immutable")

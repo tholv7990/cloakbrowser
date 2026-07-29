@@ -9,6 +9,7 @@ this layer.
 
 from __future__ import annotations
 
+import logging
 import math
 
 from sqlalchemy import func, select
@@ -27,6 +28,8 @@ from ...models import (
 from .input import parse_email_input, worker_count
 from .sanitize import sanitize_error
 from .schemas import MAX_PREVIEW, RETRYABLE_RESULTS
+
+_logger = logging.getLogger(__name__)
 
 
 # --- error persistence (the only sanctioned way to write an error field) -----
@@ -262,10 +265,24 @@ def create_run(
                 pass  # journal + startup reconciliation are the durable backstop
         raise
 
-    # Success: the email rows are the durable reference now; drop the journal rows.
-    with session_factory() as journal_session:
-        journal_session.query(ShopCheckCredentialJournal).filter_by(run_id=run_id).delete()
-        journal_session.commit()
+    # Success: the run/email transaction committed, so the request has SUCCEEDED.
+    # Dropping the now-served journal rows is best-effort cleanup — if it fails,
+    # startup reconciliation will remove them (they reference committed emails, so
+    # no secret is deleted). Never turn a durable creation into a failure response
+    # here; that would invite a duplicate-run retry. Log only a safe counter — no
+    # emails, secrets, refs, or exception text.
+    try:
+        with session_factory() as journal_session:
+            journal_session.query(ShopCheckCredentialJournal).filter_by(
+                run_id=run_id
+            ).delete()
+            journal_session.commit()
+    except Exception:
+        _logger.warning(
+            "shop_check: post-success journal cleanup failed for run %s; "
+            "startup reconciliation will remove the served rows",
+            run_id,
+        )
 
     session.refresh(run)
     summary = {

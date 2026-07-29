@@ -81,7 +81,18 @@ class KeyringCredentialStore:
             raise _unavailable() from None
 
     def delete(self, reference: str) -> None:
+        # Idempotent: deleting a credential that does not exist is success. The
+        # real keyring raises PasswordDeleteError for a missing entry — treat only
+        # that as "already absent". Any other failure (backend unavailable,
+        # permission, corruption) is a genuine error and must surface, so startup
+        # reconciliation keeps the journal row and retries rather than dropping it.
+        try:
+            from keyring.errors import PasswordDeleteError
+        except Exception:  # keyring not importable in this environment
+            PasswordDeleteError = ()  # type: ignore[assignment]
         try:
             self._keyring.delete_password(SERVICE_NAME, reference)
+        except PasswordDeleteError:
+            return
         except Exception:
             raise _unavailable() from None
