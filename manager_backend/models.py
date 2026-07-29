@@ -709,3 +709,177 @@ class ShopifyPlanStep(Base):
     error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+# --- Shop email phone-OTP check automation ----------------------------------
+# Dedicated tables (never the retired ProfileFactory models). The DB holds only
+# references, SHA-256 fingerprints, and result metadata — never a plaintext
+# email or any proxy secret. Ownership between a run and the profiles it creates
+# is the immutable (run_id, profile_id) pair on shop_check_workers.
+
+SHOP_CHECK_RUN_STATES = (
+    "queued",
+    "preparing",
+    "running",
+    "completed",
+    "completed_with_issues",
+    "cancelled",
+    "failed",
+)
+# Every email settles on exactly one of these. The retryable subset
+# (captcha_or_challenge, proxy_failed, navigation_failed, unknown) is terminal
+# yet may be re-attempted — see the design's state model.
+SHOP_CHECK_RESULTS = (
+    "phone_otp_required",
+    "email_otp_required",
+    "login_success",
+    "account_not_found",
+    "captcha_or_challenge",
+    "proxy_failed",
+    "navigation_failed",
+    "unknown",
+    "cancelled",
+)
+SHOP_CHECK_EMAIL_STATES = ("pending", "running", "terminal")
+SHOP_CHECK_WORKER_STATES = (
+    "pending",
+    "proxy_check",
+    "profile_create",
+    "launching",
+    "processing",
+    "stopping",
+    "terminal",
+)
+SHOP_CHECK_CONFIDENCE = ("exact", "ambiguous", "unknown")
+SHOP_CHECK_CLEANUP_STATES = ("none", "in_progress", "partial", "done")
+
+
+def _in_clause(values: tuple[str, ...]) -> str:
+    return "(" + ",".join(f"'{value}'" for value in values) + ")"
+
+
+class ShopCheckRun(Base):
+    __tablename__ = "shop_check_runs"
+    __table_args__ = (
+        CheckConstraint(
+            f"status IN {_in_clause(SHOP_CHECK_RUN_STATES)}",
+            name="ck_shop_check_runs_status",
+        ),
+        CheckConstraint(
+            "emails_per_profile BETWEEN 1 AND 5",
+            name="ck_shop_check_runs_emails_per_profile",
+        ),
+        CheckConstraint(
+            "max_parallel BETWEEN 1 AND 5",
+            name="ck_shop_check_runs_max_parallel",
+        ),
+        CheckConstraint(
+            f"cleanup_state IN {_in_clause(SHOP_CHECK_CLEANUP_STATES)}",
+            name="ck_shop_check_runs_cleanup_state",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    # None = random region; otherwise a two-letter country code.
+    region: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    emails_per_profile: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    max_parallel: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    target_url: Mapped[str] = mapped_column(
+        String(500), nullable=False, default="https://shop.app/"
+    )
+    profile_prefix: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    output_dir: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    total_emails: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Aggregate progress is recomputed from item rows, never incremented blindly.
+    terminal_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    retryable_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    worker_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cleanup_state: Mapped[str] = mapped_column(String(24), nullable=False, default="none")
+    error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ShopCheckWorker(Base):
+    __tablename__ = "shop_check_workers"
+    __table_args__ = (
+        CheckConstraint(
+            f"state IN {_in_clause(SHOP_CHECK_WORKER_STATES)}",
+            name="ck_shop_check_workers_state",
+        ),
+        Index("ix_shop_check_workers_run_ordinal", "run_id", "ordinal"),
+        Index("ix_shop_check_workers_run_state", "run_id", "state"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("shop_check_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    state: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
+    # Deliberately NOT a FK to profiles: this row is the immutable ownership /
+    # history record and MUST survive the profile's later hard-deletion at cleanup.
+    profile_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # The generated proxy row's id. Proxies are preserved at cleanup, so a plain
+    # string reference is enough (and avoids cascading a proxy delete onto history).
+    proxy_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    assigned_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    processed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class ShopCheckEmail(Base):
+    __tablename__ = "shop_check_emails"
+    __table_args__ = (
+        CheckConstraint(
+            f"state IN {_in_clause(SHOP_CHECK_EMAIL_STATES)}",
+            name="ck_shop_check_emails_state",
+        ),
+        CheckConstraint(
+            f"result IS NULL OR result IN {_in_clause(SHOP_CHECK_RESULTS)}",
+            name="ck_shop_check_emails_result",
+        ),
+        CheckConstraint(
+            f"phone_confidence IS NULL OR phone_confidence IN {_in_clause(SHOP_CHECK_CONFIDENCE)}",
+            name="ck_shop_check_emails_confidence",
+        ),
+        Index("ix_shop_check_emails_run_state", "run_id", "state"),
+        Index("ix_shop_check_emails_run_ordinal", "run_id", "ordinal"),
+        Index("ix_shop_check_emails_worker", "worker_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("shop_check_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    worker_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("shop_check_workers.id", ondelete="SET NULL"), nullable=True
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # SHA-256 of the normalized email; the full value lives only in CredentialStore.
+    email_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    credential_ref: Mapped[str] = mapped_column(String(36), nullable=False)
+    # A masked rendering for ordinary API/UI display; never the plaintext email.
+    email_masked: Mapped[str] = mapped_column(String(320), nullable=False, default="")
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    result: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    # Only VISIBLE phone metadata — never reconstructed hidden digits.
+    phone_prefix: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    phone_suffix: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    phone_country_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    phone_country_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    phone_region_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    phone_confidence: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
