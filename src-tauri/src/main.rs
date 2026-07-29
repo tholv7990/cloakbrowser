@@ -8,9 +8,10 @@ use std::time::{Duration, Instant};
 
 use rand::RngCore;
 use tauri::async_runtime::Receiver;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_updater::UpdaterExt;
 
 // The WebView's origin on Windows. Tauri v2's default custom protocol serves the
 // app from `http://tauri.localhost` (with `useHttpsScheme` false, the default), so
@@ -70,9 +71,38 @@ fn backend_ready(port: u16) -> bool {
     buf.starts_with("HTTP/1.1 200") || buf.starts_with("HTTP/1.0 200")
 }
 
+/// Check the cloud update endpoint once at startup; if a newer signed build is
+/// offered, download, verify (Ed25519 over the installer, done by the plugin),
+/// install, and relaunch. Entirely best-effort: any failure — offline, no
+/// release, bad signature — is logged and swallowed so it never blocks launch.
+/// The endpoint + pubkey live in tauri.conf.json; a dev build (no updater
+/// config / unsigned) simply returns an error here and is ignored.
+async fn check_for_update(app: AppHandle) {
+    let updater = match app.updater() {
+        Ok(updater) => updater,
+        Err(error) => {
+            eprintln!("[updater] unavailable: {error}");
+            return;
+        }
+    };
+    match updater.check().await {
+        Ok(Some(update)) => {
+            eprintln!("[updater] installing {} -> {}", update.current_version, update.version);
+            if let Err(error) = update.download_and_install(|_, _| {}, || {}).await {
+                eprintln!("[updater] install failed: {error}");
+                return;
+            }
+            app.restart();
+        }
+        Ok(None) => eprintln!("[updater] up to date"),
+        Err(error) => eprintln!("[updater] check failed: {error}"),
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let port = free_loopback_port();
             let token = per_process_token();
@@ -137,6 +167,10 @@ fn main() {
                 .min_inner_size(960.0, 640.0)
                 .initialization_script(&init)
                 .build()?;
+
+            // Check for an app update in the background once the window is up.
+            let update_app = app.handle().clone();
+            tauri::async_runtime::spawn(check_for_update(update_app));
 
             Ok(())
         })

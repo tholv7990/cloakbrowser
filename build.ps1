@@ -35,12 +35,26 @@
 param(
   [string]$CertThumbprint,
   [string]$Icon,
-  [switch]$SkipFrontendInstall
+  [switch]$SkipFrontendInstall,
+  [string]$SigningKeyPath = "$env:USERPROFILE\.plasma-signing\plasma-updater.key"
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
+
+# Updater signing key. tauri build reads TAURI_SIGNING_PRIVATE_KEY to produce the
+# .sig files the auto-updater verifies; without it the build fails because
+# createUpdaterArtifacts is on. The key lives outside the repo (never committed).
+# Publish the printed .sig content + installer URL from the admin Releases screen.
+if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+  if (Test-Path $SigningKeyPath) {
+    $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content $SigningKeyPath -Raw
+    if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) { $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "" }
+  } else {
+    throw "Updater signing key not found at $SigningKeyPath. Generate one with:  npx @tauri-apps/cli@2 signer generate --ci -w `"$SigningKeyPath`"  (or pass -SigningKeyPath / set TAURI_SIGNING_PRIVATE_KEY)."
+  }
+}
 
 function Need($name, $hint) {
   if (-not (Get-Command $name -ErrorAction SilentlyContinue)) { throw "Missing $name. $hint" }
@@ -139,4 +153,23 @@ Write-Host "BUILD OK" -ForegroundColor Green
 Write-Host ("  installer: " + $installer.FullName)
 if (-not $CertThumbprint) {
   Write-Host "  unsigned build - pass -CertThumbprint to sign a release" -ForegroundColor Yellow
+}
+
+# --- update-release fields ----------------------------------------------------
+# The auto-updater's .sig file sits next to the installer. Print the values the
+# admin Releases screen needs so publishing is copy-paste, not guesswork.
+$sig = Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe.sig" -ErrorAction SilentlyContinue |
+  Select-Object -First 1
+$version = (Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
+$sha256 = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLower()
+Write-Host ""
+Write-Host "PUBLISH THIS RELEASE (admin -> Releases):" -ForegroundColor Cyan
+Write-Host ("  version:      " + $version)
+Write-Host ("  artifact URL: host " + $installer.Name + " somewhere HTTPS, use that URL")
+Write-Host ("  sha256:       " + $sha256)
+if ($sig) {
+  Write-Host "  signature:    (contents of the .sig file below)"
+  Write-Host ("  " + (Get-Content $sig.FullName -Raw).Trim()) -ForegroundColor DarkGray
+} else {
+  Write-Warning "No .sig file produced - is createUpdaterArtifacts on and the signing key set?"
 }

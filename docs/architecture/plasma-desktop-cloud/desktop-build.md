@@ -71,13 +71,26 @@ Rust (`rustup`), Tauri CLI (`npm i -g @tauri-apps/cli`), `pip install pyinstalle
 - **Restart.** `main.rs` has a TODO to respawn the sidecar on unexpected exit.
 ## Phase 4 — signing, updater, uninstall (wired)
 
-- **Updater endpoint (done).** The cloud exposes `GET /updates/tauri/{target}/{current_version}`
-  returning Tauri v2's dynamic-update JSON (`version`, `pub_date`, `url`, `signature`,
-  `notes`) or **204** when up to date — a small adapter over the signed release row.
-  `tauri.conf.json` points `plugins.updater.endpoints` at it. Set `pubkey` to your
-  **Tauri minisign public key**, and store the installer's minisign signature in the
-  release row's `signature` (publish via `updates.publish_release`). Generate the
-  updater keypair with `tauri signer generate`.
+- **Auto-updater (fully wired 2026-07-29).** End to end:
+  - **Client.** `src-tauri` depends on `tauri-plugin-updater`; `main.rs` registers it
+    and, once the window is up, spawns `check_for_update` — checks the endpoint, and on
+    a newer signed build downloads, verifies, installs, and relaunches. Any failure
+    (offline, no release, bad signature) is logged and swallowed, never blocking launch.
+  - **Config.** `tauri.conf.json` sets `bundle.createUpdaterArtifacts: true`, points
+    `plugins.updater.endpoints` at `https://useplasma.app/updates/tauri/{{target}}/{{current_version}}`,
+    and carries the real minisign `pubkey`.
+  - **Signing key.** The minisign keypair lives OUTSIDE the repo at
+    `~/.plasma-signing/plasma-updater.key` (+ `.pub`) — **never committed; back it up,
+    losing it means no client can update again.** Regenerate with
+    `npx @tauri-apps/cli@2 signer generate --ci -w ~/.plasma-signing/plasma-updater.key`.
+    `build.ps1` loads it into `TAURI_SIGNING_PRIVATE_KEY` automatically (override with
+    `-SigningKeyPath` or by exporting the env var).
+  - **Publish flow.** `build.ps1` prints the exact fields to paste into the admin
+    **Releases** screen: version, sha256, and the `.sig` contents. Host the
+    `*-setup.exe` somewhere HTTPS, put that URL in `artifact_url`, and publish. The
+    cloud serves it to clients on the channel; releases are immutable.
+  - **Endpoint (done earlier).** `GET /updates/tauri/{target}/{current_version}` returns
+    Tauri v2 dynamic-update JSON or **204** when up to date, over the signed release row.
 - **Authenticode signing (config in place, needs a cert).** `bundle.windows` sets
   `certificateThumbprint` / `digestAlgorithm` (sha256) / `timestampUrl`. Install your
   OV/EV cert in the Windows store and replace the thumbprint; `tauri build` then signs
