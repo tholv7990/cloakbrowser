@@ -685,3 +685,26 @@ def test_unavailable_sapics_asset_still_records_resolved_package_version(tmp_pat
     assert manifest["sapics"]["status"] == "unavailable"
     assert manifest["sapics"]["version"] == "2.3.2026061719"
     assert manifest["ipinfo"]["status"] == "unavailable"
+
+
+def test_missing_socks_dependency_reports_actionable_error(monkeypatch):
+    """Codex's httpx->requests swap moved the SOCKS failure from client
+    construction to request time, where the per-attempt handler swallows it.
+    A missing PySocks must still surface an actionable message instead of a
+    generic 'no echo responses' failure."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_socks(name, *args, **kwargs):
+        if name == "socks":
+            raise ImportError("No module named 'socks'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_socks)
+    with pytest.raises(ProxyConnectivityError) as caught:
+        resolve_exit_ip("socks5h://secret-user:secret-pass@proxy.example:1080", attempts=2)
+    message = str(caught.value)
+    assert "SOCKS" in message  # actionable, not a generic "no echo responses"
+    # host:port is kept for diagnostics; credentials never are.
+    assert "secret-user" not in message and "secret-pass" not in message

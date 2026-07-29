@@ -30,7 +30,7 @@ def _create(client, auth_headers, **changes):
 
 
 def test_quick_tester_enriches_exit_ip_with_geo():
-    def fake_resolver(url, attempts=3):
+    def fake_resolver(url, attempts=3, timeout=None):
         return {"exit_ip": "1.2.3.4", "exit_ip_agreement": True, "latency_median_ms": 100.0}
 
     def fake_geo(ip):
@@ -237,7 +237,7 @@ def test_direct_proxy_quick_test_is_rejected(client, auth_headers):
 
 
 def test_scanner_quick_test_honors_total_timeout_budget():
-    def slow_resolver(_proxy_url, *, attempts):
+    def slow_resolver(_proxy_url, *, attempts, timeout=None):
         time.sleep(0.2)
         return {}
 
@@ -253,7 +253,7 @@ def test_scanner_quick_test_honors_total_timeout_budget():
 
 
 def test_fast_proxy_test_bounds_resolver_and_geo_by_one_deadline():
-    def resolver(_proxy_url, *, attempts):
+    def resolver(_proxy_url, *, attempts, timeout=None):
         assert attempts == 2
         return {
             "exit_ip": "1.2.3.4",
@@ -539,3 +539,58 @@ def test_socks5h_is_coerced_to_socks5_for_the_launch_url():
     url = build_proxy_url("socks5h", "proxy.example", 1080, "user", "pass")
     assert url is not None and url.startswith("socks5://")
     assert "socks5h" not in url
+
+
+# --- abandoned-check thread hygiene -----------------------------------------
+# A quick test that the caller abandons must not keep burning a thread in the
+# shared launch-test pool for the full hardcoded HTTP timeout: with only 8
+# shared workers, a batch of slow/dead proxies otherwise starves later checks
+# and reports HEALTHY proxies as "timeout".
+def test_run_fast_bounds_resolver_http_timeout_to_caller_budget():
+    seen: dict[str, float | None] = {}
+
+    def resolver(_proxy_url, *, attempts, timeout=None):
+        seen["timeout"] = timeout
+        return {"exit_ip": "1.2.3.4", "exit_ip_agreement": True, "latency_median_ms": 10.0}
+
+    ScannerQuickTester(resolver=resolver, geo_lookup=lambda _ip: {}).run_fast(
+        "socks5://proxy.example:1080", timeout_seconds=4
+    )
+    assert seen["timeout"] is not None, "resolver was given no HTTP timeout"
+    # Each attempt must fit inside the caller's total budget.
+    assert 0 < seen["timeout"] <= 4
+
+
+def test_run_bounds_resolver_http_timeout_to_caller_budget():
+    seen: dict[str, float | None] = {}
+
+    def resolver(_proxy_url, *, attempts, timeout=None):
+        seen["timeout"] = timeout
+        return {"exit_ip": "1.2.3.4", "exit_ip_agreement": True, "latency_median_ms": 10.0}
+
+    ScannerQuickTester(resolver=resolver, geo_lookup=lambda _ip: {}).run(
+        "socks5://proxy.example:1080", timeout_seconds=9
+    )
+    assert seen["timeout"] is not None
+    assert 0 < seen["timeout"] <= 9
+
+
+def test_abandoned_slow_checks_do_not_starve_a_healthy_proxy():
+    # Slow proxies honor whatever HTTP timeout they are handed (like a real
+    # socket timeout would); dead ones are abandoned by the caller almost
+    # immediately. A healthy proxy checked afterwards must still succeed.
+    def slow(_proxy_url, *, attempts, timeout=None):
+        time.sleep(min(10.0, timeout if timeout else 10.0))
+        raise RuntimeError("dead proxy")
+
+    def healthy(_proxy_url, *, attempts, timeout=None):
+        return {"exit_ip": "203.0.113.9", "exit_ip_agreement": True, "latency_median_ms": 12.0}
+
+    slow_tester = ScannerQuickTester(resolver=slow, geo_lookup=lambda _ip: {})
+    for index in range(16):  # twice the shared pool size
+        with pytest.raises(ProxyTestFailure):
+            slow_tester.run_fast(f"socks5://dead{index}.example:1080", timeout_seconds=0.2)
+
+    healthy_tester = ScannerQuickTester(resolver=healthy, geo_lookup=lambda _ip: {})
+    result = healthy_tester.run_fast("socks5://good.example:1080", timeout_seconds=3)
+    assert result.exit_ip == "203.0.113.9"

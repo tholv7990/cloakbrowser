@@ -89,6 +89,17 @@ def _failure_category(error: Exception) -> str:
     return "upstream_unavailable"
 
 
+def _per_attempt_timeout(total_budget: float, attempts: int) -> float:
+    """Split the caller's wall-clock budget across its echo attempts.
+
+    A future the caller abandons cannot be cancelled once it is running, so the
+    HTTP timeout inside it MUST be bounded by the caller's own budget. Otherwise
+    each dead proxy keeps a shared pool thread busy far longer than the caller
+    waited, and later checks of healthy proxies fail with a false 'timeout'.
+    """
+    return max(0.5, float(total_budget) / max(1, attempts))
+
+
 class ScannerQuickTester:
     _fast_executor = ThreadPoolExecutor(
         max_workers=8, thread_name_prefix="proxy-launch-test"
@@ -101,7 +112,12 @@ class ScannerQuickTester:
     def run(self, proxy_url: str, timeout_seconds: float = 20) -> QuickTestResult:
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="proxy-quick-test")
         try:
-            future = executor.submit(self._resolver, proxy_url, attempts=3)
+            future = executor.submit(
+                self._resolver,
+                proxy_url,
+                attempts=3,
+                timeout=_per_attempt_timeout(timeout_seconds, 3),
+            )
             result = future.result(timeout=timeout_seconds)
             exit_ip = str(result["exit_ip"])
             geo = self._geo_lookup(exit_ip) or {}
@@ -135,7 +151,11 @@ class ScannerQuickTester:
         """Run the smaller launch gate under one absolute wall-clock budget."""
 
         def check() -> QuickTestResult:
-            result = self._resolver(proxy_url, attempts=2)
+            result = self._resolver(
+                proxy_url,
+                attempts=2,
+                timeout=_per_attempt_timeout(timeout_seconds, 2),
+            )
             exit_ip = str(result["exit_ip"])
             geo = self._geo_lookup(exit_ip) or {}
             return QuickTestResult(

@@ -21,6 +21,8 @@ import requests
 from benchmarks.proxy_quality_models import redact_proxy
 
 
+# Per-request ceiling for an echo call when the caller states no budget.
+_DEFAULT_ECHO_TIMEOUT = 10.0
 _ECHO_ENDPOINTS = (
     "https://api.ipify.org?format=json",
     "https://checkip.amazonaws.com/",
@@ -148,10 +150,17 @@ class _RequestsSocksClient:
     httpx+socksio rejects with ``ProtocolError: Malformed reply``.
     """
 
-    def __init__(self, proxy: str):
+    def __init__(self, proxy: str, timeout: float = _DEFAULT_ECHO_TIMEOUT):
+        # requests only fails on a socks:// URL at REQUEST time (InvalidSchema),
+        # where the per-attempt handler swallows it into a generic "no echo
+        # responses" error. Fail fast here so a missing dependency stays
+        # diagnosable. Never include the proxy URL — it carries credentials.
+        import socks  # noqa: F401  (PySocks, via requests[socks])
+
         self._session = requests.Session()
         self._session.trust_env = False
         self._session.proxies = {"http": proxy, "https": proxy}
+        self._timeout = timeout
 
     def __enter__(self):
         self._session.__enter__()
@@ -161,7 +170,7 @@ class _RequestsSocksClient:
         return self._session.__exit__(*args)
 
     def get(self, url: str):
-        return self._session.get(url, timeout=10.0, allow_redirects=False)
+        return self._session.get(url, timeout=self._timeout, allow_redirects=False)
 
 
 def _normalized_ip(value: str) -> str:
@@ -170,11 +179,18 @@ def _normalized_ip(value: str) -> str:
     return str(ipaddress.ip_address(value.strip()))
 
 
-def resolve_exit_ip(proxy: str, *, attempts: int = 3) -> dict[str, object]:
+def resolve_exit_ip(
+    proxy: str, *, attempts: int = 3, timeout: float = _DEFAULT_ECHO_TIMEOUT
+) -> dict[str, object]:
     """Resolve a proxy's public IP using alternating independent echo services.
 
     A SOCKS URL requires the optional ``socksio`` transport.  Install it with
     ``pip install -e ".[geoip]"`` if httpx reports it unavailable.
+
+    ``timeout`` bounds EACH echo request. Callers that abandon this work after a
+    deadline (see ScannerQuickTester) must pass a timeout derived from their own
+    budget: a hardcoded longer timeout keeps a pooled worker thread busy long
+    after the caller gave up, which starves later checks of healthy proxies.
     """
 
     validate_proxy_url(proxy)
@@ -184,9 +200,9 @@ def resolve_exit_ip(proxy: str, *, attempts: int = 3) -> dict[str, object]:
     parsed_proxy = urlsplit(proxy)
     try:
         if parsed_proxy.scheme.lower().startswith("socks"):
-            client = _RequestsSocksClient(proxy)
+            client = _RequestsSocksClient(proxy, timeout)
         else:
-            client = httpx.Client(proxy=proxy, timeout=10.0, follow_redirects=False)
+            client = httpx.Client(proxy=proxy, timeout=timeout, follow_redirects=False)
     except Exception:
         if parsed_proxy.scheme.lower().startswith("socks"):
             raise ProxyConnectivityError(
