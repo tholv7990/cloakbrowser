@@ -7680,58 +7680,12 @@
       }
     },
     "/api/v1/automations/shop-check/runs": {
-      "get": {
+      "post": {
         "tags": [
           "shop_check"
         ],
-        "summary": "List Runs",
-        "operationId": "shop_check_runs_list",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ShopCheckRunSummary"
-                  },
-                  "type": "array",
-                  "title": "Response Shop Check Runs List"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Origin or CSRF rejected",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Request validation failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
+        "summary": "Create Run",
+        "operationId": "shop_check_runs_create",
         "security": [
           {
             "SessionCookie": []
@@ -7739,23 +7693,16 @@
           {
             "CsrfToken": []
           }
-        ]
-      },
-      "post": {
-        "tags": [
-          "shop_check"
         ],
-        "summary": "Create Run",
-        "operationId": "shop_check_runs_create",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ShopCheckRunCreate"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "202": {
@@ -7798,7 +7745,14 @@
               }
             }
           }
-        },
+        }
+      },
+      "get": {
+        "tags": [
+          "shop_check"
+        ],
+        "summary": "List Runs",
+        "operationId": "shop_check_runs_list",
         "security": [
           {
             "SessionCookie": []
@@ -7806,7 +7760,74 @@
           {
             "CsrfToken": []
           }
-        ]
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopCheckRunPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/automations/shop-check/runs/{run_id}": {
@@ -7934,6 +7955,18 @@
             "schema": {
               "anyOf": [
                 {
+                  "enum": [
+                    "phone_otp_required",
+                    "email_otp_required",
+                    "login_success",
+                    "account_not_found",
+                    "email_rejected",
+                    "captcha_or_challenge",
+                    "proxy_failed",
+                    "navigation_failed",
+                    "unknown",
+                    "cancelled"
+                  ],
                   "type": "string"
                 },
                 {
@@ -11539,6 +11572,26 @@
         ],
         "title": "DiagnosticRead"
       },
+      "DuplicateInputEntry": {
+        "properties": {
+          "line": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Line"
+          },
+          "masked": {
+            "type": "string",
+            "title": "Masked"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "line",
+          "masked"
+        ],
+        "title": "DuplicateInputEntry"
+      },
       "ErrorBody": {
         "properties": {
           "code": {
@@ -11885,6 +11938,20 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "Worker Count"
+          },
+          "invalid_entries": {
+            "items": {
+              "$ref": "#/components/schemas/InvalidInputEntry"
+            },
+            "type": "array",
+            "title": "Invalid Entries"
+          },
+          "duplicate_entries": {
+            "items": {
+              "$ref": "#/components/schemas/DuplicateInputEntry"
+            },
+            "type": "array",
+            "title": "Duplicate Entries"
           }
         },
         "additionalProperties": false,
@@ -11894,7 +11961,9 @@
           "valid",
           "duplicates",
           "invalid",
-          "worker_count"
+          "worker_count",
+          "invalid_entries",
+          "duplicate_entries"
         ],
         "title": "InputSummary"
       },
@@ -11913,6 +11982,31 @@
           "entitlement_token"
         ],
         "title": "InstallEntitlementRequest"
+      },
+      "InvalidInputEntry": {
+        "properties": {
+          "line": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Line"
+          },
+          "masked": {
+            "type": "string",
+            "title": "Masked"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "line",
+          "masked",
+          "reason"
+        ],
+        "title": "InvalidInputEntry"
       },
       "LicenseSettingsRead": {
         "properties": {
@@ -14903,6 +14997,7 @@
                   "email_otp_required",
                   "login_success",
                   "account_not_found",
+                  "email_rejected",
                   "captcha_or_challenge",
                   "proxy_failed",
                   "navigation_failed",
@@ -15297,6 +15392,48 @@
           "workers"
         ],
         "title": "ShopCheckRunDetail"
+      },
+      "ShopCheckRunPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ShopCheckRunSummary"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Page Size"
+          },
+          "pages": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Pages"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "pages"
+        ],
+        "title": "ShopCheckRunPage"
       },
       "ShopCheckRunSummary": {
         "properties": {

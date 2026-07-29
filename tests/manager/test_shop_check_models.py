@@ -4,7 +4,12 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from manager_backend.models import ShopCheckEmail, ShopCheckRun, ShopCheckWorker
+from manager_backend.models import (
+    ShopCheckEmail,
+    ShopCheckRun,
+    ShopCheckWorker,
+    utc_now,
+)
 
 
 def _run(**overrides) -> ShopCheckRun:
@@ -115,6 +120,114 @@ def test_worker_records_immutable_ownership_pair(db_session_factory):
         # Ownership is the (run_id, profile_id) pair — resolved server-side at cleanup.
         assert worker.run_id == run.id
         assert worker.profile_id == "profile-abc"
+
+
+def _email(run_id, **overrides):
+    values = dict(
+        run_id=run_id,
+        ordinal=0,
+        email_fingerprint="f" * 64,
+        credential_ref="ref",
+        email_masked="a***@b***.com",
+        state="pending",
+    )
+    values.update(overrides)
+    return ShopCheckEmail(**values)
+
+
+def test_terminal_email_requires_result_and_checked_at(db_session_factory):
+    with db_session_factory() as session:
+        run = _run()
+        session.add(run)
+        session.flush()
+        session.add(_email(run.id, state="terminal", result=None))
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def test_nonterminal_email_forbids_a_result(db_session_factory):
+    with db_session_factory() as session:
+        run = _run()
+        session.add(run)
+        session.flush()
+        session.add(_email(run.id, state="pending", result="login_success"))
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def test_email_rejected_is_an_accepted_result(db_session_factory):
+    with db_session_factory() as session:
+        run = _run()
+        session.add(run)
+        session.flush()
+        session.add(
+            _email(
+                run.id,
+                state="terminal",
+                result="email_rejected",
+                checked_at=utc_now(),
+            )
+        )
+        session.commit()  # must not raise
+
+
+def test_unique_email_run_ordinal(db_session_factory):
+    with db_session_factory() as session:
+        run = _run()
+        session.add(run)
+        session.flush()
+        session.add(_email(run.id, ordinal=0, email_fingerprint="a" * 64))
+        session.add(_email(run.id, ordinal=0, email_fingerprint="b" * 64))
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def test_unique_email_run_fingerprint(db_session_factory):
+    with db_session_factory() as session:
+        run = _run()
+        session.add(run)
+        session.flush()
+        session.add(_email(run.id, ordinal=0, email_fingerprint="a" * 64))
+        session.add(_email(run.id, ordinal=1, email_fingerprint="a" * 64))
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def test_unique_worker_run_ordinal(db_session_factory):
+    with db_session_factory() as session:
+        run = _run()
+        session.add(run)
+        session.flush()
+        session.add(ShopCheckWorker(run_id=run.id, ordinal=0, state="pending"))
+        session.add(ShopCheckWorker(run_id=run.id, ordinal=0, state="pending"))
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def test_worker_profile_id_is_globally_unique(db_session_factory):
+    with db_session_factory() as session:
+        run_a = _run()
+        run_b = _run()
+        session.add_all([run_a, run_b])
+        session.flush()
+        session.add(
+            ShopCheckWorker(run_id=run_a.id, ordinal=0, state="terminal", profile_id="shared")
+        )
+        session.add(
+            ShopCheckWorker(run_id=run_b.id, ordinal=0, state="terminal", profile_id="shared")
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def test_multiple_workers_may_have_null_profile_id(db_session_factory):
+    with db_session_factory() as session:
+        run = _run()
+        session.add(run)
+        session.flush()
+        session.add(ShopCheckWorker(run_id=run.id, ordinal=0, state="pending"))
+        session.add(ShopCheckWorker(run_id=run.id, ordinal=1, state="pending"))
+        session.commit()  # NULLs do not collide on the partial unique index
 
 
 def test_deleting_run_cascades_to_emails_and_workers(db_session_factory):

@@ -10,18 +10,20 @@ this layer.
 from __future__ import annotations
 
 import math
-from collections import Counter
+from uuid import uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ...errors import ManagerError
+from ...features.proxies.credentials import CredentialStore, ProxyCredential
 from ...models import (
     ShopCheckEmail,
     ShopCheckRun,
     ShopCheckWorker,
     utc_now,
 )
+from .input import parse_email_input, worker_count
 from .schemas import RETRYABLE_RESULTS
 
 _TERMINAL_RUN_STATES = frozenset(
@@ -120,11 +122,23 @@ def get_run_detail(session: Session, run_id: str) -> dict:
     return run_detail(session, require_run(session, run_id))
 
 
-def list_runs(session: Session) -> list[dict]:
+def list_runs(session: Session, *, page: int, page_size: int) -> dict:
+    total = int(
+        session.scalar(select(func.count()).select_from(ShopCheckRun)) or 0
+    )
     runs = session.scalars(
-        select(ShopCheckRun).order_by(ShopCheckRun.created_at.desc())
+        select(ShopCheckRun)
+        .order_by(ShopCheckRun.created_at.desc(), ShopCheckRun.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     ).all()
-    return [_run_summary(session, run) for run in runs]
+    return {
+        "items": [_run_summary(session, run) for run in runs],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": math.ceil(total / page_size) if total else 0,
+    }
 
 
 def list_emails(
@@ -158,14 +172,22 @@ def list_emails(
     }
 
 
-def create_run(session: Session, store, payload) -> dict:
-    """Persist a queued run from validated settings.
+def create_run(session: Session, store: CredentialStore, payload) -> dict:
+    """Parse the pasted input, securely persist the valid emails, and queue a run.
 
-    NOTE: email parsing, CredentialStore writes, email-row creation, and worker
-    grouping are wired in Task 3 (features/shop_check/input.py). This skeleton
-    persists the run settings and returns the locked response contract with a
-    zeroed input summary so the route/schema contract can be reviewed first.
+    Atomic: the run + email rows are one transaction, and every full email is
+    written to CredentialStore keyed by the row's credential_ref. If any store
+    write fails, the transaction rolls back AND the already-written credentials
+    are deleted (compensated), so no orphan secret survives. The raw input is
+    never logged. Provisioning + execution are driven later by the coordinator.
     """
+    parsed = parse_email_input(payload.email_text)
+    if not parsed.valid:
+        raise ManagerError(
+            "shop_check_no_valid_emails",
+            "No valid email addresses were found in the input.",
+            400,
+        )
     run = ShopCheckRun(
         status="queued",
         region=payload.region,
@@ -174,21 +196,54 @@ def create_run(session: Session, store, payload) -> dict:
         target_url="https://shop.app/",
         profile_prefix=payload.profile_prefix,
         output_dir=payload.output_dir,
-        total_emails=0,
+        total_emails=len(parsed.valid),
     )
     session.add(run)
-    session.commit()
+    session.flush()
+
+    written_refs: list[str] = []
+    try:
+        for ordinal, parsed_email in enumerate(parsed.valid):
+            ref = str(uuid4())
+            store.put(ref, ProxyCredential(username=parsed_email.normalized, password=""))
+            written_refs.append(ref)
+            session.add(
+                ShopCheckEmail(
+                    run_id=run.id,
+                    worker_id=None,
+                    ordinal=ordinal,
+                    email_fingerprint=parsed_email.fingerprint,
+                    credential_ref=ref,
+                    email_masked=parsed_email.masked,
+                    state="pending",
+                )
+            )
+        session.commit()
+    except Exception:
+        session.rollback()
+        for ref in written_refs:
+            try:
+                store.delete(ref)
+            except Exception:
+                pass  # best-effort compensation; never mask the original error
+        raise
+
     session.refresh(run)
-    return {
-        "run": run_detail(session, run),
-        "input_summary": {
-            "total_lines": 0,
-            "valid": 0,
-            "duplicates": 0,
-            "invalid": 0,
-            "worker_count": 0,
-        },
+    summary = {
+        "total_lines": parsed.total_lines,
+        "valid": len(parsed.valid),
+        "duplicates": len(parsed.duplicates),
+        "invalid": len(parsed.invalid),
+        "worker_count": worker_count(len(parsed.valid), payload.emails_per_profile),
+        "invalid_entries": [
+            {"line": e.line, "masked": e.masked, "reason": e.reason}
+            for e in parsed.invalid
+        ],
+        "duplicate_entries": [
+            {"line": d.line, "masked": d.masked} for d in parsed.duplicates
+        ],
     }
+    return {"run": run_detail(session, run), "input_summary": summary}
 
 
 def recompute_run(session: Session, run_id: str) -> ShopCheckRun:

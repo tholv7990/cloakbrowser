@@ -30,6 +30,7 @@ EmailResult = Literal[
     "email_otp_required",
     "login_success",
     "account_not_found",
+    "email_rejected",
     "captcha_or_challenge",
     "proxy_failed",
     "navigation_failed",
@@ -94,12 +95,25 @@ class ShopCheckRunCreate(StrictModel):
         return self
 
 
+class InvalidInputEntry(StrictModel):
+    line: int = Field(ge=1)
+    masked: str
+    reason: str
+
+
+class DuplicateInputEntry(StrictModel):
+    line: int = Field(ge=1)
+    masked: str
+
+
 class InputSummary(StrictModel):
     total_lines: int = Field(ge=0)
     valid: int = Field(ge=0)
     duplicates: int = Field(ge=0)
     invalid: int = Field(ge=0)
     worker_count: int = Field(ge=0)
+    invalid_entries: list[InvalidInputEntry]
+    duplicate_entries: list[DuplicateInputEntry]
 
 
 class ShopCheckWorkerRead(StrictModel):
@@ -153,6 +167,10 @@ class ShopCheckRunSummary(StrictModel):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+
+
+class ShopCheckRunPage(Page[ShopCheckRunSummary]):
+    pass
 
 
 class ShopCheckRunDetail(ShopCheckRunSummary):

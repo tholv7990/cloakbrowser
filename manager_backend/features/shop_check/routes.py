@@ -16,11 +16,12 @@ from ...dependencies import get_session
 from ...maintenance import guard_maintenance
 from . import service
 from .schemas import (
+    EmailResult,
     ShopCheckEmailPage,
     ShopCheckRunCreate,
     ShopCheckRunCreateResult,
     ShopCheckRunDetail,
-    ShopCheckRunSummary,
+    ShopCheckRunPage,
 )
 
 
@@ -41,11 +42,15 @@ def create_run(payload: ShopCheckRunCreate, request: Request, session: SessionDe
 
 @router.get(
     "/runs",
-    response_model=list[ShopCheckRunSummary],
+    response_model=ShopCheckRunPage,
     operation_id="shop_check_runs_list",
 )
-def list_runs(session: SessionDependency):
-    return service.list_runs(session)
+def list_runs(
+    session: SessionDependency,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+):
+    return service.list_runs(session, page=page, page_size=page_size)
 
 
 @router.get(
@@ -67,7 +72,7 @@ def list_emails(
     session: SessionDependency,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
-    result: str | None = Query(default=None),
+    result: EmailResult | None = Query(default=None),
 ):
     return service.list_emails(
         session, run_id, page=page, page_size=page_size, result=result

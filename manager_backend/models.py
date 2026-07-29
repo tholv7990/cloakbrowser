@@ -734,6 +734,9 @@ SHOP_CHECK_RESULTS = (
     "email_otp_required",
     "login_success",
     "account_not_found",
+    # Shop explicitly rejected the address (distinct from account_not_found,
+    # which is an explicit "no such account" signal, never inferred).
+    "email_rejected",
     "captcha_or_challenge",
     "proxy_failed",
     "navigation_failed",
@@ -811,7 +814,15 @@ class ShopCheckWorker(Base):
             f"state IN {_in_clause(SHOP_CHECK_WORKER_STATES)}",
             name="ck_shop_check_workers_state",
         ),
-        Index("ix_shop_check_workers_run_ordinal", "run_id", "ordinal"),
+        Index("uq_shop_check_workers_run_ordinal", "run_id", "ordinal", unique=True),
+        # One profile is owned by at most one worker, ever (across all runs). NULLs
+        # (not yet provisioned) do not collide on this partial unique index.
+        Index(
+            "uq_shop_check_workers_profile_id",
+            "profile_id",
+            unique=True,
+            sqlite_where=text("profile_id IS NOT NULL"),
+        ),
         Index("ix_shop_check_workers_run_state", "run_id", "state"),
     )
 
@@ -850,8 +861,21 @@ class ShopCheckEmail(Base):
             f"phone_confidence IS NULL OR phone_confidence IN {_in_clause(SHOP_CHECK_CONFIDENCE)}",
             name="ck_shop_check_emails_confidence",
         ),
+        # Terminal/result/checked_at coherence: a terminal email carries a result
+        # and a checked-at timestamp; a non-terminal email carries neither result.
+        CheckConstraint(
+            "(state = 'terminal' AND result IS NOT NULL AND checked_at IS NOT NULL) "
+            "OR (state <> 'terminal' AND result IS NULL)",
+            name="ck_shop_check_emails_terminal_coherent",
+        ),
         Index("ix_shop_check_emails_run_state", "run_id", "state"),
-        Index("ix_shop_check_emails_run_ordinal", "run_id", "ordinal"),
+        Index("uq_shop_check_emails_run_ordinal", "run_id", "ordinal", unique=True),
+        Index(
+            "uq_shop_check_emails_run_fingerprint",
+            "run_id",
+            "email_fingerprint",
+            unique=True,
+        ),
         Index("ix_shop_check_emails_worker", "worker_id"),
     )
 
