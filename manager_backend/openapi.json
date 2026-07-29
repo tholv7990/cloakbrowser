@@ -11944,14 +11944,24 @@
               "$ref": "#/components/schemas/InvalidInputEntry"
             },
             "type": "array",
+            "maxItems": 100,
             "title": "Invalid Entries"
+          },
+          "invalid_truncated": {
+            "type": "boolean",
+            "title": "Invalid Truncated"
           },
           "duplicate_entries": {
             "items": {
               "$ref": "#/components/schemas/DuplicateInputEntry"
             },
             "type": "array",
+            "maxItems": 100,
             "title": "Duplicate Entries"
+          },
+          "duplicate_truncated": {
+            "type": "boolean",
+            "title": "Duplicate Truncated"
           }
         },
         "additionalProperties": false,
@@ -11963,7 +11973,9 @@
           "invalid",
           "worker_count",
           "invalid_entries",
-          "duplicate_entries"
+          "invalid_truncated",
+          "duplicate_entries",
+          "duplicate_truncated"
         ],
         "title": "InputSummary"
       },
@@ -15180,18 +15192,6 @@
               }
             ],
             "title": "Profile Prefix"
-          },
-          "output_dir": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 500
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Output Dir"
           },
           "authorized_only_ack": {
             "type": "boolean",

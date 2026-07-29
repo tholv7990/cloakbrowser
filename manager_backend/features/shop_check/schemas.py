@@ -56,10 +56,16 @@ RETRYABLE_RESULTS: frozenset[str] = frozenset(
     {"captcha_or_challenge", "proxy_failed", "navigation_failed", "unknown"}
 )
 
+# Bounds. MAX_INPUT_LINES caps the work a single run schedules; MAX_PREVIEW caps
+# how many invalid/duplicate examples the response echoes (counts stay exact).
+MAX_INPUT_LINES = 1000
+MAX_PREVIEW = 100
+
 
 class ShopCheckRunCreate(StrictModel):
     # Write-only: the pasted authorized-account list. Never echoed in any
-    # response, log, or error. Bounded to keep a paste from exhausting memory.
+    # response, log, or error. Bounded by BOTH characters (memory) and non-blank
+    # lines (scheduled work) — the line bound is enforced before any persistence.
     email_text: str = Field(
         min_length=1,
         max_length=2_000_000,
@@ -70,10 +76,23 @@ class ShopCheckRunCreate(StrictModel):
     # None => random region; otherwise a two-letter country code (e.g. "US").
     region: str | None = Field(default=None)
     profile_prefix: str | None = Field(default=None, max_length=80)
-    output_dir: str | None = Field(default=None, max_length=500)
     # Hard authorization gate: the operator must affirm these accounts are their
     # own or explicitly authorized. The server rejects a run without it.
     authorized_only_ack: bool = Field(default=False)
+
+    # output_dir intentionally omitted: exports are not implemented yet, and an
+    # unrestricted path is a traversal/UNC/device-path risk. It returns behind a
+    # validated, app-controlled export root when export lands.
+
+    @field_validator("email_text")
+    @classmethod
+    def _bounded_lines(cls, value: str) -> str:
+        nonblank = sum(1 for line in value.splitlines() if line.strip())
+        if nonblank > MAX_INPUT_LINES:
+            raise ValueError(
+                f"at most {MAX_INPUT_LINES} email lines are allowed (got {nonblank})"
+            )
+        return value
 
     @field_validator("region")
     @classmethod
@@ -112,8 +131,13 @@ class InputSummary(StrictModel):
     duplicates: int = Field(ge=0)
     invalid: int = Field(ge=0)
     worker_count: int = Field(ge=0)
-    invalid_entries: list[InvalidInputEntry]
-    duplicate_entries: list[DuplicateInputEntry]
+    # Full counts above; the *_entries below are truncated previews (<= MAX_PREVIEW)
+    # so a huge paste never yields a multi-megabyte response. The *_truncated flags
+    # say whether the corresponding preview was cut.
+    invalid_entries: list[InvalidInputEntry] = Field(max_length=MAX_PREVIEW)
+    invalid_truncated: bool
+    duplicate_entries: list[DuplicateInputEntry] = Field(max_length=MAX_PREVIEW)
+    duplicate_truncated: bool
 
 
 class ShopCheckWorkerRead(StrictModel):

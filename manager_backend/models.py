@@ -862,10 +862,11 @@ class ShopCheckEmail(Base):
             name="ck_shop_check_emails_confidence",
         ),
         # Terminal/result/checked_at coherence: a terminal email carries a result
-        # and a checked-at timestamp; a non-terminal email carries neither result.
+        # AND a checked-at timestamp; a non-terminal (pending/running) email
+        # carries NEITHER a result nor a checked-at timestamp.
         CheckConstraint(
             "(state = 'terminal' AND result IS NOT NULL AND checked_at IS NOT NULL) "
-            "OR (state <> 'terminal' AND result IS NULL)",
+            "OR (state IN ('pending','running') AND result IS NULL AND checked_at IS NULL)",
             name="ck_shop_check_emails_terminal_coherent",
         ),
         Index("ix_shop_check_emails_run_state", "run_id", "state"),
@@ -904,6 +905,25 @@ class ShopCheckEmail(Base):
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class ShopCheckCredentialJournal(Base):
+    """Durable record of a CredentialStore ref written while provisioning a run.
+
+    Committed BEFORE the secret is written, so an orphaned secret (whose email
+    row never committed, or whose immediate compensation failed) can still be
+    reconciled at startup. `run_id` is a loose reference (NO foreign key) so the
+    row survives even when the run/email transaction rolls back.
+    """
+
+    __tablename__ = "shop_check_credential_journal"
+    __table_args__ = (Index("ix_shop_check_credential_journal_run", "run_id"),)
+
+    ref: Mapped[str] = mapped_column(String(36), primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )

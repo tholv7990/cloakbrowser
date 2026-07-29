@@ -48,7 +48,8 @@ def test_create_consumes_email_text_and_reports_summary(client, auth_headers):
 
 def test_invalid_and_duplicate_lines_are_reported_with_line_and_mask(client, auth_headers):
     _setup(client)
-    text = "alice@example.com\nnot-an-email\nAlice@example.com\n"
+    # line 3 duplicates line 1 (same local part, domain case only differs).
+    text = "alice@example.com\nnot-an-email\nalice@Example.com\n"
     response = _create(client, auth_headers, email_text=text)
     summary = response.json()["input_summary"]
     assert summary["valid"] == 1
@@ -149,6 +150,66 @@ def test_full_email_never_appears_in_any_response(client, auth_headers):
         assert "credential_ref" not in blob
         assert "email_fingerprint" not in blob
         assert "email_text" not in blob
+
+
+# --- input bounding (item 5) ------------------------------------------------
+def test_exactly_1000_entries_accepted(client, auth_headers):
+    _setup(client)
+    text = "\n".join(f"user{i}@example.com" for i in range(1000))
+    response = _create(client, auth_headers, email_text=text)
+    assert response.status_code == 202
+    assert response.json()["input_summary"]["valid"] == 1000
+
+
+def test_1001_entries_rejected_before_persistence(client, auth_headers):
+    _setup(client)
+    text = "\n".join(f"user{i}@example.com" for i in range(1001))
+    response = _create(client, auth_headers, email_text=text)
+    assert response.status_code == 422
+    # nothing persisted
+    assert client.get(_BASE + "/runs", headers=auth_headers).json()["total"] == 0
+
+
+def test_blank_lines_do_not_count_toward_limit(client, auth_headers):
+    _setup(client)
+    lines = [f"user{i}@example.com" for i in range(1000)]
+    text = "\n\n".join(lines) + "\n\n\n"  # blanks interleaved
+    response = _create(client, auth_headers, email_text=text)
+    assert response.status_code == 202
+
+
+def test_invalid_and_duplicate_previews_cap_at_100(client, auth_headers):
+    _setup(client)
+    invalid = "\n".join("bad-line" + str(i) for i in range(150))
+    text = "keeper@example.com\n" + invalid
+    summary = _create(client, auth_headers, email_text=text).json()["input_summary"]
+    assert summary["invalid"] == 150  # accurate full count
+    assert len(summary["invalid_entries"]) == 100  # capped preview
+    assert summary["invalid_truncated"] is True
+
+    dups = "\n".join(["dup@example.com"] * 151)
+    text2 = "dup@example.com\n" + dups
+    summary2 = _create(client, auth_headers, email_text=text2).json()["input_summary"]
+    assert summary2["duplicates"] == 151
+    assert len(summary2["duplicate_entries"]) == 100
+    assert summary2["duplicate_truncated"] is True
+
+
+# --- output_dir restriction (item 7) ----------------------------------------
+def test_output_dir_is_not_accepted_on_create(client, auth_headers):
+    _setup(client)
+    response = client.post(
+        f"{_BASE}/runs",
+        headers=auth_headers,
+        json=_valid_payload(output_dir="C:/Windows/Temp"),
+    )
+    assert response.status_code == 422  # extra field forbidden
+
+
+def test_output_dir_absent_from_create_schema(client):
+    schema = client.app.openapi()
+    props = schema["components"]["schemas"]["ShopCheckRunCreate"]["properties"]
+    assert "output_dir" not in props
 
 
 def test_operation_ids_are_unique(client):

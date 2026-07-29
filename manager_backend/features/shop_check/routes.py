@@ -37,7 +37,12 @@ SessionDependency = Annotated[Session, Depends(get_session)]
     dependencies=[Depends(guard_maintenance)],
 )
 def create_run(payload: ShopCheckRunCreate, request: Request, session: SessionDependency):
-    return service.create_run(session, request.app.state.credential_store, payload)
+    return service.create_run(
+        session,
+        request.app.state.credential_store,
+        payload,
+        request.app.state.session_factory,
+    )
 
 
 @router.get(

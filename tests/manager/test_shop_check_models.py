@@ -145,14 +145,47 @@ def test_terminal_email_requires_result_and_checked_at(db_session_factory):
             session.commit()
 
 
-def test_nonterminal_email_forbids_a_result(db_session_factory):
+@pytest.mark.parametrize("state", ["pending", "running"])
+def test_nonterminal_email_forbids_a_result(db_session_factory, state):
     with db_session_factory() as session:
         run = _run()
         session.add(run)
         session.flush()
-        session.add(_email(run.id, state="pending", result="login_success"))
+        session.add(_email(run.id, state=state, result="login_success", checked_at=utc_now()))
         with pytest.raises(IntegrityError):
             session.commit()
+
+
+@pytest.mark.parametrize("state", ["pending", "running"])
+def test_nonterminal_email_forbids_checked_at(db_session_factory, state):
+    # A row that has not reached a terminal result must not carry a checked_at.
+    with db_session_factory() as session:
+        run = _run()
+        session.add(run)
+        session.flush()
+        session.add(_email(run.id, state=state, checked_at=utc_now()))
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def test_terminal_email_requires_checked_at(db_session_factory):
+    with db_session_factory() as session:
+        run = _run()
+        session.add(run)
+        session.flush()
+        session.add(_email(run.id, state="terminal", result="login_success", checked_at=None))
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+@pytest.mark.parametrize("state", ["pending", "running"])
+def test_valid_nonterminal_rows_are_accepted(db_session_factory, state):
+    with db_session_factory() as session:
+        run = _run()
+        session.add(run)
+        session.flush()
+        session.add(_email(run.id, state=state))
+        session.commit()  # result + checked_at both NULL is valid
 
 
 def test_email_rejected_is_an_accepted_result(db_session_factory):

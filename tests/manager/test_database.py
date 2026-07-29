@@ -197,4 +197,4 @@ def test_app_startup_builds_and_stamps_a_fresh_database(tmp_path):
 
     # A fresh DB is built and stamped at head, so future migrations apply to it.
     assert "profiles" in tables
-    assert version == "0017_shop_check"
+    assert version == "0019_shop_check_credential_journal"

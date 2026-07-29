@@ -10,7 +10,6 @@ this layer.
 from __future__ import annotations
 
 import math
-from uuid import uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -18,13 +17,36 @@ from sqlalchemy.orm import Session
 from ...errors import ManagerError
 from ...features.proxies.credentials import CredentialStore, ProxyCredential
 from ...models import (
+    ShopCheckCredentialJournal,
     ShopCheckEmail,
     ShopCheckRun,
     ShopCheckWorker,
+    new_id,
     utc_now,
 )
 from .input import parse_email_input, worker_count
-from .schemas import RETRYABLE_RESULTS
+from .sanitize import sanitize_error
+from .schemas import MAX_PREVIEW, RETRYABLE_RESULTS
+
+
+# --- error persistence (the only sanctioned way to write an error field) -----
+# Callers MUST route every persisted error through these helpers so a raw
+# exception string (which may embed an email or proxy secret) never lands in a
+# column. Read serialization sanitizes again as defense in depth.
+def set_run_error(run: ShopCheckRun, message: object, *secrets: str | None) -> None:
+    run.error = sanitize_error(message, *secrets)
+
+
+def set_worker_error(worker: ShopCheckWorker, message: object, *secrets: str | None) -> None:
+    worker.error = sanitize_error(message, *secrets)
+
+
+def set_email_error(email: ShopCheckEmail, message: object, *secrets: str | None) -> None:
+    email.error = sanitize_error(message, *secrets)
+
+
+def _clean(value: str | None) -> str | None:
+    return sanitize_error(value) if value else None
 
 _TERMINAL_RUN_STATES = frozenset(
     {"completed", "completed_with_issues", "cancelled", "failed"}
@@ -76,7 +98,7 @@ def _worker_to_dict(worker: ShopCheckWorker) -> dict:
         "proxy_id": worker.proxy_id,
         "assigned_count": worker.assigned_count,
         "processed_count": worker.processed_count,
-        "error": worker.error,
+        "error": _clean(worker.error),
     }
 
 
@@ -111,7 +133,7 @@ def run_detail(session: Session, run: ShopCheckRun) -> dict:
         {
             "profile_prefix": run.profile_prefix,
             "output_dir": run.output_dir,
-            "error": run.error,
+            "error": _clean(run.error),
             "workers": [_worker_to_dict(w) for w in workers],
         }
     )
@@ -172,14 +194,19 @@ def list_emails(
     }
 
 
-def create_run(session: Session, store: CredentialStore, payload) -> dict:
+def create_run(
+    session: Session, store: CredentialStore, payload, session_factory
+) -> dict:
     """Parse the pasted input, securely persist the valid emails, and queue a run.
 
-    Atomic: the run + email rows are one transaction, and every full email is
-    written to CredentialStore keyed by the row's credential_ref. If any store
-    write fails, the transaction rolls back AND the already-written credentials
-    are deleted (compensated), so no orphan secret survives. The raw input is
-    never logged. Provisioning + execution are driven later by the coordinator.
+    Durability (SQLite + an OS CredentialStore cannot be truly atomic together):
+    each ref is journalled in a SEPARATE committed transaction BEFORE its secret
+    is written, so a secret whose email row never commits — or whose immediate
+    compensation fails — is still recoverable. The run + email rows commit as one
+    transaction; on failure they roll back, the written secrets are compensated
+    best-effort, and the journal (already committed) lets startup reconciliation
+    finish the cleanup. On success the journal rows are dropped. The raw input is
+    never logged.
     """
     parsed = parse_email_input(payload.email_text)
     if not parsed.valid:
@@ -188,28 +215,35 @@ def create_run(session: Session, store: CredentialStore, payload) -> dict:
             "No valid email addresses were found in the input.",
             400,
         )
-    run = ShopCheckRun(
-        status="queued",
-        region=payload.region,
-        emails_per_profile=payload.emails_per_profile,
-        max_parallel=payload.max_parallel,
-        target_url="https://shop.app/",
-        profile_prefix=payload.profile_prefix,
-        output_dir=payload.output_dir,
-        total_emails=len(parsed.valid),
-    )
-    session.add(run)
-    session.flush()
 
-    written_refs: list[str] = []
+    # Pre-allocate the run id + refs so the durable journal can be written before
+    # the run/email transaction (which may roll back and lose those rows).
+    run_id = new_id()
+    plan = [(ordinal, pe, new_id()) for ordinal, pe in enumerate(parsed.valid)]
+    with session_factory() as journal_session:
+        for _, _, ref in plan:
+            journal_session.add(ShopCheckCredentialJournal(ref=ref, run_id=run_id))
+        journal_session.commit()
+
     try:
-        for ordinal, parsed_email in enumerate(parsed.valid):
-            ref = str(uuid4())
+        run = ShopCheckRun(
+            id=run_id,
+            status="queued",
+            region=payload.region,
+            emails_per_profile=payload.emails_per_profile,
+            max_parallel=payload.max_parallel,
+            target_url="https://shop.app/",
+            profile_prefix=payload.profile_prefix,
+            # output_dir stays NULL until export lands behind a validated root.
+            total_emails=len(parsed.valid),
+        )
+        session.add(run)
+        session.flush()
+        for ordinal, parsed_email, ref in plan:
             store.put(ref, ProxyCredential(username=parsed_email.normalized, password=""))
-            written_refs.append(ref)
             session.add(
                 ShopCheckEmail(
-                    run_id=run.id,
+                    run_id=run_id,
                     worker_id=None,
                     ordinal=ordinal,
                     email_fingerprint=parsed_email.fingerprint,
@@ -221,12 +255,17 @@ def create_run(session: Session, store: CredentialStore, payload) -> dict:
         session.commit()
     except Exception:
         session.rollback()
-        for ref in written_refs:
+        for _, _, ref in plan:
             try:
                 store.delete(ref)
             except Exception:
-                pass  # best-effort compensation; never mask the original error
+                pass  # journal + startup reconciliation are the durable backstop
         raise
+
+    # Success: the email rows are the durable reference now; drop the journal rows.
+    with session_factory() as journal_session:
+        journal_session.query(ShopCheckCredentialJournal).filter_by(run_id=run_id).delete()
+        journal_session.commit()
 
     session.refresh(run)
     summary = {
@@ -235,15 +274,52 @@ def create_run(session: Session, store: CredentialStore, payload) -> dict:
         "duplicates": len(parsed.duplicates),
         "invalid": len(parsed.invalid),
         "worker_count": worker_count(len(parsed.valid), payload.emails_per_profile),
+        # Counts above are exact; previews below are capped so the response never
+        # balloons with a huge paste's rejects.
         "invalid_entries": [
             {"line": e.line, "masked": e.masked, "reason": e.reason}
-            for e in parsed.invalid
+            for e in parsed.invalid[:MAX_PREVIEW]
         ],
+        "invalid_truncated": len(parsed.invalid) > MAX_PREVIEW,
         "duplicate_entries": [
-            {"line": d.line, "masked": d.masked} for d in parsed.duplicates
+            {"line": d.line, "masked": d.masked} for d in parsed.duplicates[:MAX_PREVIEW]
         ],
+        "duplicate_truncated": len(parsed.duplicates) > MAX_PREVIEW,
     }
     return {"run": run_detail(session, run), "input_summary": summary}
+
+
+def reconcile_orphan_credentials(session_factory, store: CredentialStore) -> int:
+    """Startup backstop for partially provisioned credentials.
+
+    Deletes CredentialStore entries recorded in the journal that no COMMITTED
+    email row references (orphans from a rolled-back run whose immediate
+    compensation failed). Referenced secrets are never touched. Idempotent: a
+    store delete that fails leaves the journal row for the next startup; a served
+    journal row (its ref is now referenced) is simply cleared. Never logs a
+    secret value — only opaque ref ids would ever be surfaced. Returns the number
+    of orphan secrets removed.
+    """
+    removed = 0
+    with session_factory() as session:
+        entries = session.scalars(select(ShopCheckCredentialJournal)).all()
+        for entry in entries:
+            referenced = session.scalar(
+                select(ShopCheckEmail.id).where(
+                    ShopCheckEmail.credential_ref == entry.ref
+                )
+            )
+            if referenced is not None:
+                session.delete(entry)  # served its purpose; keep the live secret
+                continue
+            try:
+                store.delete(entry.ref)
+            except Exception:
+                continue  # leave the journal row; retry on the next startup
+            session.delete(entry)
+            removed += 1
+        session.commit()
+    return removed
 
 
 def recompute_run(session: Session, run_id: str) -> ShopCheckRun:

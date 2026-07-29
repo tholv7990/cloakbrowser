@@ -22,8 +22,7 @@ depends_on = None
 _RUN_STATES = "'queued','preparing','running','completed','completed_with_issues','cancelled','failed'"
 _RESULTS = (
     "'phone_otp_required','email_otp_required','login_success','account_not_found',"
-    "'email_rejected','captcha_or_challenge','proxy_failed','navigation_failed',"
-    "'unknown','cancelled'"
+    "'captcha_or_challenge','proxy_failed','navigation_failed','unknown','cancelled'"
 )
 _EMAIL_STATES = "'pending','running','terminal'"
 _WORKER_STATES = "'pending','proxy_check','profile_create','launching','processing','stopping','terminal'"
@@ -84,35 +83,10 @@ def upgrade() -> None:
         sa.CheckConstraint(f"state IN ({_WORKER_STATES})", name="ck_shop_check_workers_state"),
     )
     op.create_index(
-        "uq_shop_check_workers_run_ordinal",
-        "shop_check_workers",
-        ["run_id", "ordinal"],
-        unique=True,
-    )
-    op.create_index(
-        "uq_shop_check_workers_profile_id",
-        "shop_check_workers",
-        ["profile_id"],
-        unique=True,
-        sqlite_where=sa.text("profile_id IS NOT NULL"),
+        "ix_shop_check_workers_run_ordinal", "shop_check_workers", ["run_id", "ordinal"]
     )
     op.create_index(
         "ix_shop_check_workers_run_state", "shop_check_workers", ["run_id", "state"]
-    )
-    # Profile ownership is immutable once assigned: a trigger aborts any attempt
-    # to re-point an already-assigned worker at a different profile, even if
-    # application code is wrong. (SQLite `IS NOT` is null-safe, so writing the
-    # same value is a no-op and allowed.)
-    op.execute(
-        """
-        CREATE TRIGGER trg_shop_check_workers_profile_immutable
-        BEFORE UPDATE OF profile_id ON shop_check_workers
-        FOR EACH ROW WHEN OLD.profile_id IS NOT NULL
-                      AND NEW.profile_id IS NOT OLD.profile_id
-        BEGIN
-            SELECT RAISE(ABORT, 'shop_check_workers.profile_id is immutable once assigned');
-        END;
-        """
     )
 
     op.create_table(
@@ -154,39 +128,22 @@ def upgrade() -> None:
             f"phone_confidence IS NULL OR phone_confidence IN ({_CONFIDENCE})",
             name="ck_shop_check_emails_confidence",
         ),
-        sa.CheckConstraint(
-            "(state = 'terminal' AND result IS NOT NULL AND checked_at IS NOT NULL) "
-            "OR (state <> 'terminal' AND result IS NULL)",
-            name="ck_shop_check_emails_terminal_coherent",
-        ),
     )
     op.create_index(
         "ix_shop_check_emails_run_state", "shop_check_emails", ["run_id", "state"]
     )
     op.create_index(
-        "uq_shop_check_emails_run_ordinal",
-        "shop_check_emails",
-        ["run_id", "ordinal"],
-        unique=True,
-    )
-    op.create_index(
-        "uq_shop_check_emails_run_fingerprint",
-        "shop_check_emails",
-        ["run_id", "email_fingerprint"],
-        unique=True,
+        "ix_shop_check_emails_run_ordinal", "shop_check_emails", ["run_id", "ordinal"]
     )
     op.create_index("ix_shop_check_emails_worker", "shop_check_emails", ["worker_id"])
 
 
 def downgrade() -> None:
     op.drop_index("ix_shop_check_emails_worker", table_name="shop_check_emails")
-    op.drop_index("uq_shop_check_emails_run_fingerprint", table_name="shop_check_emails")
-    op.drop_index("uq_shop_check_emails_run_ordinal", table_name="shop_check_emails")
+    op.drop_index("ix_shop_check_emails_run_ordinal", table_name="shop_check_emails")
     op.drop_index("ix_shop_check_emails_run_state", table_name="shop_check_emails")
     op.drop_table("shop_check_emails")
-    op.execute("DROP TRIGGER IF EXISTS trg_shop_check_workers_profile_immutable")
     op.drop_index("ix_shop_check_workers_run_state", table_name="shop_check_workers")
-    op.drop_index("uq_shop_check_workers_profile_id", table_name="shop_check_workers")
-    op.drop_index("uq_shop_check_workers_run_ordinal", table_name="shop_check_workers")
+    op.drop_index("ix_shop_check_workers_run_ordinal", table_name="shop_check_workers")
     op.drop_table("shop_check_workers")
     op.drop_table("shop_check_runs")

@@ -37,6 +37,7 @@ from .features.proxies.quality import ProxyQualityManager, recover_orphan_qualit
 from .features.backups.service import maybe_auto_backup
 from .features.automation.controller import StubAutomationController
 from .features.automation.coordinator import RunCoordinator, recover_interrupted_runs
+from .features.shop_check.service import reconcile_orphan_credentials
 from .features.shopify.clients import HttpOpenAIImageClient, HttpShopifyClient
 from .features.shopify.pipeline import recover_interrupted_plans
 from .features.portability.browser_cookies import CookieContextAdapter
@@ -90,6 +91,12 @@ def create_app(
             )
             application.state.automation_recovered = recover_interrupted_runs(
                 application.state.session_factory
+            )
+            application.state.shop_check_credentials_reconciled = (
+                reconcile_orphan_credentials(
+                    application.state.session_factory,
+                    application.state.credential_store,
+                )
             )
             application.state.shopify_plans_recovered = recover_interrupted_plans(
                 application.state.session_factory
