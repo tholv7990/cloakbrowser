@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import math
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from ...errors import ManagerError
@@ -337,6 +337,59 @@ def reconcile_orphan_credentials(session_factory, store: CredentialStore) -> int
             removed += 1
         session.commit()
     return removed
+
+
+def promote_run_running(session: Session, run_id: str) -> None:
+    """preparing -> running once a worker starts launching. Atomic + idempotent."""
+    session.execute(
+        update(ShopCheckRun)
+        .where(ShopCheckRun.id == run_id, ShopCheckRun.status == "preparing")
+        .values(status="running")
+    )
+    session.commit()
+
+
+def finalize_email(
+    session: Session,
+    email: ShopCheckEmail,
+    result: str,
+    *,
+    phone_prefix: str | None = None,
+    phone_suffix: str | None = None,
+    phone_country_code: str | None = None,
+    phone_country_name: str | None = None,
+    phone_region_name: str | None = None,
+    phone_confidence: str | None = None,
+) -> None:
+    """Move one email to its terminal result coherently (state + result +
+    checked_at together, satisfying the coherence constraint)."""
+    email.state = "terminal"
+    email.result = result
+    email.checked_at = utc_now()
+    email.phone_prefix = phone_prefix
+    email.phone_suffix = phone_suffix
+    email.phone_country_code = phone_country_code
+    email.phone_country_name = phone_country_name
+    email.phone_region_name = phone_region_name
+    email.phone_confidence = phone_confidence
+    session.commit()
+
+
+def terminate_worker_emails(session: Session, worker_id: str, result: str) -> int:
+    """Terminate every still-non-terminal email of a worker with `result` (used
+    when a worker stops early: proxy_failed, unknown, cancelled). Returns count."""
+    emails = session.scalars(
+        select(ShopCheckEmail).where(
+            ShopCheckEmail.worker_id == worker_id, ShopCheckEmail.state != "terminal"
+        )
+    ).all()
+    now = utc_now()
+    for email in emails:
+        email.state = "terminal"
+        email.result = result
+        email.checked_at = now
+    session.commit()
+    return len(emails)
 
 
 def recompute_run(session: Session, run_id: str) -> ShopCheckRun:
