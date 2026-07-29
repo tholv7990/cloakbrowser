@@ -77,7 +77,9 @@ def test_socks_client_construction_error_is_redacted_and_includes_install_guidan
     def unavailable_client(**_kwargs):
         raise ImportError(f"missing socks support for {proxy}")
 
-    monkeypatch.setattr("benchmarks.proxy_intelligence.httpx.Client", unavailable_client)
+    monkeypatch.setattr(
+        "benchmarks.proxy_intelligence._RequestsSocksClient", unavailable_client
+    )
 
     with pytest.raises(ProxyConnectivityError) as exc_info:
         resolve_exit_ip(proxy)
@@ -86,6 +88,51 @@ def test_socks_client_construction_error_is_redacted_and_includes_install_guidan
     assert "user" not in rendered_error
     assert "password" not in rendered_error
     assert 'pip install -e ".[geoip]"' in rendered_error
+
+
+def test_socks_proxy_uses_requests_transport_instead_of_httpx_socksio(monkeypatch):
+    """Some valid SOCKS5 gateways return replies that curl/Chromium/PySocks accept
+    but httpx+socksio rejects as ``ProtocolError: Malformed reply``."""
+
+    class HttpxMustNotBeUsed:
+        def __init__(self, **_kwargs):
+            raise AssertionError("SOCKS checks must not use httpx+socksio")
+
+    class Response:
+        def __init__(self, text: str, payload: dict | None = None):
+            self.text = text
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    class RequestsSession:
+        def __init__(self):
+            self.proxies: dict[str, str] = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def get(self, url, **_kwargs):
+            if url == intelligence._ECHO_ENDPOINTS[0]:
+                return Response("", {"ip": "203.0.113.44"})
+            return Response("203.0.113.44\n")
+
+    session = RequestsSession()
+    monkeypatch.setattr(intelligence.httpx, "Client", HttpxMustNotBeUsed)
+    monkeypatch.setattr(intelligence.requests, "Session", lambda: session)
+
+    proxy = "socks5://sample-user:sample-pass@proxy.example:1080"
+    result = resolve_exit_ip(proxy, attempts=2)
+
+    assert result["exit_ip"] == "203.0.113.44"
+    assert session.proxies == {"http": proxy, "https": proxy}
 
 
 def test_resolve_exit_ip_selects_majority_and_records_disagreement(monkeypatch):

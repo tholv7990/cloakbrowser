@@ -26,6 +26,7 @@ hiddenimports = (
         "argon2.low_level",
         "email_validator",
         "sqlalchemy.dialects.sqlite",
+        "socks",
         "anyio",
         "httptools",
     ]

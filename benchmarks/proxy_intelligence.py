@@ -16,6 +16,7 @@ from typing import Any
 from urllib.parse import quote, urlsplit, urlunsplit
 
 import httpx
+import requests
 
 from benchmarks.proxy_quality_models import redact_proxy
 
@@ -140,6 +141,29 @@ def _fetch_echo_ip(client: httpx.Client, url: str) -> str:
     return response.text.strip()
 
 
+class _RequestsSocksClient:
+    """Small Requests/PySocks adapter with the same surface used by the echo loop.
+
+    Chromium, curl, and PySocks accept some valid SOCKS5 gateways that
+    httpx+socksio rejects with ``ProtocolError: Malformed reply``.
+    """
+
+    def __init__(self, proxy: str):
+        self._session = requests.Session()
+        self._session.trust_env = False
+        self._session.proxies = {"http": proxy, "https": proxy}
+
+    def __enter__(self):
+        self._session.__enter__()
+        return self
+
+    def __exit__(self, *args):
+        return self._session.__exit__(*args)
+
+    def get(self, url: str):
+        return self._session.get(url, timeout=10.0, allow_redirects=False)
+
+
 def _normalized_ip(value: str) -> str:
     """Return the canonical IP representation or propagate a parse failure."""
 
@@ -159,7 +183,10 @@ def resolve_exit_ip(proxy: str, *, attempts: int = 3) -> dict[str, object]:
 
     parsed_proxy = urlsplit(proxy)
     try:
-        client = httpx.Client(proxy=proxy, timeout=10.0, follow_redirects=False)
+        if parsed_proxy.scheme.lower().startswith("socks"):
+            client = _RequestsSocksClient(proxy)
+        else:
+            client = httpx.Client(proxy=proxy, timeout=10.0, follow_redirects=False)
     except Exception:
         if parsed_proxy.scheme.lower().startswith("socks"):
             raise ProxyConnectivityError(
