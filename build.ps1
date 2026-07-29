@@ -50,7 +50,11 @@ Set-Location $root
 if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
   if (Test-Path $SigningKeyPath) {
     $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content $SigningKeyPath -Raw
-    if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) { $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "" }
+    # The key was generated with --ci (no password). Tauri's signer still reads
+    # TAURI_SIGNING_PRIVATE_KEY_PASSWORD; it MUST exist as an empty value or the
+    # signer falls back to an interactive stdin prompt that hangs a headless build.
+    # $env:VAR = "" removes the var in PowerShell, so set it via the provider API.
+    [Environment]::SetEnvironmentVariable("TAURI_SIGNING_PRIVATE_KEY_PASSWORD", "", "Process")
   } else {
     throw "Updater signing key not found at $SigningKeyPath. Generate one with:  npx @tauri-apps/cli@2 signer generate --ci -w `"$SigningKeyPath`"  (or pass -SigningKeyPath / set TAURI_SIGNING_PRIVATE_KEY)."
   }
