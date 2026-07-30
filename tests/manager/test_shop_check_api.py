@@ -269,6 +269,7 @@ def test_operation_ids_are_unique(client):
         "shop_check_runs_list",
         "shop_check_runs_get",
         "shop_check_runs_emails",
+        "shop_check_runs_export",
         "shop_check_runs_cancel",
     }
 

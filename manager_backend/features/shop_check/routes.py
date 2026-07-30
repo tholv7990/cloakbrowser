@@ -16,10 +16,12 @@ from sqlalchemy.orm import Session
 from ...dependencies import get_session
 from ...maintenance import guard_maintenance
 from . import service
+from .export import export_run
 from .sanitize import sanitize_error
 from .schemas import (
     EmailResult,
     ShopCheckEmailPage,
+    ShopCheckExportResult,
     ShopCheckRunCreate,
     ShopCheckRunCreateResult,
     ShopCheckRunDetail,
@@ -99,6 +101,22 @@ def list_emails(
 ):
     return service.list_emails(
         session, run_id, page=page, page_size=page_size, result=result
+    )
+
+
+@router.post(
+    "/runs/{run_id}/export",
+    response_model=ShopCheckExportResult,
+    operation_id="shop_check_runs_export",
+)
+def export_run_results(run_id: str, request: Request, session: SessionDependency):
+    # Writes results.csv (masked) + matched.txt (plaintext deliverable) under the
+    # app export root. The response carries only paths + counts, never an address.
+    return export_run(
+        session,
+        request.app.state.credential_store,
+        request.app.state.settings,
+        run_id,
     )
 
 

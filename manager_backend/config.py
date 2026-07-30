@@ -108,6 +108,12 @@ class ManagerSettings(BaseModel):
         return self.data_root / "profiles"
 
     @property
+    def export_root(self) -> Path:
+        # App-controlled root for generated exports (shop-check results, etc.).
+        # The client never supplies an export path; files land under here only.
+        return self.data_root / "exports"
+
+    @property
     def token_path(self) -> Path:
         return self.data_root / "install-token"
 

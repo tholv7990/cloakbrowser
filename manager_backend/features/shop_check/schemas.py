@@ -209,6 +209,16 @@ class ShopCheckRunCreateResult(StrictModel):
     input_summary: InputSummary
 
 
+class ShopCheckExportResult(StrictModel):
+    run_id: str
+    # App-controlled paths under the export root; never a client-supplied path.
+    output_dir: str
+    results_csv: str
+    matched_txt: str
+    total_rows: int = Field(ge=0)
+    matched_count: int = Field(ge=0)
+
+
 class ShopCheckCleanupRequest(StrictModel):
     # Explicit confirmation. `confirm` must be exactly true, and the client echoes
     # the exact owned-profile count it saw; the server 409s on a mismatch so a
