@@ -7,6 +7,7 @@ The create payload's email text is write-only and never echoed.
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session
 from ...dependencies import get_session
 from ...maintenance import guard_maintenance
 from . import service
+from .sanitize import sanitize_error
 from .schemas import (
     EmailResult,
     ShopCheckEmailPage,
@@ -27,6 +29,7 @@ from .schemas import (
 
 router = APIRouter(prefix="/automations/shop-check", tags=["shop_check"])
 SessionDependency = Annotated[Session, Depends(get_session)]
+_logger = logging.getLogger(__name__)
 
 
 @router.post(
@@ -37,12 +40,27 @@ SessionDependency = Annotated[Session, Depends(get_session)]
     dependencies=[Depends(guard_maintenance)],
 )
 def create_run(payload: ShopCheckRunCreate, request: Request, session: SessionDependency):
-    return service.create_run(
+    result = service.create_run(
         session,
         request.app.state.credential_store,
         payload,
         request.app.state.session_factory,
     )
+    run_id = result["run"]["id"]
+    # 202 means accepted AND started: hand the queued run to the coordinator,
+    # which claims it here and provisions on its own threads.
+    try:
+        result["run"] = request.app.state.shop_check_coordinator.start(session, run_id)
+    except Exception as error:
+        # The run already committed, so never turn a failed hand-off into a 500 —
+        # that invites a duplicate-run retry (double provisioning). The run stays
+        # visible and cancellable. Log a sanitized reason, never the input.
+        _logger.warning(
+            "shop_check: coordinator hand-off failed for run %s: %s",
+            run_id,
+            sanitize_error(error),
+        )
+    return result
 
 
 @router.get(

@@ -15,12 +15,16 @@ from manager_backend.features.resources.service import list_sessions
 from manager_backend.features.resources import service as resource_service
 from manager_backend.features.runtime import snapshots as runtime_snapshots
 from manager_backend.features.runtime.snapshots import load_latest_runtimes
+from manager_backend.features.shop_check.service import get_run_detail, list_emails
 from manager_backend.models import (
     Base,
     MediaAsset,
     Profile,
     Proxy,
     RuntimeSession,
+    ShopCheckEmail,
+    ShopCheckRun,
+    ShopCheckWorker,
     profile_media_assets,
 )
 
@@ -310,3 +314,58 @@ def test_runtime_snapshot_cache_skips_loader_when_database_is_unchanged(
     assert second.changed is False
     assert third.changed is True
     assert calls == 2
+
+
+def _shop_check_run(session: Session, *, workers: int, per_worker: int) -> str:
+    run = ShopCheckRun(
+        status="running",
+        emails_per_profile=per_worker,
+        max_parallel=3,
+        target_url="https://shop.app/",
+        total_emails=workers * per_worker,
+    )
+    session.add(run)
+    session.flush()
+    for ordinal in range(workers):
+        worker = ShopCheckWorker(
+            run_id=run.id,
+            ordinal=ordinal,
+            state="processing",
+            profile_id=f"{run.id}-p{ordinal}",
+            assigned_count=per_worker,
+        )
+        session.add(worker)
+        session.flush()
+        for index in range(per_worker):
+            slot = ordinal * per_worker + index
+            session.add(
+                ShopCheckEmail(
+                    run_id=run.id,
+                    worker_id=worker.id,
+                    ordinal=slot,
+                    email_fingerprint=f"{slot:064x}",
+                    credential_ref=f"{run.id}-r{slot}",
+                    email_masked="u***@example.com",
+                    state="pending",
+                )
+            )
+    session.commit()
+    return run.id
+
+
+def test_shop_check_reads_use_constant_statement_count() -> None:
+    """Run detail + email page must not grow a query per worker/email row."""
+    engine = _engine()
+    with Session(engine) as session:
+        small = _shop_check_run(session, workers=1, per_worker=5)
+        large = _shop_check_run(session, workers=20, per_worker=5)
+
+    counts = []
+    for run_id in (small, large):
+        # A fresh session per measurement: a warm identity map would hide a lazy load.
+        with Session(engine) as session, statement_counter(engine) as statements:
+            get_run_detail(session, run_id)
+            list_emails(session, run_id, page=1, page_size=100, result=None)
+            counts.append(len(statements))
+
+    assert counts[0] == counts[1], counts

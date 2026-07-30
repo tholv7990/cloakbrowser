@@ -46,6 +46,14 @@ def test_create_consumes_email_text_and_reports_summary(client, auth_headers):
     assert body["run"]["status"] == "queued"
 
 
+def test_create_hands_the_run_to_the_coordinator(client, auth_headers):
+    _setup(client)
+    run_id = _create(client, auth_headers).json()["run"]["id"]
+    # 202 means accepted-and-started: the created run goes straight to the
+    # coordinator (inert here; test_shop_check_e2e.py drives the real one).
+    assert client.app.state.shop_check_coordinator.started == [run_id]
+
+
 def test_invalid_and_duplicate_lines_are_reported_with_line_and_mask(client, auth_headers):
     _setup(client)
     # line 3 duplicates line 1 (same local part, domain case only differs).

@@ -431,8 +431,8 @@ def recompute_run(session: Session, run_id: str) -> ShopCheckRun:
 def cancel_run(session: Session, run_id: str) -> dict:
     """Stop scheduling and mark any non-terminal email cancelled.
 
-    Task 8 extends this to also signal the live coordinator; the persisted state
-    here is the source of truth either way.
+    The route calls this through the coordinator so a live run's workers also get
+    the cancel signal; the persisted state here is the source of truth either way.
     """
     run = require_run(session, run_id)
     if run.status in _TERMINAL_RUN_STATES and run.status != "cancelled":

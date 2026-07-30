@@ -205,9 +205,11 @@ def create_app(
         license_gate=make_license_gate(resolved),
     )
     app.state.window_manager = WINDOW_MANAGER
-    # Shop-check run coordinator: provisioning + launch + recovery. process_worker
-    # is left as the default no-op — per-email page automation is a later
-    # checkpoint that injects the real callback; runs are not auto-started here yet.
+    # Shop-check run coordinator: POST /runs hands every created run here for
+    # provisioning + launch; recovery resumes interrupted ones. process_worker is
+    # left as the default no-op — per-email page automation is a later checkpoint
+    # that injects the real callback, so until then a launched worker does no page
+    # work and its emails stay pending (the run sits in `running` until cancelled).
     app.state.shop_check_coordinator = ShopCheckCoordinator(
         app.state.session_factory,
         app.state.credential_store,

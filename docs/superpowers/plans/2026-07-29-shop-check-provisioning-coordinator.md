@@ -206,11 +206,15 @@ The current models already carry everything needed **except** possibly:
 
 ### Task 8: Route wiring + end-to-end sentinel + performance guards
 - **Files:** `routes.py` (POST /runs kicks coordinator), `main.py` (build coordinator).
-- [ ] Step 1: failing tests — create → coordinator provisions (fakes) → workers reach `launching`/`processing`; run detail shows workers; **sentinel leak** end-to-end (email + proxy secret absent from all JSON, `worker.error`, logs); serialization has no N+1 (single query for workers/counts); SQLite lock contention (N concurrent worker commits, no `database is locked`).
-- [ ] Step 2–4: wire; ensure `run_detail`/`list_emails` use set-based queries (no per-row credential fetch). Step 5: commit.
+- [x] Step 1: failing tests — create → coordinator provisions (fakes) → workers reach `launching`/`processing`; run detail shows workers; **sentinel leak** end-to-end (email + proxy secret absent from all JSON, `worker.error`, logs); serialization has no N+1 (single query for workers/counts); SQLite lock contention (N concurrent worker commits, no `database is locked`).
+- [x] Step 2–4: wire; ensure `run_detail`/`list_emails` use set-based queries (no per-row credential fetch). Step 5: commit.
+
+Landed as: `tests/manager/test_shop_check_e2e.py` (HTTP → real coordinator on fakes; sentinel absence; hand-off failure never 500s), `test_shop_check_api.py::test_create_hands_the_run_to_the_coordinator`, `test_backend_query_performance.py::test_shop_check_reads_use_constant_statement_count` (already constant — no production change needed). SQLite contention was already covered by `test_shop_check_coordinator.py::test_many_workers_commit_without_sqlite_lock_errors`. The `client` fixture installs an inert coordinator so ordinary API tests never provision/launch.
 
 ### Task 9: Gates
-- [ ] `python -m manager_backend.export_openapi` (only if contract changed) + `pytest tests/manager -m "not slow" -q`; focused shop-check suites; `git diff --check`. Re-run any timing-flaky test once and report both results.
+- [x] `python -m manager_backend.export_openapi` (only if contract changed) + `pytest tests/manager -m "not slow" -q`; focused shop-check suites; `git diff --check`. Re-run any timing-flaky test once and report both results.
+
+Gate results: response models unchanged → no re-export (`test_openapi_static.py` green). `pytest tests/manager -m "not slow" -q` → **956 passed, 4 skipped**. `git diff --check` clean. No flaky reruns needed.
 
 ---
 
