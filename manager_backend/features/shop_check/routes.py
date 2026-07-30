@@ -155,4 +155,5 @@ def cleanup_run_profiles(
         request.app.state.runtime_manager,
         run_id,
         expected_profile_count=payload.expected_profile_count,
+        session_factory=request.app.state.session_factory,
     )

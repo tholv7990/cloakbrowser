@@ -37,6 +37,7 @@ from .features.proxies.quality import ProxyQualityManager, recover_orphan_qualit
 from .features.backups.service import maybe_auto_backup
 from .features.automation.controller import StubAutomationController
 from .features.automation.coordinator import RunCoordinator, recover_interrupted_runs
+from .features.shop_check.browser import make_process_worker, open_cdp_session
 from .features.shop_check.coordinator import ShopCheckCoordinator
 from .features.shop_check.launcher import RuntimeManagerLauncher
 from .features.shop_check.service import reconcile_orphan_credentials
@@ -206,16 +207,17 @@ def create_app(
     )
     app.state.window_manager = WINDOW_MANAGER
     # Shop-check run coordinator: POST /runs hands every created run here for
-    # provisioning + launch; recovery resumes interrupted ones. process_worker is
-    # left as the default no-op — per-email page automation is a later checkpoint
-    # that injects the real callback, so until then a launched worker does no page
-    # work and its emails stay pending (the run sits in `running` until cancelled).
+    # provisioning + launch; recovery resumes interrupted ones. The real page
+    # automation is injected via make_process_worker(open_cdp_session), which
+    # connects to each worker's already-ready browser over its CDP endpoint and
+    # checks every assigned email — no silent no-op processor in production.
     app.state.shop_check_coordinator = ShopCheckCoordinator(
         app.state.session_factory,
         app.state.credential_store,
         app.state.proxy_provider_client,
         app.state.proxy_quick_tester,
-        RuntimeManagerLauncher(app.state.runtime_manager),
+        RuntimeManagerLauncher(app.state.runtime_manager, app.state.session_factory),
+        make_process_worker(open_cdp_session),
     )
     app.state.input_sync = InputSyncService()
     app.state.account_service = AccountService(

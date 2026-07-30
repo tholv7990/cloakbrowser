@@ -9,7 +9,10 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
+import pytest
+
 from manager_backend.config import ManagerSettings
+from manager_backend.errors import ManagerError
 from manager_backend.features.proxies.credentials import MemoryCredentialStore, ProxyCredential
 from manager_backend.features.shop_check import service
 from manager_backend.features.shop_check.export import export_run, neutralize_cell
@@ -99,6 +102,52 @@ def test_export_write_is_atomic_no_tmp_left(db_session_factory, tmp_path):
         export_run(session, store, settings, run_id)
     leftovers = list(settings.export_root.rglob("*.tmp"))
     assert leftovers == []
+
+
+def test_export_rejects_an_incomplete_run(db_session_factory, tmp_path):
+    # Exporting mid-run would write a partial file presented as authoritative.
+    settings = _settings(tmp_path)
+    store = MemoryCredentialStore()
+    with db_session_factory() as session:
+        payload = ShopCheckRunCreate(
+            email_text="a@example.com\nb@example.com",
+            emails_per_profile=5, max_parallel=1, authorized_only_ack=True,
+        )
+        run_id = service.create_run(session, store, payload, db_session_factory)["run"]["id"]
+        first = (
+            session.query(ShopCheckEmail).filter_by(run_id=run_id).order_by(ShopCheckEmail.ordinal).first()
+        )
+        service.finalize_email(session, first, "phone_otp_required")  # one still pending
+
+    with db_session_factory() as session:
+        with pytest.raises(ManagerError) as excinfo:
+            export_run(session, store, settings, run_id)
+    assert excinfo.value.status_code == 409
+    assert not (settings.export_root / run_id).exists()  # nothing written
+
+
+def test_matched_txt_agrees_with_the_csv_phone_otp_count(db_session_factory, tmp_path):
+    settings = _settings(tmp_path)
+    store = MemoryCredentialStore()
+    results = {
+        "m1@example.com": "phone_otp_required",
+        "m2@example.com": "phone_otp_required",
+        "m3@example.com": "phone_otp_required",
+        "x@example.com": "login_success",
+    }
+    run_id = _run_with_results(db_session_factory, store, results)
+    with db_session_factory() as session:
+        result = export_run(session, store, settings, run_id)
+
+    with open(result["results_csv"], encoding="utf-8", newline="") as handle:
+        csv_phone_rows = sum(1 for r in csv.DictReader(handle) if r["result"] == "phone_otp_required")
+    txt_lines = [
+        line for line in Path(result["matched_txt"]).read_text(encoding="utf-8").splitlines() if line
+    ]
+    # Three-way agreement: CSV rows == matched.txt lines == reported count.
+    assert csv_phone_rows == 3
+    assert len(txt_lines) == 3
+    assert result["matched_count"] == 3
 
 
 def test_csv_rows_are_valid_and_never_contain_the_full_email(db_session_factory, tmp_path):

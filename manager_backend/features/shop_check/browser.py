@@ -97,21 +97,28 @@ def _finalize(session_factory: Callable, email_id: str, outcome: EmailOutcome) -
         )
 
 
+def open_cdp_session(ctx: Any) -> ShopSession:
+    """Production opener: connect to the worker's already-ready browser over its
+    live CDP endpoint (the coordinator waited for readiness before calling us)."""
+    return CdpShopSession(ctx.cdp_endpoint)
+
+
 def make_process_worker(
-    open_session: Callable[[str], ShopSession],
+    open_session: Callable[[Any], ShopSession],
     *,
     target_url: str = "https://shop.app/",
 ) -> Callable[[Any], None]:
     """Build the coordinator's injected `process_worker`.
 
-    `open_session(profile_id)` yields a live `ShopSession` for the worker's
-    already-launched profile. The returned callback processes each assigned email
-    in order, honouring cancellation between emails (the coordinator marks any
-    still-pending emails cancelled afterwards).
+    `open_session(ctx)` yields a live `ShopSession` for the worker's already-ready
+    browser (production reads `ctx.cdp_endpoint`; tests return a fake). The
+    returned callback processes each assigned email in order, honouring
+    cancellation between emails (the coordinator marks any still-pending emails
+    cancelled afterwards).
     """
 
     def process_worker(ctx: Any) -> None:
-        session = open_session(ctx.profile_id)
+        session = open_session(ctx)
         try:
             for email_id in ctx.email_ids:
                 if ctx.is_cancelled():

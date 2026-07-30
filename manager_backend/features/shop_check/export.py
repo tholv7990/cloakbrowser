@@ -69,7 +69,6 @@ def export_run(
 ) -> dict:
     """Write results.csv + matched.txt for a run; return their paths and counts."""
     run = require_run(session, run_id)
-    export_dir = _run_export_dir(settings, run_id)
 
     rows = (
         session.query(ShopCheckEmail)
@@ -77,6 +76,17 @@ def export_run(
         .order_by(ShopCheckEmail.ordinal)
         .all()
     )
+    # Export only a COMPLETE run: a partial file (pending rows, a short
+    # matched.txt) presented as authoritative would mislead the operator. Nothing
+    # is written until every email has a terminal result.
+    if any(row.state != "terminal" for row in rows):
+        raise ManagerError(
+            "shop_check_export_incomplete",
+            "The run is still in progress; export once every email has been checked.",
+            409,
+        )
+
+    export_dir = _run_export_dir(settings, run_id)
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)

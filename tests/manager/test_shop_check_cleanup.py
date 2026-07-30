@@ -14,10 +14,12 @@ from uuid import uuid4
 
 import pytest
 
+from sqlalchemy import select
+
 from manager_backend.errors import ManagerError
 from manager_backend.features.profiles.directories import resolve_profile_directory
 from manager_backend.features.shop_check.cleanup import cleanup_run, resolve_owned_profile_ids
-from manager_backend.models import Profile, ShopCheckRun, ShopCheckWorker
+from manager_backend.models import Profile, RuntimeSession, ShopCheckRun, ShopCheckWorker
 
 
 class FakeRuntimeManager:
@@ -77,7 +79,7 @@ def test_deletes_owned_profiles_only(db_session_factory, settings):
 
     runtime = FakeRuntimeManager()
     with db_session_factory() as session:
-        result = cleanup_run(session, settings, runtime, run_id, expected_profile_count=2)
+        result = cleanup_run(session, settings, runtime, run_id, expected_profile_count=2, session_factory=db_session_factory)
 
     assert result["deleted"] == 2 and result["failed"] == 0
     assert result["cleanup_state"] == "done"
@@ -100,7 +102,7 @@ def test_count_mismatch_is_rejected(db_session_factory, settings):
     runtime = FakeRuntimeManager()
     with db_session_factory() as session:
         with pytest.raises(ManagerError) as excinfo:
-            cleanup_run(session, settings, runtime, run_id, expected_profile_count=5)
+            cleanup_run(session, settings, runtime, run_id, expected_profile_count=5, session_factory=db_session_factory)
     assert excinfo.value.status_code == 409
     # Nothing deleted on a mismatch.
     with db_session_factory() as session:
@@ -126,7 +128,7 @@ def test_filesystem_failure_leaves_retryable_result(db_session_factory, settings
 
     runtime = FakeRuntimeManager()
     with db_session_factory() as session:
-        result = cleanup_run(session, settings, runtime, run_id, expected_profile_count=2)
+        result = cleanup_run(session, settings, runtime, run_id, expected_profile_count=2, session_factory=db_session_factory)
 
     assert result["deleted"] == 1 and result["failed"] == 1
     assert result["cleanup_state"] == "partial"
@@ -143,3 +145,70 @@ def test_no_owned_profiles_is_a_clean_done(db_session_factory, settings):
     with db_session_factory() as session:
         result = cleanup_run(session, settings, FakeRuntimeManager(), run_id, expected_profile_count=0)
     assert result["requested"] == 0 and result["cleanup_state"] == "done"
+
+
+class StoppingRuntimeManager:
+    """stop() flips the owned runtime to 'stopped' (flip=True) or leaves it
+    running forever (flip=False), modelling a browser that won't release its
+    files."""
+
+    def __init__(self, session_factory, *, flip=True):
+        self._session_factory = session_factory
+        self._flip = flip
+        self.stopped: list[str] = []
+
+    def stop(self, profile_id: str):
+        self.stopped.append(profile_id)
+        if self._flip:
+            with self._session_factory() as session:
+                for runtime in session.scalars(
+                    select(RuntimeSession).where(RuntimeSession.profile_id == profile_id)
+                ):
+                    runtime.state = "stopped"
+                session.commit()
+
+
+def _with_active_runtime(session, profile_id):
+    session.add(RuntimeSession(profile_id=profile_id, state="running", last_message="running"))
+    session.commit()
+
+
+def test_waits_for_the_owned_runtime_to_stop_before_deleting(db_session_factory, settings):
+    with db_session_factory() as session:
+        run_id = _run(session)
+        pid = _owned_profile(session, settings, run_id, 0)
+        _with_active_runtime(session, pid)
+
+    runtime = StoppingRuntimeManager(db_session_factory, flip=True)
+    with db_session_factory() as session:
+        result = cleanup_run(
+            session, settings, runtime, run_id,
+            expected_profile_count=1, session_factory=db_session_factory,
+        )
+    assert runtime.stopped == [pid]
+    assert result["deleted"] == 1 and result["cleanup_state"] == "done"
+    with db_session_factory() as session:
+        assert session.get(Profile, pid) is None
+    assert not resolve_profile_directory(settings, pid).exists()
+
+
+def test_running_browser_that_will_not_stop_is_not_deleted(db_session_factory, settings):
+    # Deleting a profile dir while Chromium still holds its files corrupts the
+    # profile / fails on Windows. Cleanup must refuse and stay retryable.
+    with db_session_factory() as session:
+        run_id = _run(session)
+        pid = _owned_profile(session, settings, run_id, 0)
+        _with_active_runtime(session, pid)
+
+    runtime = StoppingRuntimeManager(db_session_factory, flip=False)  # never stops
+    with db_session_factory() as session:
+        result = cleanup_run(
+            session, settings, runtime, run_id,
+            expected_profile_count=1, session_factory=db_session_factory,
+            stop_timeout_seconds=0.3,
+        )
+    assert result["deleted"] == 0 and result["failed"] == 1
+    assert result["cleanup_state"] == "partial"
+    with db_session_factory() as session:
+        assert session.get(Profile, pid) is not None  # kept -> retryable
+    assert resolve_profile_directory(settings, pid).exists()  # never rmtree'd live

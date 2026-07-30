@@ -154,7 +154,7 @@ def test_process_worker_finalizes_each_email_and_clears_between(db_session_facto
     run_id, worker_id, email_ids = _seed_worker(db_session_factory, store, emails)
 
     session = FakeShopSession(emails)
-    process_worker = make_process_worker(lambda profile_id: session)
+    process_worker = make_process_worker(lambda ctx: session)
     process_worker(_ctx(db_session_factory, store, run_id, worker_id, email_ids))
 
     with db_session_factory() as db:
@@ -185,7 +185,7 @@ def test_process_worker_stops_on_cancel_leaving_rest_pending(db_session_factory)
         original(email)
 
     session.fill_email = counting
-    process_worker = make_process_worker(lambda profile_id: session)
+    process_worker = make_process_worker(lambda ctx: session)
     process_worker(_ctx(db_session_factory, store, run_id, worker_id, email_ids, cancel_after_first))
 
     with db_session_factory() as db:
@@ -207,7 +207,7 @@ def test_navigation_failure_is_a_navigation_failed_result(db_session_factory):
             raise RuntimeError("net::ERR_TIMED_OUT")
 
     session = Exploding(emails)
-    make_process_worker(lambda p: session)(_ctx(db_session_factory, store, run_id, worker_id, email_ids))
+    make_process_worker(lambda ctx: session)(_ctx(db_session_factory, store, run_id, worker_id, email_ids))
 
     with db_session_factory() as db:
         row = db.query(ShopCheckEmail).filter_by(run_id=run_id).one()
@@ -222,7 +222,7 @@ def test_full_email_never_lands_in_the_row(db_session_factory):
     run_id, worker_id, email_ids = _seed_worker(db_session_factory, store, emails)
 
     session = FakeShopSession(emails)
-    make_process_worker(lambda p: session)(_ctx(db_session_factory, store, run_id, worker_id, email_ids))
+    make_process_worker(lambda ctx: session)(_ctx(db_session_factory, store, run_id, worker_id, email_ids))
     assert session.filled == [sentinel]  # the real address WAS used to drive the page
 
     with db_session_factory() as db:
@@ -243,8 +243,8 @@ class _Tester:
 
 
 class _Launcher:
-    def start(self, profile_id):
-        pass
+    def start_and_wait_ready(self, profile_id, *, timeout_seconds, is_cancelled):
+        return f"http://127.0.0.1/{profile_id}"
 
     def stop(self, profile_id):
         pass
@@ -253,7 +253,7 @@ class _Launcher:
 def test_coordinator_runs_with_the_real_process_worker(db_session_factory):
     store = _store()
     html_by_email = {f"u{i}@example.com": _ACCOUNT_NOT_FOUND_HTML for i in range(5)}
-    process_worker = make_process_worker(lambda profile_id: FakeShopSession(html_by_email))
+    process_worker = make_process_worker(lambda ctx: FakeShopSession(html_by_email))
     coord = ShopCheckCoordinator(
         db_session_factory, store, _Provider(), _Tester(), _Launcher(),
         process_worker=process_worker,

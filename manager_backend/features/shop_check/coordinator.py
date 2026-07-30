@@ -23,17 +23,21 @@ from sqlalchemy.orm import Session
 
 from ...models import ShopCheckEmail, ShopCheckRun, ShopCheckWorker, utc_now
 from . import service
-from .launcher import RuntimeLauncher
+from .launcher import RuntimeLaunchError, RuntimeLauncher
 from .provisioner import ProxyProvisionError, group_workers, provision_profile, provision_proxy
 
 _TERMINAL_WORKER = "terminal"
+# How long to wait for a launched runtime to become drivable before failing the
+# worker (proxy preflight + Chromium boot + CDP endpoint write).
+_DEFAULT_LAUNCH_TIMEOUT = 90.0
 
 
 @dataclass
 class WorkerContext:
     """Handed to the injected `process_worker`. Carries no secrets; the callback
     resolves a single email's full address from CredentialStore only when it is
-    actively processing that email (later browser checkpoint)."""
+    actively processing that email. `cdp_endpoint` is the live loopback CDP URL of
+    the already-ready browser, so the callback can drive the page immediately."""
 
     run_id: str
     worker_id: str
@@ -42,12 +46,7 @@ class WorkerContext:
     session_factory: Callable
     store: object
     is_cancelled: Callable[[], bool]
-
-
-def _noop_process_worker(ctx: "WorkerContext") -> None:
-    """Default: no per-email work (page automation is a later checkpoint). Leaves
-    the worker's emails pending; a real process_worker terminates them."""
-    return None
+    cdp_endpoint: str | None = None
 
 
 class ShopCheckCoordinator:
@@ -58,14 +57,25 @@ class ShopCheckCoordinator:
         provider_client,
         tester,
         launcher: RuntimeLauncher,
-        process_worker: Callable[[WorkerContext], None] | None = None,
+        process_worker: Callable[[WorkerContext], None],
+        *,
+        launch_timeout_seconds: float = _DEFAULT_LAUNCH_TIMEOUT,
     ):
+        # process_worker is REQUIRED: a coordinator with no real page automation
+        # would launch a browser, do nothing, and leave every email pending. Tests
+        # pass an explicit fake/no-op; production passes make_process_worker(...).
+        if process_worker is None:
+            raise ValueError(
+                "ShopCheckCoordinator requires a process_worker; a missing "
+                "processor would terminalize workers with their emails still pending."
+            )
         self._session_factory = session_factory
         self._store = store
         self._provider_client = provider_client
         self._tester = tester
         self._launcher = launcher
-        self._process_worker = process_worker or _noop_process_worker
+        self._process_worker = process_worker
+        self._launch_timeout = launch_timeout_seconds
         self._lock = threading.Lock()
         self._executors: dict[str, ThreadPoolExecutor] = {}
         self._cancel: dict[str, threading.Event] = {}
@@ -204,37 +214,54 @@ class ShopCheckCoordinator:
                     name=self._profile_name(run, session, worker_id),
                 )
 
-            # 3) launching
+            # 3) launching — block until Chromium is running with a live CDP
+            # endpoint. On launch failure the launcher has already stopped it.
             self._set_state(session, worker_id, "launching")
             service.promote_run_running(session, run_id)
             if self._is_cancelled(run_id):
                 self._cancel_worker(session, worker_id)
                 return
-            self._launcher.start(profile_id)
-
-            # 4) processing (injected; page automation is a later checkpoint)
-            self._set_state(session, worker_id, "processing")
-            email_ids = [
-                e.id
-                for e in session.scalars(
-                    select(ShopCheckEmail)
-                    .where(ShopCheckEmail.worker_id == worker_id)
-                    .order_by(ShopCheckEmail.ordinal)
-                )
-            ]
-            ctx = WorkerContext(
-                run_id=run_id,
-                worker_id=worker_id,
-                profile_id=profile_id,
-                email_ids=email_ids,
-                session_factory=self._session_factory,
-                store=self._store,
-                is_cancelled=lambda: self._is_cancelled(run_id),
-            )
             try:
+                cdp_endpoint = self._launcher.start_and_wait_ready(
+                    profile_id,
+                    timeout_seconds=self._launch_timeout,
+                    is_cancelled=lambda: self._is_cancelled(run_id),
+                )
+            except RuntimeLaunchError as error:
+                if self._is_cancelled(run_id) or error.reason == "cancelled":
+                    self._cancel_worker(session, worker_id)
+                else:
+                    self._fail_worker(
+                        session, worker_id, f"launch_{error.reason}", "navigation_failed"
+                    )
+                return
+
+            # The runtime is up and owned by us; from here it MUST be stopped on
+            # every exit path (success, cancel, or an unexpected error).
+            try:
+                # 4) processing (injected page automation)
+                self._set_state(session, worker_id, "processing")
+                email_ids = [
+                    e.id
+                    for e in session.scalars(
+                        select(ShopCheckEmail)
+                        .where(ShopCheckEmail.worker_id == worker_id)
+                        .order_by(ShopCheckEmail.ordinal)
+                    )
+                ]
+                ctx = WorkerContext(
+                    run_id=run_id,
+                    worker_id=worker_id,
+                    profile_id=profile_id,
+                    email_ids=email_ids,
+                    session_factory=self._session_factory,
+                    store=self._store,
+                    is_cancelled=lambda: self._is_cancelled(run_id),
+                    cdp_endpoint=cdp_endpoint,
+                )
                 self._process_worker(ctx)
             finally:
-                # 5) stopping
+                # 5) stopping — always tear the browser down.
                 self._set_state(session, worker_id, "stopping")
                 try:
                     self._launcher.stop(profile_id)

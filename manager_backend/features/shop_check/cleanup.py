@@ -17,17 +17,61 @@ from __future__ import annotations
 
 import logging
 import shutil
+import time
 
 from sqlalchemy import select
 
 from ...config import ManagerSettings
 from ...errors import ManagerError
 from ...features.profiles.directories import resolve_profile_directory
-from ...models import Profile, ShopCheckWorker
+from ...models import Profile, RuntimeSession, ShopCheckWorker
 from . import service
 from .sanitize import sanitize_error
 
 _logger = logging.getLogger(__name__)
+
+# Runtime states that still hold the profile's files. Deleting the directory
+# while any of these is live corrupts the profile (and fails on Windows).
+_ACTIVE_RUNTIME_STATES = frozenset({"queued", "starting", "running", "stopping", "detached"})
+_DEFAULT_STOP_TIMEOUT = 10.0
+
+
+class RuntimeStillActiveError(Exception):
+    """The owned runtime did not stop in time, so its files are still locked."""
+
+
+def _runtime_active(session, profile_id: str) -> bool:
+    return (
+        session.scalar(
+            select(RuntimeSession.id).where(
+                RuntimeSession.profile_id == profile_id,
+                RuntimeSession.state.in_(_ACTIVE_RUNTIME_STATES),
+            )
+        )
+        is not None
+    )
+
+
+def _stop_runtime_and_wait(runtime_manager, session_factory, profile_id: str, timeout: float) -> None:
+    """Stop the profile's runtime and block until it has actually exited.
+
+    RuntimeManager.stop() only *requests* a stop (the worker tears the browser
+    down on its own thread), so we must wait for the runtime to leave its active
+    states before deleting the directory. Raises if it will not stop in time.
+    """
+    runtime_manager.stop(profile_id)
+    if session_factory is None:
+        return  # caller opted out of the readiness wait (no runtime to observe)
+    deadline = time.monotonic() + timeout
+    while True:
+        with session_factory() as session:
+            if not _runtime_active(session, profile_id):
+                return
+        if time.monotonic() >= deadline:
+            raise RuntimeStillActiveError(
+                "The profile's browser is still running; it cannot be deleted yet."
+            )
+        time.sleep(0.05)
 
 
 def resolve_owned_profile_ids(session, run_id: str) -> list[str]:
@@ -62,6 +106,8 @@ def cleanup_run(
     run_id: str,
     *,
     expected_profile_count: int,
+    session_factory=None,
+    stop_timeout_seconds: float = _DEFAULT_STOP_TIMEOUT,
 ) -> dict:
     run = service.require_run(session, run_id)
     owned = resolve_owned_profile_ids(session, run_id)
@@ -81,7 +127,9 @@ def cleanup_run(
     failed = 0
     for profile_id in owned:
         try:
-            runtime_manager.stop(profile_id)  # stop an owned runtime before deleting
+            # Stop the owned runtime and WAIT for it to exit before deleting, so
+            # the directory is never rmtree'd while the browser still locks it.
+            _stop_runtime_and_wait(runtime_manager, session_factory, profile_id, stop_timeout_seconds)
             _delete_owned_profile(session, settings, profile_id)
             results.append({"profile_id": profile_id, "deleted": True, "error": None})
             deleted += 1

@@ -46,9 +46,10 @@ class FakeLauncher:
         self.stopped: list[str] = []
         self._lock = threading.Lock()
 
-    def start(self, profile_id):
+    def start_and_wait_ready(self, profile_id, *, timeout_seconds, is_cancelled):
         with self._lock:
             self.started.append(profile_id)
+        return f"http://127.0.0.1/{profile_id}"
 
     def stop(self, profile_id):
         with self._lock:
