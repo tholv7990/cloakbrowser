@@ -41,6 +41,10 @@ export const queryKeys = {
   automationRun: (id: string) => ['automation', 'run', id] as const,
   automationCredentials: ['automation', 'credentials'] as const,
   automationFactory: ['automation', 'factory'] as const,
+  shopCheckRuns: ['shop-check', 'runs'] as const,
+  shopCheckRun: (id: string) => ['shop-check', 'run', id] as const,
+  shopCheckEmails: (id: string, params: { page: number; result: string | null }) =>
+    ['shop-check', 'run', id, 'emails', params] as const,
   shopifyStores: ['shopify', 'stores'] as const,
   shopifyStoreProfile: (id: string) => ['shopify', 'store', id, 'profile'] as const,
   shopifyAiSettings: ['shopify', 'ai-settings'] as const,

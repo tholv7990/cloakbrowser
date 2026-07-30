@@ -34,6 +34,12 @@ import type {
   ProductCsvInspection,
   ProxyProvider,
   RuntimeSessionRecord,
+  ShopCheckEmailRead,
+  ShopCheckExportResult,
+  ShopCheckRunCreateResult,
+  ShopCheckRunDetail,
+  ShopCheckRunSummary,
+  ShopCheckCleanupResult,
   ShopifyStore,
   StoreProfile,
   ThemeLibrary,
@@ -259,6 +265,33 @@ export const realApi: ApiAdapter = {
     apiRequest<CredentialPoolSummary>('/automations/credentials/import', {
       method: 'POST',
       body: { text },
+    }),
+
+  createShopCheckRun: (payload) =>
+    apiRequest<ShopCheckRunCreateResult>('/automations/shop-check/runs', {
+      method: 'POST',
+      body: payload,
+    }),
+  listShopCheckRuns: (params = {}) =>
+    apiRequest<Paginated<ShopCheckRunSummary>>('/automations/shop-check/runs', {
+      query: { page: params.page, page_size: params.page_size },
+    }),
+  getShopCheckRun: (id) =>
+    apiRequest<ShopCheckRunDetail>(`/automations/shop-check/runs/${id}`),
+  listShopCheckEmails: (id, params = {}) =>
+    apiRequest<Paginated<ShopCheckEmailRead>>(`/automations/shop-check/runs/${id}/emails`, {
+      query: { page: params.page, page_size: params.page_size, result: params.result },
+    }),
+  cancelShopCheckRun: (id) =>
+    apiRequest<ShopCheckRunDetail>(`/automations/shop-check/runs/${id}/cancel`, { method: 'POST' }),
+  exportShopCheckRun: (id) =>
+    apiRequest<ShopCheckExportResult>(`/automations/shop-check/runs/${id}/export`, {
+      method: 'POST',
+    }),
+  cleanupShopCheckRun: (id, payload) =>
+    apiRequest<ShopCheckCleanupResult>(`/automations/shop-check/runs/${id}/cleanup`, {
+      method: 'POST',
+      body: payload,
     }),
 
 

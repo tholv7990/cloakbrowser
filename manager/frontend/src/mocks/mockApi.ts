@@ -26,6 +26,18 @@ import type {
   CookieImportPayload,
   CookieImportResult,
   CredentialPoolSummary,
+  ShopCheckCleanupPayload,
+  ShopCheckCleanupResult,
+  ShopCheckEmailListParams,
+  ShopCheckEmailRead,
+  ShopCheckEmailResult,
+  ShopCheckExportResult,
+  ShopCheckRunCreatePayload,
+  ShopCheckRunCreateResult,
+  ShopCheckRunDetail,
+  ShopCheckRunListParams,
+  ShopCheckRunSummary,
+  ShopCheckWorkerRead,
   DiagnosticKind,
   DiagnosticRun,
   Extension,
@@ -78,6 +90,11 @@ import {
   ownerEmail,
 } from './data';
 import { mockStore, newId } from './store';
+import {
+  maskEmail,
+  parseShopCheckEmails,
+  workerCount,
+} from '@/features/automation/shopCheckInput';
 
 const now = () => new Date().toISOString();
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -509,6 +526,85 @@ function sortProfiles(list: ProfileRead[], sort: ProfileListParams['sort']): Pro
     if (av > bv) return 1 * dir;
     return 0;
   });
+}
+
+// --- Shop-check mock state + simulation -----------------------------------
+// A created run's emails start pending and advance a few per poll to a
+// deterministic result (by index), so the run view shows live progress against
+// the mock. Full emails are never stored — only masked values, like the server.
+interface ShopCheckMockRun {
+  detail: ShopCheckRunDetail;
+  emails: ShopCheckEmailRead[];
+  cleanedProfiles: Set<string>;
+}
+const mockShopCheckRuns: ShopCheckMockRun[] = [];
+const SHOP_RETRYABLE: ShopCheckEmailResult[] = [
+  'captcha_or_challenge',
+  'proxy_failed',
+  'navigation_failed',
+  'unknown',
+];
+const SHOP_RESULT_CYCLE: ShopCheckEmailResult[] = [
+  'phone_otp_required',
+  'login_success',
+  'account_not_found',
+  'email_otp_required',
+  'phone_otp_required',
+];
+
+function shopRecompute(run: ShopCheckMockRun): void {
+  const { detail, emails } = run;
+  detail.total_emails = emails.length;
+  detail.terminal_count = emails.filter((e) => e.state === 'terminal').length;
+  detail.retryable_count = emails.filter(
+    (e) => e.result && SHOP_RETRYABLE.includes(e.result),
+  ).length;
+  const counts: Record<string, number> = {};
+  for (const email of emails) if (email.result) counts[email.result] = (counts[email.result] ?? 0) + 1;
+  detail.result_counts = counts;
+  for (const worker of detail.workers) {
+    worker.processed_count = emails.filter(
+      (e) => e.worker_id === worker.id && e.state === 'terminal',
+    ).length;
+    if (worker.processed_count >= worker.assigned_count) worker.state = 'terminal';
+  }
+  if (detail.status === 'cancelled') return;
+  if (emails.length > 0 && emails.every((e) => e.state === 'terminal')) {
+    detail.status = detail.retryable_count > 0 ? 'completed_with_issues' : 'completed';
+    detail.finished_at = detail.finished_at ?? now();
+  }
+}
+
+function shopProgress(run: ShopCheckMockRun): void {
+  if (run.detail.status !== 'running' && run.detail.status !== 'preparing') return;
+  run.detail.status = 'running';
+  const pending = run.emails.filter((e) => e.state !== 'terminal');
+  for (const email of pending.slice(0, 2)) {
+    const result = SHOP_RESULT_CYCLE[email.ordinal % SHOP_RESULT_CYCLE.length];
+    email.state = 'terminal';
+    email.result = result;
+    email.retryable = SHOP_RETRYABLE.includes(result);
+    email.checked_at = now();
+    if (result === 'phone_otp_required') {
+      email.phone_prefix = '+84';
+      email.phone_suffix = String(30 + (email.ordinal % 60)).padStart(2, '0');
+      email.phone_country_code = 'VN';
+      email.phone_country_name = 'Vietnam';
+      email.phone_confidence = 'exact';
+    }
+  }
+  shopRecompute(run);
+}
+
+function requireShopRun(id: string): ShopCheckMockRun {
+  const run = mockShopCheckRuns.find((r) => r.detail.id === id);
+  if (!run) throw new ApiError(404, 'shop_check_run_not_found', 'That run was not found.');
+  return run;
+}
+
+function shopSummary(detail: ShopCheckRunDetail): ShopCheckRunSummary {
+  const { profile_prefix: _p, output_dir: _o, error: _e, workers: _w, ...summary } = detail;
+  return summary;
 }
 
 export const mockApi: ApiAdapter = {
@@ -1663,6 +1759,180 @@ export const mockApi: ApiAdapter = {
       total: mockPool.total + added,
     };
     return { ...mockPool };
+  },
+
+  async createShopCheckRun(payload: ShopCheckRunCreatePayload): Promise<ShopCheckRunCreateResult> {
+    await delay(160);
+    if (!payload.authorized_only_ack)
+      throw new ApiError(422, 'authorization_required', 'Confirm these accounts are authorized.');
+    const parsed = parseShopCheckEmails(payload.email_text);
+    if (parsed.valid.length === 0)
+      throw new ApiError(400, 'shop_check_no_valid_emails', 'No valid email addresses were found.');
+
+    const runId = newId('shopchk');
+    const per = payload.emails_per_profile;
+    const total = parsed.valid.length;
+    const workerTotal = workerCount(total, per);
+    const workers: ShopCheckWorkerRead[] = Array.from({ length: workerTotal }, (_, ordinal) => ({
+      id: `${runId}-w${ordinal}`,
+      ordinal,
+      state: 'processing',
+      profile_id: `${runId}-p${ordinal}`,
+      proxy_id: `${runId}-x${ordinal}`,
+      assigned_count: Math.min(per, total - ordinal * per),
+      processed_count: 0,
+      error: null,
+    }));
+    const emails: ShopCheckEmailRead[] = parsed.valid.map((address, ordinal) => ({
+      id: `${runId}-e${ordinal}`,
+      ordinal,
+      email_masked: maskEmail(address),
+      state: 'pending',
+      result: null,
+      retryable: false,
+      phone_prefix: null,
+      phone_suffix: null,
+      phone_country_code: null,
+      phone_country_name: null,
+      phone_region_name: null,
+      phone_confidence: null,
+      retry_count: 0,
+      worker_id: workers[Math.floor(ordinal / per)]?.id ?? null,
+      checked_at: null,
+    }));
+    const detail: ShopCheckRunDetail = {
+      id: runId,
+      status: 'running',
+      region: payload.region ?? null,
+      emails_per_profile: per,
+      max_parallel: payload.max_parallel,
+      target_url: 'https://shop.app/',
+      total_emails: total,
+      terminal_count: 0,
+      retryable_count: 0,
+      worker_count: workerTotal,
+      cleanup_state: 'none',
+      result_counts: {},
+      created_at: now(),
+      started_at: now(),
+      finished_at: null,
+      profile_prefix: payload.profile_prefix ?? null,
+      output_dir: null,
+      error: null,
+      workers,
+    };
+    mockShopCheckRuns.unshift({ detail, emails, cleanedProfiles: new Set() });
+    return {
+      run: structuredClone(detail),
+      input_summary: {
+        total_lines: parsed.totalLines,
+        valid: total,
+        duplicates: parsed.duplicates.length,
+        invalid: parsed.invalid.length,
+        worker_count: workerTotal,
+        invalid_entries: parsed.invalid.slice(0, 100).map((e) => ({
+          line: e.line,
+          masked: e.masked,
+          reason: e.reason ?? 'invalid',
+        })),
+        invalid_truncated: parsed.invalid.length > 100,
+        duplicate_entries: parsed.duplicates.slice(0, 100).map((e) => ({ line: e.line, masked: e.masked })),
+        duplicate_truncated: parsed.duplicates.length > 100,
+      },
+    };
+  },
+  async listShopCheckRuns(params: ShopCheckRunListParams = {}): Promise<Paginated<ShopCheckRunSummary>> {
+    await delay(60);
+    const page = params.page ?? 1;
+    const pageSize = params.page_size ?? 25;
+    const start = (page - 1) * pageSize;
+    const all = mockShopCheckRuns.map((r) => shopSummary(r.detail));
+    return {
+      items: structuredClone(all.slice(start, start + pageSize)),
+      total: all.length,
+      page,
+      page_size: pageSize,
+      pages: Math.max(1, Math.ceil(all.length / pageSize)),
+    };
+  },
+  async getShopCheckRun(id: string): Promise<ShopCheckRunDetail> {
+    await delay(40);
+    const run = requireShopRun(id);
+    shopProgress(run);
+    return structuredClone(run.detail);
+  },
+  async listShopCheckEmails(
+    id: string,
+    params: ShopCheckEmailListParams = {},
+  ): Promise<Paginated<ShopCheckEmailRead>> {
+    await delay(40);
+    const run = requireShopRun(id);
+    let rows = run.emails;
+    if (params.result) rows = rows.filter((e) => e.result === params.result);
+    const page = params.page ?? 1;
+    const pageSize = params.page_size ?? 50;
+    const start = (page - 1) * pageSize;
+    return {
+      items: structuredClone(rows.slice(start, start + pageSize)),
+      total: rows.length,
+      page,
+      page_size: pageSize,
+      pages: Math.max(1, Math.ceil(rows.length / pageSize)),
+    };
+  },
+  async cancelShopCheckRun(id: string): Promise<ShopCheckRunDetail> {
+    await delay(80);
+    const run = requireShopRun(id);
+    run.emails.forEach((email) => {
+      if (email.state !== 'terminal') {
+        email.state = 'terminal';
+        email.result = 'cancelled';
+        email.checked_at = now();
+      }
+    });
+    run.detail.status = 'cancelled';
+    run.detail.finished_at = now();
+    shopRecompute(run);
+    return structuredClone(run.detail);
+  },
+  async exportShopCheckRun(id: string): Promise<ShopCheckExportResult> {
+    await delay(120);
+    const run = requireShopRun(id);
+    const matched = run.emails.filter((e) => e.result === 'phone_otp_required').length;
+    const dir = `exports/${id}`;
+    run.detail.output_dir = dir;
+    return {
+      run_id: id,
+      output_dir: dir,
+      results_csv: `${dir}/results.csv`,
+      matched_txt: `${dir}/matched.txt`,
+      total_rows: run.emails.length,
+      matched_count: matched,
+    };
+  },
+  async cleanupShopCheckRun(
+    id: string,
+    payload: ShopCheckCleanupPayload,
+  ): Promise<ShopCheckCleanupResult> {
+    await delay(140);
+    const run = requireShopRun(id);
+    const owned = run.detail.workers.map((w) => w.profile_id).filter((p): p is string => Boolean(p));
+    if (owned.length !== payload.expected_profile_count)
+      throw new ApiError(
+        409,
+        'shop_check_cleanup_count_mismatch',
+        'The owned-profile count changed; refresh and retry.',
+      );
+    owned.forEach((p) => run.cleanedProfiles.add(p));
+    run.detail.cleanup_state = 'done';
+    return {
+      run_id: id,
+      cleanup_state: 'done',
+      requested: owned.length,
+      deleted: owned.length,
+      failed: 0,
+      profiles: owned.map((profile_id) => ({ profile_id, deleted: true, error: null })),
+    };
   },
 
   async listStores(): Promise<ShopifyStore[]> {

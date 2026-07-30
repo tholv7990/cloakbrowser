@@ -47,6 +47,16 @@ import type {
   ProxyProvider,
   ProxyProviderConfigPayload,
   RuntimeSessionRecord,
+  ShopCheckCleanupPayload,
+  ShopCheckCleanupResult,
+  ShopCheckEmailListParams,
+  ShopCheckEmailRead,
+  ShopCheckExportResult,
+  ShopCheckRunCreatePayload,
+  ShopCheckRunCreateResult,
+  ShopCheckRunDetail,
+  ShopCheckRunListParams,
+  ShopCheckRunSummary,
   ShopifyStore,
   StartRunPayload,
   StoreProfile,
@@ -202,6 +212,18 @@ export interface ApiAdapter {
 
   getCredentialPool(): Promise<CredentialPoolSummary>;
   importCredentials(text: string): Promise<CredentialPoolSummary>;
+
+  // Shop email phone-OTP check — runs / results / export / cleanup
+  createShopCheckRun(payload: ShopCheckRunCreatePayload): Promise<ShopCheckRunCreateResult>;
+  listShopCheckRuns(params?: ShopCheckRunListParams): Promise<Paginated<ShopCheckRunSummary>>;
+  getShopCheckRun(id: string): Promise<ShopCheckRunDetail>;
+  listShopCheckEmails(
+    id: string,
+    params?: ShopCheckEmailListParams,
+  ): Promise<Paginated<ShopCheckEmailRead>>;
+  cancelShopCheckRun(id: string): Promise<ShopCheckRunDetail>;
+  exportShopCheckRun(id: string): Promise<ShopCheckExportResult>;
+  cleanupShopCheckRun(id: string, payload: ShopCheckCleanupPayload): Promise<ShopCheckCleanupResult>;
 
 
   // Shopify Builder — stores / analysis / plans (draft-only)

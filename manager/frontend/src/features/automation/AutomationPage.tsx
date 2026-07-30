@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Play, Plus, Trash2 } from 'lucide-react';
+import { Play, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import type { AutomationTemplate } from '@/types/api';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -9,16 +9,19 @@ import { EmptyState, ErrorState, LoadingBlock } from '@/components/ui/states';
 import { relativeTime } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { useT, type TranslationKey } from '@/i18n';
-import { useDeleteTemplate, useTemplates } from './api';
+import { useDeleteTemplate, useShopCheckRuns, useTemplates } from './api';
 import { RecordDialog } from './RecordDialog';
 import { RunWizard } from './RunWizard';
 import { RunView } from './RunView';
 import { CredentialsPanel } from './CredentialsPanel';
+import { ShopCheckWizard } from './ShopCheckWizard';
+import { ShopCheckRunView } from './ShopCheckRunView';
 
-type Tab = 'templates' | 'runs' | 'credentials';
+type Tab = 'templates' | 'runs' | 'shop-check' | 'credentials';
 const TABS: { id: Tab; key: TranslationKey }[] = [
   { id: 'templates', key: 'auto.tab.templates' },
   { id: 'runs', key: 'auto.tab.runs' },
+  { id: 'shop-check', key: 'auto.tab.shopCheck' },
   { id: 'credentials', key: 'auto.tab.credentials' },
 ];
 
@@ -29,10 +32,13 @@ export function AutomationPage() {
   const [runTemplate, setRunTemplate] = useState<AutomationTemplate | null>(null);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AutomationTemplate | null>(null);
+  const [shopWizardOpen, setShopWizardOpen] = useState(false);
+  const [activeShopRunId, setActiveShopRunId] = useState<string | null>(null);
 
   const templates = useTemplates();
   const deleteTemplate = useDeleteTemplate();
   const list = templates.data ?? [];
+  const shopRuns = useShopCheckRuns();
 
   return (
     // The app shell's <main> is overflow-hidden, so each page owns its scroll.
@@ -126,8 +132,85 @@ export function AutomationPage() {
           />
         ))}
 
+      {tab === 'shop-check' &&
+        (activeShopRunId ? (
+          <ShopCheckRunView runId={activeShopRunId} onBack={() => setActiveShopRunId(null)} />
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-2xs text-ink-muted">{t('shopchk.subtitle')}</p>
+              <Button variant="primary" size="sm" onClick={() => setShopWizardOpen(true)}>
+                <ShieldCheck className="h-3.5 w-3.5" /> {t('shopchk.newCheck')}
+              </Button>
+            </div>
+            {shopRuns.isLoading ? (
+              <LoadingBlock label={t('shopchk.run.loading')} />
+            ) : (shopRuns.data?.items.length ?? 0) === 0 ? (
+              <EmptyState
+                icon={<ShieldCheck className="h-5 w-5" />}
+                title={t('shopchk.empty.title')}
+                description={t('shopchk.empty.desc')}
+                action={
+                  <Button variant="primary" size="sm" onClick={() => setShopWizardOpen(true)}>
+                    <ShieldCheck className="h-3.5 w-3.5" /> {t('shopchk.newCheck')}
+                  </Button>
+                }
+              />
+            ) : (
+              <div className="space-y-2">
+                {shopRuns.data?.items.map((run) => (
+                  <button
+                    key={run.id}
+                    type="button"
+                    onClick={() => setActiveShopRunId(run.id)}
+                    className="flex w-full items-center gap-3 rounded-lg border border-line bg-surface p-3 text-left hover:border-line-strong"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13px] font-medium text-ink">
+                        {t('shopchk.run.summaryLine', {
+                          total: run.total_emails,
+                          workers: run.worker_count,
+                        })}
+                      </p>
+                      <p className="text-2xs text-ink-faint">{relativeTime(run.created_at)}</p>
+                    </div>
+                    <span className="shrink-0 text-2xs text-ink-muted">
+                      {t('shopchk.run.matchedShort', {
+                        matched: run.result_counts.phone_otp_required ?? 0,
+                      })}
+                    </span>
+                    <Badge
+                      tone={
+                        run.status === 'completed'
+                          ? 'success'
+                          : run.status === 'completed_with_issues'
+                            ? 'warning'
+                            : run.status === 'failed'
+                              ? 'danger'
+                              : ['queued', 'preparing', 'running'].includes(run.status)
+                                ? 'info'
+                                : 'neutral'
+                      }
+                    >
+                      {t(`shopchk.status.${run.status}` as TranslationKey)}
+                    </Badge>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+
       {tab === 'credentials' && <CredentialsPanel />}
 
+      <ShopCheckWizard
+        open={shopWizardOpen}
+        onClose={() => setShopWizardOpen(false)}
+        onStarted={(runId) => {
+          setActiveShopRunId(runId);
+          setTab('shop-check');
+        }}
+      />
       <RecordDialog open={recordOpen} onClose={() => setRecordOpen(false)} />
       <RunWizard
         template={runTemplate}

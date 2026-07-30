@@ -997,3 +997,166 @@ export interface BroadcastRequest {
 export interface BroadcastResponse {
   results: ArrangeResult[];
 }
+
+// --- Shop email phone-OTP check ------------------------------------------
+// Mirrors manager_backend/features/shop_check/schemas.py. Read models never
+// carry the full email, the credential ref, or a proxy secret.
+export type ShopCheckRunStatus =
+  | 'queued'
+  | 'preparing'
+  | 'running'
+  | 'completed'
+  | 'completed_with_issues'
+  | 'cancelled'
+  | 'failed';
+
+export type ShopCheckEmailResult =
+  | 'phone_otp_required'
+  | 'email_otp_required'
+  | 'login_success'
+  | 'account_not_found'
+  | 'email_rejected'
+  | 'captcha_or_challenge'
+  | 'proxy_failed'
+  | 'navigation_failed'
+  | 'unknown'
+  | 'cancelled';
+
+export type ShopCheckEmailState = 'pending' | 'running' | 'terminal';
+export type ShopCheckWorkerState =
+  | 'pending'
+  | 'proxy_check'
+  | 'profile_create'
+  | 'launching'
+  | 'processing'
+  | 'stopping'
+  | 'terminal';
+export type ShopCheckPhoneConfidence = 'exact' | 'ambiguous' | 'unknown';
+export type ShopCheckCleanupState = 'none' | 'in_progress' | 'partial' | 'done';
+
+export interface ShopCheckRunCreatePayload {
+  // Write-only paste of authorized accounts; never echoed back by the server.
+  email_text: string;
+  emails_per_profile: number;
+  max_parallel: number;
+  region?: string | null;
+  profile_prefix?: string | null;
+  authorized_only_ack: boolean;
+}
+
+export interface ShopCheckInvalidEntry {
+  line: number;
+  masked: string;
+  reason: string;
+}
+export interface ShopCheckDuplicateEntry {
+  line: number;
+  masked: string;
+}
+export interface ShopCheckInputSummary {
+  total_lines: number;
+  valid: number;
+  duplicates: number;
+  invalid: number;
+  worker_count: number;
+  invalid_entries: ShopCheckInvalidEntry[];
+  invalid_truncated: boolean;
+  duplicate_entries: ShopCheckDuplicateEntry[];
+  duplicate_truncated: boolean;
+}
+
+export interface ShopCheckWorkerRead {
+  id: string;
+  ordinal: number;
+  state: ShopCheckWorkerState;
+  profile_id: string | null;
+  proxy_id: string | null;
+  assigned_count: number;
+  processed_count: number;
+  error: string | null;
+}
+
+export interface ShopCheckEmailRead {
+  id: string;
+  ordinal: number;
+  email_masked: string;
+  state: ShopCheckEmailState;
+  result: ShopCheckEmailResult | null;
+  retryable: boolean;
+  phone_prefix: string | null;
+  phone_suffix: string | null;
+  phone_country_code: string | null;
+  phone_country_name: string | null;
+  phone_region_name: string | null;
+  phone_confidence: ShopCheckPhoneConfidence | null;
+  retry_count: number;
+  worker_id: string | null;
+  checked_at: string | null;
+}
+
+export interface ShopCheckRunSummary {
+  id: string;
+  status: ShopCheckRunStatus;
+  region: string | null;
+  emails_per_profile: number;
+  max_parallel: number;
+  target_url: string;
+  total_emails: number;
+  terminal_count: number;
+  retryable_count: number;
+  worker_count: number;
+  cleanup_state: ShopCheckCleanupState;
+  result_counts: Record<string, number>;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface ShopCheckRunDetail extends ShopCheckRunSummary {
+  profile_prefix: string | null;
+  output_dir: string | null;
+  error: string | null;
+  workers: ShopCheckWorkerRead[];
+}
+
+export interface ShopCheckRunCreateResult {
+  run: ShopCheckRunDetail;
+  input_summary: ShopCheckInputSummary;
+}
+
+export interface ShopCheckExportResult {
+  run_id: string;
+  output_dir: string;
+  results_csv: string;
+  matched_txt: string;
+  total_rows: number;
+  matched_count: number;
+}
+
+export interface ShopCheckCleanupProfileResult {
+  profile_id: string;
+  deleted: boolean;
+  error: string | null;
+}
+export interface ShopCheckCleanupResult {
+  run_id: string;
+  cleanup_state: ShopCheckCleanupState;
+  requested: number;
+  deleted: number;
+  failed: number;
+  profiles: ShopCheckCleanupProfileResult[];
+}
+export interface ShopCheckCleanupPayload {
+  confirm: true;
+  expected_profile_count: number;
+}
+
+export interface ShopCheckRunListParams {
+  page?: number;
+  page_size?: number;
+}
+export interface ShopCheckEmailListParams {
+  page?: number;
+  page_size?: number;
+  result?: ShopCheckEmailResult | null;
+}
