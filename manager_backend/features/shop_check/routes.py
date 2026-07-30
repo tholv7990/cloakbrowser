@@ -16,10 +16,13 @@ from sqlalchemy.orm import Session
 from ...dependencies import get_session
 from ...maintenance import guard_maintenance
 from . import service
+from .cleanup import cleanup_run
 from .export import export_run
 from .sanitize import sanitize_error
 from .schemas import (
     EmailResult,
+    ShopCheckCleanupRequest,
+    ShopCheckCleanupResult,
     ShopCheckEmailPage,
     ShopCheckExportResult,
     ShopCheckRunCreate,
@@ -129,3 +132,27 @@ def cancel_run(run_id: str, request: Request, session: SessionDependency):
     # Route through the coordinator so a live run's workers get the cancel signal;
     # the persisted status is the source of truth either way.
     return request.app.state.shop_check_coordinator.cancel(session, run_id)
+
+
+@router.post(
+    "/runs/{run_id}/cleanup",
+    response_model=ShopCheckCleanupResult,
+    operation_id="shop_check_runs_cleanup",
+    dependencies=[Depends(guard_maintenance)],
+)
+def cleanup_run_profiles(
+    run_id: str,
+    payload: ShopCheckCleanupRequest,
+    request: Request,
+    session: SessionDependency,
+):
+    # Hard-deletes ONLY this run's owned profiles (from immutable provenance),
+    # stopping their runtimes first. run_id comes from the path; the client
+    # supplies no ids or paths, only the count it saw (guards a stale UI).
+    return cleanup_run(
+        session,
+        request.app.state.settings,
+        request.app.state.runtime_manager,
+        run_id,
+        expected_profile_count=payload.expected_profile_count,
+    )

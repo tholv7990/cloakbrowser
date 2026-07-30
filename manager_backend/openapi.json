@@ -8021,6 +8021,76 @@
         }
       }
     },
+    "/api/v1/automations/shop-check/runs/{run_id}/export": {
+      "post": {
+        "tags": [
+          "shop_check"
+        ],
+        "summary": "Export Run Results",
+        "operationId": "shop_check_runs_export",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopCheckExportResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/automations/shop-check/runs/{run_id}/cancel": {
       "post": {
         "tags": [
@@ -8054,6 +8124,86 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ShopCheckRunDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/automations/shop-check/runs/{run_id}/cleanup": {
+      "post": {
+        "tags": [
+          "shop_check"
+        ],
+        "summary": "Cleanup Run Profiles",
+        "operationId": "shop_check_runs_cleanup",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "CsrfToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShopCheckCleanupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShopCheckCleanupResult"
                 }
               }
             }
@@ -11075,6 +11225,37 @@
           "new_password"
         ],
         "title": "ChangePasswordRequest"
+      },
+      "CleanupProfileResult": {
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "deleted": {
+            "type": "boolean",
+            "title": "Deleted"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "profile_id",
+          "deleted",
+          "error"
+        ],
+        "title": "CleanupProfileResult"
       },
       "ConnectStorePayload": {
         "properties": {
@@ -14935,6 +15116,75 @@
         ],
         "title": "SettingsRead"
       },
+      "ShopCheckCleanupRequest": {
+        "properties": {
+          "confirm": {
+            "type": "boolean",
+            "const": true,
+            "title": "Confirm"
+          },
+          "expected_profile_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Profile Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "confirm",
+          "expected_profile_count"
+        ],
+        "title": "ShopCheckCleanupRequest"
+      },
+      "ShopCheckCleanupResult": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "cleanup_state": {
+            "type": "string",
+            "enum": [
+              "none",
+              "in_progress",
+              "partial",
+              "done"
+            ],
+            "title": "Cleanup State"
+          },
+          "requested": {
+            "type": "integer",
+            "title": "Requested"
+          },
+          "deleted": {
+            "type": "integer",
+            "title": "Deleted"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          },
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/CleanupProfileResult"
+            },
+            "type": "array",
+            "title": "Profiles"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "run_id",
+          "cleanup_state",
+          "requested",
+          "deleted",
+          "failed",
+          "profiles"
+        ],
+        "title": "ShopCheckCleanupResult"
+      },
       "ShopCheckEmailPage": {
         "properties": {
           "items": {
@@ -15146,6 +15396,47 @@
           "checked_at"
         ],
         "title": "ShopCheckEmailRead"
+      },
+      "ShopCheckExportResult": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "output_dir": {
+            "type": "string",
+            "title": "Output Dir"
+          },
+          "results_csv": {
+            "type": "string",
+            "title": "Results Csv"
+          },
+          "matched_txt": {
+            "type": "string",
+            "title": "Matched Txt"
+          },
+          "total_rows": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Rows"
+          },
+          "matched_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Matched Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "run_id",
+          "output_dir",
+          "results_csv",
+          "matched_txt",
+          "total_rows",
+          "matched_count"
+        ],
+        "title": "ShopCheckExportResult"
       },
       "ShopCheckRunCreate": {
         "properties": {
