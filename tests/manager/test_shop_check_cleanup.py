@@ -31,7 +31,7 @@ class FakeRuntimeManager:
         return None
 
 
-def _run(session, status="running") -> str:
+def _run(session, status="completed") -> str:
     run = ShopCheckRun(
         status=status, emails_per_profile=5, max_parallel=1,
         target_url="https://shop.app/", total_emails=0,
@@ -92,6 +92,27 @@ def test_deletes_owned_profiles_only(db_session_factory, settings):
     for pid in owned:
         assert not resolve_profile_directory(settings, pid).exists()
     assert resolve_profile_directory(settings, other).exists()
+
+
+@pytest.mark.parametrize("status", ["queued", "preparing", "running"])
+def test_rejects_cleanup_while_the_run_is_not_terminal(db_session_factory, settings, status):
+    # Deleting a run's profiles mid-flight would break in-flight workers.
+    with db_session_factory() as session:
+        run_id = _run(session, status=status)
+        pid = _owned_profile(session, settings, run_id, 0)
+
+    runtime = FakeRuntimeManager()
+    with db_session_factory() as session:
+        with pytest.raises(ManagerError) as excinfo:
+            cleanup_run(
+                session, settings, runtime, run_id,
+                expected_profile_count=1, session_factory=db_session_factory,
+            )
+    assert excinfo.value.status_code == 409
+    assert runtime.stopped == []  # nothing stopped or deleted
+    with db_session_factory() as session:
+        assert session.get(Profile, pid) is not None
+    assert resolve_profile_directory(settings, pid).exists()
 
 
 def test_count_mismatch_is_rejected(db_session_factory, settings):

@@ -110,6 +110,15 @@ def cleanup_run(
     stop_timeout_seconds: float = _DEFAULT_STOP_TIMEOUT,
 ) -> dict:
     run = service.require_run(session, run_id)
+    # Cleanup deletes the run's temporary profiles — only ever safe once the run
+    # has finished. A direct API caller must not delete profiles out from under
+    # workers that are still queued/preparing/running.
+    if run.status not in service.TERMINAL_RUN_STATES:
+        raise ManagerError(
+            "shop_check_cleanup_run_active",
+            "The run is still in progress; cleanup is available once it finishes or is cancelled.",
+            409,
+        )
     owned = resolve_owned_profile_ids(session, run_id)
     if len(owned) != expected_profile_count:
         # A stale UI must never delete a different count than it displayed.

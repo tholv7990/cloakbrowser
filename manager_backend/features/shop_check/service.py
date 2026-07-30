@@ -51,9 +51,12 @@ def set_email_error(email: ShopCheckEmail, message: object, *secrets: str | None
 def _clean(value: str | None) -> str | None:
     return sanitize_error(value) if value else None
 
-_TERMINAL_RUN_STATES = frozenset(
+# The run statuses that mean "finished" — the only states in which a run's
+# temporary profiles may be cleaned up. Shared with cleanup.py.
+TERMINAL_RUN_STATES = frozenset(
     {"completed", "completed_with_issues", "cancelled", "failed"}
 )
+_TERMINAL_RUN_STATES = TERMINAL_RUN_STATES  # backward-compatible internal alias
 
 
 def require_run(session: Session, run_id: str) -> ShopCheckRun:

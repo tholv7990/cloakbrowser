@@ -143,6 +143,19 @@ def test_cancel_run(client, auth_headers):
     assert response.json()["status"] == "cancelled"
 
 
+def test_cleanup_rejected_while_run_is_active(client, auth_headers):
+    # A freshly created run is queued (non-terminal); a direct cleanup call must
+    # not be able to delete its profiles until it finishes or is cancelled.
+    _setup(client)
+    run_id = _create(client, auth_headers).json()["run"]["id"]
+    response = client.post(
+        f"{_BASE}/runs/{run_id}/cleanup",
+        headers=auth_headers,
+        json={"confirm": True, "expected_profile_count": 0},
+    )
+    assert response.status_code == 409
+
+
 # --- validation secrecy (item 4) --------------------------------------------
 # A Pydantic ValidationError carries the full offending input (the entire pasted
 # email_text). These lock down that the global 422 handler never echoes it.
