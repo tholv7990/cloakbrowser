@@ -98,8 +98,12 @@ export function ProxyEditorDrawer({
       setQualityResult(null);
       setTestError(null);
     }
+    // Key on the proxy IDENTITY (its id), not the object reference. A background
+    // ['proxies'] refetch (e.g. after a quick/quality test invalidates the list)
+    // hands down a new object with the same id; keying on `proxy` would re-run
+    // this effect and wipe the just-shown test result.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, proxy, reset]);
+  }, [open, proxy?.id, reset]);
 
   // Proxy credentials are ordinary config, not a secret to be hidden from their
   // owner: the value is returned by the API and shown, with a toggle to mask it
