@@ -331,6 +331,11 @@ def _require_proxy_timezone(snapshot: dict) -> None:
 
 
 _PREFLIGHT_CACHE_MAX_AGE = timedelta(seconds=60)
+# Launch-preflight wall-clock budget. Two echoes through a working-but-slow exit
+# (~1.5s/echo) must fit, or a healthy proxy gets timed out and the profile can't
+# start. Kept below the Proxies-screen budget so a genuinely dead proxy still
+# fails the launch reasonably fast.
+_LAUNCH_PREFLIGHT_BUDGET_SECONDS = 8.0
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -389,10 +394,14 @@ def build_proxy_preflight(session_factory, store: CredentialStore, tester):
             used_cached_result = result is not None
             try:
                 if result is None:
-                    # 3s (was 5s): fail a dead/degraded proxy faster so the launch
-                    # doesn't hang. A healthy proxy answers well under this; a very
-                    # slow-but-working proxy can bump it back up if needed.
-                    result = tester.run_fast(proxy_url, timeout_seconds=3)
+                    # Launch-preflight budget. Needs headroom for two echoes through
+                    # a working-but-slow exit (~1.5s/echo for real 711/residential
+                    # proxies): a tighter 3s budget timed such proxies out ->
+                    # proxy_preflight_failed -> the profile crashed and couldn't
+                    # start, even though the same proxy passed the Proxies screen.
+                    result = tester.run_fast(
+                        proxy_url, timeout_seconds=_LAUNCH_PREFLIGHT_BUDGET_SECONDS
+                    )
             except ProxyTestFailure:
                 raise ManagerError(
                     "proxy_preflight_failed",

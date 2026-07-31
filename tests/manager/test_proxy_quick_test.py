@@ -453,6 +453,52 @@ def test_preflight_rechecks_stale_proxy_result(db_session_factory):
     assert snapshot["proxy_exit_ip"] == "203.0.113.9"
 
 
+def test_launch_preflight_budget_tolerates_a_slow_working_proxy(db_session_factory):
+    # Regression: a working-but-slow proxy (~1.5s/echo, like real 711/residential
+    # exits) passes the Proxies-screen test but a too-tight launch budget timed it
+    # out -> proxy_preflight_failed -> the profile crashed and couldn't start. The
+    # launch budget must be generous enough for two echoes at that latency.
+    proxy = Proxy(
+        label="Slow but working",
+        scheme="socks5",
+        host="proxy.example",
+        port=1080,
+    )
+    with db_session_factory() as session:
+        session.add(proxy)
+        session.commit()
+        proxy_id = proxy.id
+
+    class SlowProxyTester:
+        """Succeeds only when given enough time for two ~1.5s echoes; a 3s launch
+        budget (the old value) would time it out."""
+
+        budget = None
+
+        def run_fast(self, _proxy_url, timeout_seconds=5):
+            self.budget = timeout_seconds
+            if timeout_seconds < 6:
+                raise ProxyTestFailure("timeout")
+            return QuickTestResult(
+                exit_ip="185.98.42.37",
+                exit_ip_matches=True,
+                latency_ms=1500,
+                checked_at=datetime.now(timezone.utc),
+            )
+
+    tester = SlowProxyTester()
+    snapshot = {
+        "proxy_id": proxy_id,
+        "test_proxy_before_launch": True,
+        "location": {"geo_mode": "system"},
+    }
+    preflight = build_proxy_preflight(db_session_factory, MemoryCredentialStore(), tester)
+
+    # Must NOT raise proxy_preflight_failed for a slow-but-working proxy.
+    assert preflight(snapshot) == "socks5://proxy.example:1080"
+    assert tester.budget is not None and tester.budget >= 8
+
+
 def test_proxy_geo_missing_timezone_falls_back_to_country_not_host():
     # F-002: geo enrichment can resolve the country but not the precise IANA tz.
     # Derive a representative tz from the country rather than leaking the host clock.
