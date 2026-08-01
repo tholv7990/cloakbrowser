@@ -131,6 +131,20 @@ await page.goto('https://example.com');
 await ctx.close();  // profile saved — reuse same path to restore state
 ```
 
+#### Explicit fingerprint overrides
+
+Playwright and Puppeteer launch options accept these optional fields. The fingerprint seed remains the base identity: an explicit value replaces only its named attribute, while every omitted value stays seed-derived. Invalid values throw before the browser launches. `screenWidth` and `screenHeight` change the reported screen attributes only; they do not set or emulate viewport dimensions.
+
+| Option | Accepted value | Default |
+|--------|----------------|---------|
+| `gpuVendor` | Non-empty string | `undefined` (seed-derived) |
+| `gpuRenderer` | Non-empty string | `undefined` (seed-derived) |
+| `hardwareConcurrency` | Integer from 1 through 1024 | `undefined` (seed-derived) |
+| `deviceMemory` | Integer from 1 through 1024 GiB | `undefined` (seed-derived) |
+| `screenWidth` | Integer from 320 through 16384 | `undefined` (seed-derived) |
+| `screenHeight` | Integer from 320 through 16384 | `undefined` (seed-derived) |
+| `brand` | Non-empty string | `undefined` (seed-derived) |
+
 ### Auto Timezone/Locale from Proxy IP
 
 When using a proxy, antibot systems check that your browser's timezone and locale match the proxy's location. Install `mmdb-lib` to enable auto-detection from an offline GeoIP database (~70 MB, downloaded on first use):

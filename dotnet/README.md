@@ -356,6 +356,20 @@ var page = await ctx.NewPageAsync();
 | `LicenseKey` | `string` | `null` | CloakBrowser Pro key (or `CLOAKBROWSER_LICENSE_KEY` env / `~/.cloakbrowser/license.key`) |
 | `BrowserVersion` | `string` | `null` | Pin an exact Chromium version (e.g. `"148.0.7778.215.2"`). Also reads from `CLOAKBROWSER_VERSION` env var. Works with Free and Pro. |
 
+### Explicit fingerprint overrides
+
+All three launch methods accept these optional properties through `LaunchOptions` or `LaunchContextOptions`. The fingerprint seed remains the base identity: an explicit value replaces only its named attribute, while every `null` value stays seed-derived. Invalid values throw before the browser launches. `ScreenWidth` and `ScreenHeight` change the reported screen attributes only; they do not set or emulate Playwright viewport dimensions.
+
+| Property | Accepted value | Default |
+| --- | --- | --- |
+| `GpuVendor` | Non-empty `string` | `null` (seed-derived) |
+| `GpuRenderer` | Non-empty `string` | `null` (seed-derived) |
+| `HardwareConcurrency` | `int` from 1 through 1024 | `null` (seed-derived) |
+| `DeviceMemory` | `int` from 1 through 1024 GiB | `null` (seed-derived) |
+| `ScreenWidth` | `int` from 320 through 16384 | `null` (seed-derived) |
+| `ScreenHeight` | `int` from 320 through 16384 | `null` (seed-derived) |
+| `Brand` | Non-empty `string` | `null` (seed-derived) |
+
 ### CloakBrowser Pro
 
 CloakBrowser ships in two tiers:

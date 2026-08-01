@@ -355,6 +355,20 @@ browser = launch(humanize=True, human_preset="careful")
 browser = launch(stealth_args=False, args=["--fingerprint=12345"])
 ```
 
+#### Explicit fingerprint overrides
+
+All six sync/async launch entry points accept these optional keyword arguments. The fingerprint seed remains the base identity: an explicit value replaces only its named attribute, while every omitted value stays seed-derived. Invalid values raise `ValueError` before the browser launches. `screen_width` and `screen_height` change the reported screen attributes only; they do not set or emulate Playwright viewport dimensions.
+
+| Keyword argument | Accepted value | Default |
+|------------------|----------------|---------|
+| `gpu_vendor` | Non-empty string | `None` (seed-derived) |
+| `gpu_renderer` | Non-empty string | `None` (seed-derived) |
+| `hardware_concurrency` | Integer from 1 through 1024 | `None` (seed-derived) |
+| `device_memory` | Integer from 1 through 1024 GiB | `None` (seed-derived) |
+| `screen_width` | Integer from 320 through 16384 | `None` (seed-derived) |
+| `screen_height` | Integer from 320 through 16384 | `None` (seed-derived) |
+| `brand` | Non-empty string | `None` (seed-derived) |
+
 Returns a standard Playwright `Browser` object. All Playwright methods work: `new_page()`, `new_context()`, `close()`, etc.
 
 ### `launch_async()`
