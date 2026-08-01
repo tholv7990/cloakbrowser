@@ -1,5 +1,6 @@
 using CloakBrowser;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Xunit;
 
 namespace CloakBrowser.Tests;
@@ -8,8 +9,13 @@ public class BuildArgsTests
 {
     private sealed class FingerprintOverrideFixture
     {
+        [JsonPropertyName("raw_args")]
         public List<string> RawArgs { get; set; } = [];
+
+        [JsonPropertyName("override_input")]
         public Dictionary<string, JsonElement> OverrideInput { get; set; } = [];
+
+        [JsonPropertyName("expected_override_flags")]
         public List<string> ExpectedOverrideFlags { get; set; } = [];
     }
 
@@ -24,7 +30,9 @@ public class BuildArgsTests
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null && !File.Exists(Path.Combine(directory.FullName, ".git")))
+        while (directory != null
+            && !File.Exists(Path.Combine(directory.FullName, ".git"))
+            && !Directory.Exists(Path.Combine(directory.FullName, ".git")))
             directory = directory.Parent;
         return directory?.FullName ?? throw new DirectoryNotFoundException("Repository root not found");
     }
