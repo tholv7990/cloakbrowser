@@ -66,7 +66,7 @@ class TestFingerprintOverrides:
             device_memory=16,
             screen_width=1920,
             screen_height=1080,
-            brand="  Chrome  ",
+            brand="  TestBrand  ",
         )
         expected_overrides = [
             "--fingerprint-gpu-vendor=NVIDIA Corporation",
@@ -75,7 +75,7 @@ class TestFingerprintOverrides:
             "--fingerprint-device-memory=16",
             "--fingerprint-screen-width=1920",
             "--fingerprint-screen-height=1080",
-            "--fingerprint-brand=Chrome",
+            "--fingerprint-brand=TestBrand",
         ]
 
         assert [arg for arg in args if arg.startswith("--fingerprint-") and arg != "--fingerprint-platform=windows"][-7:] == expected_overrides
