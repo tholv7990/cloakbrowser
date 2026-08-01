@@ -143,6 +143,48 @@ export function NewProfileModal({
     setDone(0);
     let ok = 0;
     try {
+      const plans = Array.from({ length: count }, (_, i) => {
+        const profileName = nameFor(i);
+        const values = defaultWizardValues({
+          ...templateConfig,
+          name: profileName,
+          folder_id: folderId,
+          proxy_id: '',
+          browser_version_mode: browserVersion ? 'pinned' : 'installed',
+          browser_version: browserVersion,
+        });
+        return {
+          profileName,
+          proxySpec: proxySpecForIndex(i),
+          payload: wizardValuesToPayload(values),
+          validationDraft: wizardValuesToValidationDraft(values),
+        };
+      });
+
+      // Preflight every independently seeded item before crossing the side-effect
+      // boundary. A later invalid/unavailable draft must leave the whole batch
+      // safe to retry without duplicate profiles or unattached proxies.
+      for (const plan of plans) {
+        try {
+          const validation = await api.validateProfileDraft(plan.validationDraft);
+          if (validation.findings.some((finding) => finding.severity === 'error')) {
+            toast({
+              title: t('new.validationBlocked'),
+              description: t('new.validationErrors'),
+              tone: 'danger',
+            });
+            return;
+          }
+        } catch {
+          toast({
+            title: t('new.validationBlocked'),
+            description: t('editor.coherence.unavailable'),
+            tone: 'danger',
+          });
+          return;
+        }
+      }
+
       // Provider mode: generate `count` proxies from the provider up front, then
       // hand one to each profile.
       let providerIds: string[] = [];
@@ -165,19 +207,19 @@ export function NewProfileModal({
           return;
         }
       }
-      for (let i = 0; i < count; i++) {
-        const profileName = nameFor(i);
+      for (let i = 0; i < plans.length; i++) {
+        const plan = plans[i];
         let proxyId = '';
         if (proxyMode === 'provider') {
           proxyId = providerIds[i] ?? '';
         } else {
           // 'one' uses the structured form (its chosen scheme); 'list' parses the
           // i-th pasted line (scheme:// prefix honoured, else defaults to http).
-          const spec = proxySpecForIndex(i);
+          const spec = plan.proxySpec;
           if (spec) {
             try {
               const proxy = await api.createProxy({
-                label: profileName,
+                label: plan.profileName,
                 scheme: spec.scheme,
                 host: spec.host,
                 port: spec.port,
@@ -191,34 +233,8 @@ export function NewProfileModal({
             }
           }
         }
-        const values = defaultWizardValues({
-          ...templateConfig,
-          name: profileName,
-          folder_id: folderId,
-          proxy_id: proxyId,
-          browser_version_mode: browserVersion ? 'pinned' : 'installed',
-          browser_version: browserVersion,
-        });
         try {
-          const validation = await api.validateProfileDraft(wizardValuesToValidationDraft(values));
-          if (validation.findings.some((finding) => finding.severity === 'error')) {
-            toast({
-              title: t('new.validationBlocked'),
-              description: t('new.validationErrors'),
-              tone: 'danger',
-            });
-            return;
-          }
-        } catch {
-          toast({
-            title: t('new.validationBlocked'),
-            description: t('editor.coherence.unavailable'),
-            tone: 'danger',
-          });
-          return;
-        }
-        try {
-          await api.createProfile(wizardValuesToPayload(values));
+          await api.createProfile({ ...plan.payload, proxy_id: proxyId || null });
           ok += 1;
         } catch {
           // Skip a single failure; report the shortfall at the end.

@@ -200,4 +200,70 @@ describe('NewProfileModal', () => {
     expect(createProfile).not.toHaveBeenCalled();
     expect(await screen.findByText('Resolve the fingerprint errors before creating profiles.')).toBeInTheDocument();
   });
+
+  it('persists no profiles or proxies when a later batch draft has an error', async () => {
+    vi.spyOn(api, 'validateProfileDraft')
+      .mockResolvedValueOnce({ status: 'coherent', findings: [] })
+      .mockResolvedValueOnce({
+        status: 'error',
+        findings: [
+          {
+            code: 'gpu.platform_mismatch',
+            severity: 'error',
+            field: 'gpu_renderer',
+            message: 'Server text is not rendered.',
+          },
+        ],
+      });
+    const createProfile = vi.spyOn(api, 'createProfile');
+    const createProxy = vi.spyOn(api, 'createProxy');
+    const user = userEvent.setup();
+    renderWithProviders(<NewProfileModal open onClose={() => undefined} folders={[]} />);
+
+    await user.type(screen.getByPlaceholderText(/marketplace/i), 'Atomic batch');
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '2' } });
+    await user.selectOptions(proxySourceSelect(), 'one');
+    await user.type(
+      screen.getByPlaceholderText('host:port:user:pass'),
+      '1.2.3.4:9000:user:pass',
+    );
+    await user.click(screen.getByRole('button', { name: /create all/i }));
+
+    await waitFor(() => expect(api.validateProfileDraft).toHaveBeenCalledTimes(2));
+    expect(createProfile).not.toHaveBeenCalled();
+    expect(createProxy).not.toHaveBeenCalled();
+  });
+
+  it('persists no profiles or proxies when a later batch validation request fails', async () => {
+    vi.spyOn(api, 'validateProfileDraft')
+      .mockResolvedValueOnce({
+        status: 'warning',
+        findings: [
+          {
+            code: 'geo.timezone_mismatch',
+            severity: 'warning',
+            field: 'location.timezone',
+            message: 'Server text is not rendered.',
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error('offline'));
+    const createProfile = vi.spyOn(api, 'createProfile');
+    const createProxy = vi.spyOn(api, 'createProxy');
+    const user = userEvent.setup();
+    renderWithProviders(<NewProfileModal open onClose={() => undefined} folders={[]} />);
+
+    await user.type(screen.getByPlaceholderText(/marketplace/i), 'Offline batch');
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '2' } });
+    await user.selectOptions(proxySourceSelect(), 'one');
+    await user.type(
+      screen.getByPlaceholderText('host:port:user:pass'),
+      '1.2.3.4:9000:user:pass',
+    );
+    await user.click(screen.getByRole('button', { name: /create all/i }));
+
+    await waitFor(() => expect(api.validateProfileDraft).toHaveBeenCalledTimes(2));
+    expect(createProfile).not.toHaveBeenCalled();
+    expect(createProxy).not.toHaveBeenCalled();
+  });
 });
