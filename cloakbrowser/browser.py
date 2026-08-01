@@ -214,6 +214,15 @@ def _launch_with_playwright(
 ) -> Any:
     """Launch through an already-started synchronous Playwright instance."""
     _check_removed_kwargs(kwargs)
+    _validate_fingerprint_overrides(
+        gpu_vendor=gpu_vendor,
+        gpu_renderer=gpu_renderer,
+        hardware_concurrency=hardware_concurrency,
+        device_memory=device_memory,
+        screen_width=screen_width,
+        screen_height=screen_height,
+        brand=brand,
+    )
     binary_path = ensure_binary(license_key=license_key, browser_version=browser_version)
     timezone, locale, exit_ip = maybe_resolve_geoip(geoip, proxy, timezone, locale)
     proxy_kwargs, proxy_extra_args = _resolve_proxy_config(proxy, browser_version, license_key)
@@ -287,6 +296,15 @@ async def _launch_with_playwright_async(
 ) -> Any:
     """Launch through an already-started asynchronous Playwright instance."""
     _check_removed_kwargs(kwargs)
+    _validate_fingerprint_overrides(
+        gpu_vendor=gpu_vendor,
+        gpu_renderer=gpu_renderer,
+        hardware_concurrency=hardware_concurrency,
+        device_memory=device_memory,
+        screen_width=screen_width,
+        screen_height=screen_height,
+        brand=brand,
+    )
     binary_path = ensure_binary(license_key=license_key, browser_version=browser_version)
     timezone, locale, exit_ip = maybe_resolve_geoip(geoip, proxy, timezone, locale)
     proxy_kwargs, proxy_extra_args = _resolve_proxy_config(proxy, browser_version, license_key)

@@ -43,6 +43,32 @@ def test_sync_session_reuses_one_driver_and_cleans_leaked_browsers():
     assert pw.stop.call_count == 1
 
 
+def test_sync_session_invalid_override_precedes_launch_side_effects(monkeypatch):
+    import cloakbrowser.browser as browser_module
+    from cloakbrowser.session import CloakBrowserSession
+
+    ensure_binary = MagicMock(return_value="/fake/chrome")
+    resolve_geoip = MagicMock(return_value=(None, None, None))
+    resolve_proxy = MagicMock(return_value=({}, []))
+    resolve_webrtc = MagicMock(side_effect=lambda args, _proxy: args)
+    pw = MagicMock()
+    monkeypatch.setattr(browser_module, "ensure_binary", ensure_binary)
+    monkeypatch.setattr(browser_module, "maybe_resolve_geoip", resolve_geoip)
+    monkeypatch.setattr(browser_module, "_resolve_proxy_config", resolve_proxy)
+    monkeypatch.setattr(browser_module, "_resolve_webrtc_args", resolve_webrtc)
+
+    session = CloakBrowserSession()
+    session._pw = pw
+    with pytest.raises(ValueError, match="gpu_vendor"):
+        session.launch(gpu_vendor="   ")
+
+    ensure_binary.assert_not_called()
+    resolve_geoip.assert_not_called()
+    resolve_proxy.assert_not_called()
+    resolve_webrtc.assert_not_called()
+    pw.chromium.launch.assert_not_called()
+
+
 def test_sync_session_rejects_invalid_lifecycle_and_close_is_idempotent():
     from cloakbrowser.session import CloakBrowserSession
 
@@ -90,6 +116,34 @@ async def test_async_session_reuses_one_driver_and_cleans_leaked_browsers():
     assert first.close_calls == 1
     assert second.close_calls == 1
     assert pw.stop.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_async_session_invalid_override_precedes_launch_side_effects(monkeypatch):
+    import cloakbrowser.browser as browser_module
+    from cloakbrowser.session import AsyncCloakBrowserSession
+
+    ensure_binary = MagicMock(return_value="/fake/chrome")
+    resolve_geoip = MagicMock(return_value=(None, None, None))
+    resolve_proxy = MagicMock(return_value=({}, []))
+    resolve_webrtc = MagicMock(side_effect=lambda args, _proxy: args)
+    pw = MagicMock()
+    pw.chromium.launch = AsyncMock()
+    monkeypatch.setattr(browser_module, "ensure_binary", ensure_binary)
+    monkeypatch.setattr(browser_module, "maybe_resolve_geoip", resolve_geoip)
+    monkeypatch.setattr(browser_module, "_resolve_proxy_config", resolve_proxy)
+    monkeypatch.setattr(browser_module, "_resolve_webrtc_args", resolve_webrtc)
+
+    session = AsyncCloakBrowserSession()
+    session._pw = pw
+    with pytest.raises(ValueError, match="gpu_vendor"):
+        await session.launch(gpu_vendor="   ")
+
+    ensure_binary.assert_not_called()
+    resolve_geoip.assert_not_called()
+    resolve_proxy.assert_not_called()
+    resolve_webrtc.assert_not_called()
+    pw.chromium.launch.assert_not_awaited()
 
 
 @pytest.mark.asyncio
