@@ -800,6 +800,13 @@ class DiagnosticRunner:
                 browser_version=None,
                 user_agent_mode="automatic",
                 custom_user_agent=None,
+                gpu_vendor=None,
+                gpu_renderer=None,
+                hardware_concurrency=None,
+                device_memory=None,
+                screen_width=None,
+                screen_height=None,
+                browser_brand=None,
                 location={
                     "geo_mode": "system",
                     "locale": None,

@@ -638,12 +638,34 @@ def test_direct_control_uses_and_removes_a_manager_owned_no_proxy_profile(
 
     result = runner.run(request, threading.Event(), lambda _value: None)
 
+    assert result.status == "passed"
+    assert result.error_code is None
     snapshot = browser.launches[0]
     temporary_profile = Path(snapshot["profile_dir"])
     exact_run_root = settings.data_root / "diagnostics" / request.run_id
     assert snapshot["proxy_id"] is None
     assert snapshot["proxy_url"] is None
     assert snapshot["browser_version"] == get_chromium_version()
+    assert {
+        key: snapshot[key]
+        for key in (
+            "gpu_vendor",
+            "gpu_renderer",
+            "hardware_concurrency",
+            "device_memory",
+            "screen_width",
+            "screen_height",
+            "brand",
+        )
+    } == {
+        "gpu_vendor": None,
+        "gpu_renderer": None,
+        "hardware_concurrency": None,
+        "device_memory": None,
+        "screen_width": None,
+        "screen_height": None,
+        "brand": None,
+    }
     assert temporary_profile.parent.resolve() == exact_run_root.resolve()
     assert not temporary_profile.exists()
     assert browser.sessions[0].closed

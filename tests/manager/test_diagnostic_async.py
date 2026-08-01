@@ -39,8 +39,10 @@ class Browser:
     def __init__(self, session_factory=Session) -> None:
         self.session_factory = session_factory
         self.sessions: list[Session] = []
+        self.launches: list[dict] = []
 
-    def launch(self, _snapshot, **_kwargs) -> BrowserLaunch:
+    def launch(self, snapshot, **_kwargs) -> BrowserLaunch:
+        self.launches.append(dict(snapshot))
         session = self.session_factory()
         self.sessions.append(session)
         return BrowserLaunch(session=session, tier="free", version="150.0.0.0")
@@ -154,6 +156,26 @@ def test_background_worker_publishes_monotonic_bounded_safe_events(settings):
 
     assert terminal["status"] == "passed"
     assert terminal["progress"] == 100
+    assert {
+        key: browser.launches[0][key]
+        for key in (
+            "gpu_vendor",
+            "gpu_renderer",
+            "hardware_concurrency",
+            "device_memory",
+            "screen_width",
+            "screen_height",
+            "brand",
+        )
+    } == {
+        "gpu_vendor": None,
+        "gpu_renderer": None,
+        "hardware_concurrency": None,
+        "device_memory": None,
+        "screen_width": None,
+        "screen_height": None,
+        "brand": None,
+    }
     progress = [
         event["diagnostic"]["progress"]
         for event in diagnostic_events
