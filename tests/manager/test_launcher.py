@@ -311,6 +311,67 @@ def test_headless_launches_get_no_window_size():
     assert kwargs["args"] == ["--fingerprint=8200"]
 
 
+def test_fingerprint_override_kwargs_reach_the_python_launch_api_unchanged():
+    kwargs = persistent_context_kwargs(
+        {
+            "fingerprint_seed": 8200,
+            "fingerprint_preset": "consistent",
+            "gpu_vendor": "NVIDIA Corporation",
+            "gpu_renderer": "ANGLE (NVIDIA, GeForce RTX 3060, Direct3D11)",
+            "hardware_concurrency": 12,
+            "device_memory": 32,
+            "screen_width": 2560,
+            "screen_height": 1440,
+            "brand": "TestBrand",
+        },
+        headless=True,
+    )
+
+    assert {
+        "gpu_vendor": kwargs["gpu_vendor"],
+        "gpu_renderer": kwargs["gpu_renderer"],
+        "hardware_concurrency": kwargs["hardware_concurrency"],
+        "device_memory": kwargs["device_memory"],
+        "screen_width": kwargs["screen_width"],
+        "screen_height": kwargs["screen_height"],
+        "brand": kwargs["brand"],
+    } == {
+        "gpu_vendor": "NVIDIA Corporation",
+        "gpu_renderer": "ANGLE (NVIDIA, GeForce RTX 3060, Direct3D11)",
+        "hardware_concurrency": 12,
+        "device_memory": 32,
+        "screen_width": 2560,
+        "screen_height": 1440,
+        "brand": "TestBrand",
+    }
+
+
+def test_null_fingerprint_overrides_keep_seed_derived_launch_behavior():
+    kwargs = persistent_context_kwargs(
+        {"fingerprint_seed": 8200, "fingerprint_preset": "consistent"},
+        headless=True,
+    )
+
+    assert kwargs["args"] == ["--fingerprint=8200"]
+    assert {
+        "gpu_vendor": kwargs["gpu_vendor"],
+        "gpu_renderer": kwargs["gpu_renderer"],
+        "hardware_concurrency": kwargs["hardware_concurrency"],
+        "device_memory": kwargs["device_memory"],
+        "screen_width": kwargs["screen_width"],
+        "screen_height": kwargs["screen_height"],
+        "brand": kwargs["brand"],
+    } == {
+        "gpu_vendor": None,
+        "gpu_renderer": None,
+        "hardware_concurrency": None,
+        "device_memory": None,
+        "screen_width": None,
+        "screen_height": None,
+        "brand": None,
+    }
+
+
 def test_headed_runtime_sizes_window_to_spoofed_screen():
     # Maximized/default -> 1920x1080 (matches the consistent preset's screen), so
     # the window can't leak a larger real monitor.

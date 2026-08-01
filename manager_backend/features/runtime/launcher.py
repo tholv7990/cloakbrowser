@@ -86,6 +86,13 @@ def profile_launch_snapshot(
         "custom_user_agent": (
             profile.custom_user_agent if profile.user_agent_mode == "custom" else None
         ),
+        "gpu_vendor": profile.gpu_vendor,
+        "gpu_renderer": profile.gpu_renderer,
+        "hardware_concurrency": profile.hardware_concurrency,
+        "device_memory": profile.device_memory,
+        "screen_width": profile.screen_width,
+        "screen_height": profile.screen_height,
+        "brand": profile.browser_brand,
         # Only a "manual" geo profile pins locale/timezone here. "proxy" is filled
         # from the exit IP during proxy preflight; "system" (or "proxy" with no
         # proxy) leaves them unset so the browser follows the host — either way a
@@ -365,6 +372,13 @@ def persistent_context_kwargs(
         "proxy": snapshot.get("proxy_url"),
         "locale": snapshot.get("locale"),
         "timezone": snapshot.get("timezone"),
+        "gpu_vendor": snapshot.get("gpu_vendor"),
+        "gpu_renderer": snapshot.get("gpu_renderer"),
+        "hardware_concurrency": snapshot.get("hardware_concurrency"),
+        "device_memory": snapshot.get("device_memory"),
+        "screen_width": snapshot.get("screen_width"),
+        "screen_height": snapshot.get("screen_height"),
+        "brand": snapshot.get("brand"),
     }
     # Permissions + geolocation are Playwright context options (forwarded via
     # **kwargs). Previously stored but never applied (F-005).

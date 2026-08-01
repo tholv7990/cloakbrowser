@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
+from datetime import datetime, timezone
 
 import pytest
 
@@ -13,7 +15,7 @@ from manager_backend.features.runtime.launcher import (
     profile_launch_snapshot,
 )
 from manager_backend.features.runtime.manager import RuntimeManager
-from manager_backend.models import Extension, Profile, RuntimeSession
+from manager_backend.models import Extension, Profile, Proxy, RuntimeSession
 
 
 class FakeHandle:
@@ -604,6 +606,136 @@ def test_launch_snapshot_carries_profile_proxy_check_toggle(
         snapshot = profile_launch_snapshot(profile, settings)
 
     assert snapshot["test_proxy_before_launch"] is False
+
+
+def test_stored_fingerprint_overrides_flow_through_snapshot_and_launch_kwargs(
+    db_session_factory, settings
+):
+    profile_id = _profile(db_session_factory, "fingerprint-overrides")
+    with db_session_factory() as session:
+        profile = session.get(Profile, profile_id)
+        profile.gpu_vendor = "NVIDIA Corporation"
+        profile.gpu_renderer = "ANGLE (NVIDIA, GeForce RTX 3060, Direct3D11)"
+        profile.hardware_concurrency = 12
+        profile.device_memory = 32
+        profile.screen_width = 2560
+        profile.screen_height = 1440
+        profile.browser_brand = "TestBrand"
+        session.commit()
+        snapshot = profile_launch_snapshot(profile, settings)
+
+    expected = {
+        "gpu_vendor": "NVIDIA Corporation",
+        "gpu_renderer": "ANGLE (NVIDIA, GeForce RTX 3060, Direct3D11)",
+        "hardware_concurrency": 12,
+        "device_memory": 32,
+        "screen_width": 2560,
+        "screen_height": 1440,
+        "brand": "TestBrand",
+    }
+    assert {key: snapshot[key] for key in expected} == expected
+
+    kwargs = persistent_context_kwargs(snapshot, headless=True)
+    assert {key: kwargs[key] for key in expected} == expected
+
+
+def test_runtime_preflight_blocks_error_findings_before_browser_launch(
+    db_session_factory, settings, caplog
+):
+    launcher = FakeLauncher()
+    manager = RuntimeManager(db_session_factory, settings, launcher=launcher)
+    profile_id = _profile(db_session_factory, "incoherent-fingerprint")
+    secret_renderer = "ANGLE (NVIDIA, Secret GPU, Direct3D11)"
+    with db_session_factory() as session:
+        profile = session.get(Profile, profile_id)
+        profile.gpu_vendor = "Intel Inc."
+        profile.gpu_renderer = secret_renderer
+        session.commit()
+
+    with caplog.at_level(logging.INFO, logger="manager.runtime.coherence"):
+        with pytest.raises(ManagerError) as caught:
+            manager.start(profile_id)
+
+    assert caught.value.code == "fingerprint_incoherent"
+    assert launcher.snapshots == {}
+    with db_session_factory() as session:
+        assert session.query(RuntimeSession).count() == 0
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("gpu.vendor_renderer_mismatch" in message for message in messages)
+    assert all(secret_renderer not in message for message in messages)
+
+
+def test_runtime_preflight_logs_warning_codes_and_allows_browser_launch(
+    db_session_factory, settings, caplog
+):
+    launcher = FakeLauncher()
+    manager = RuntimeManager(
+        db_session_factory,
+        settings,
+        launcher=launcher,
+        proxy_preflight=lambda _snapshot: None,
+    )
+    profile_id = _profile(db_session_factory, "warning-fingerprint")
+    secret_timezone = "Secret/Timezone"
+    with db_session_factory() as session:
+        proxy = Proxy(
+            label="Verified warning proxy",
+            scheme="direct",
+            timezone="Asia/Ho_Chi_Minh",
+            last_checked_at=datetime.now(timezone.utc),
+        )
+        session.add(proxy)
+        session.flush()
+        profile = session.get(Profile, profile_id)
+        profile.proxy_id = proxy.id
+        profile.location = {"geo_mode": "manual", "timezone": secret_timezone}
+        session.commit()
+
+    with caplog.at_level(logging.INFO, logger="manager.runtime.coherence"):
+        runtime = manager.start(profile_id)
+        _wait_state(db_session_factory, runtime.id, "running")
+
+    assert profile_id in launcher.snapshots
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("geo.timezone_mismatch" in message for message in messages)
+    assert all(secret_timezone not in message for message in messages)
+    manager.shutdown()
+
+
+def test_runtime_preflight_allows_coherent_profile(db_session_factory, settings):
+    launcher = FakeLauncher()
+    manager = RuntimeManager(db_session_factory, settings, launcher=launcher)
+    profile_id = _profile(db_session_factory, "coherent-fingerprint")
+    with db_session_factory() as session:
+        profile = session.get(Profile, profile_id)
+        profile.gpu_vendor = "NVIDIA Corporation"
+        profile.gpu_renderer = "ANGLE (NVIDIA, GeForce RTX 3060, Direct3D11)"
+        session.commit()
+
+    runtime = manager.start(profile_id)
+    _wait_state(db_session_factory, runtime.id, "running")
+
+    assert profile_id in launcher.snapshots
+    manager.shutdown()
+
+
+def test_runtime_preflight_ignores_ineffective_stale_custom_user_agent(
+    db_session_factory, settings
+):
+    launcher = FakeLauncher()
+    manager = RuntimeManager(db_session_factory, settings, launcher=launcher)
+    profile_id = _profile(db_session_factory, "automatic-user-agent")
+    with db_session_factory() as session:
+        profile = session.get(Profile, profile_id)
+        profile.user_agent_mode = "automatic"
+        profile.custom_user_agent = "Secret non-Windows stale value"
+        session.commit()
+
+    runtime = manager.start(profile_id)
+    _wait_state(db_session_factory, runtime.id, "running")
+
+    assert launcher.snapshots[profile_id]["custom_user_agent"] is None
+    manager.shutdown()
 
 
 def test_launch_snapshot_sends_the_selected_chromium_build_to_the_engine(

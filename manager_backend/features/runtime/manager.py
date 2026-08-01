@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-import threading
+import json
+import logging
 import os
+import threading
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
@@ -11,6 +13,7 @@ import psutil
 from ...config import ManagerSettings
 from ...errors import ManagerError
 from ...models import Profile, RuntimeSession
+from ..profiles.fingerprint_coherence import validate_fingerprint_coherence
 from ..profiles.service import get_profile
 from .launcher import (
     CloakPersistentLauncher,
@@ -22,6 +25,62 @@ from .logs import append_profile_log
 from .service import create_runtime_session
 from .timing import StartTimer
 from .worker import ProfileWorker
+
+
+_COHERENCE_LOGGER = logging.getLogger("manager.runtime.coherence")
+
+
+def _coherence_profile(profile: Profile) -> dict[str, Any]:
+    values = {
+        "browser_version_mode": profile.browser_version_mode,
+        "browser_version": profile.browser_version,
+        "custom_user_agent": (
+            profile.custom_user_agent
+            if profile.user_agent_mode == "custom"
+            else None
+        ),
+        "gpu_vendor": profile.gpu_vendor,
+        "gpu_renderer": profile.gpu_renderer,
+        "location": dict(profile.location or {}),
+    }
+    proxy = profile.proxy
+    if (
+        proxy is not None
+        and proxy.deleted_at is None
+        and proxy.last_checked_at is not None
+    ):
+        values.update(
+            proxy_verified=True,
+            proxy_country=proxy.country,
+            proxy_timezone=proxy.timezone,
+        )
+    return values
+
+
+def _preflight_fingerprint_coherence(profile: Profile) -> None:
+    result = validate_fingerprint_coherence(_coherence_profile(profile))
+    findings = result["findings"]
+    if findings:
+        _COHERENCE_LOGGER.log(
+            logging.ERROR
+            if any(finding["severity"] == "error" for finding in findings)
+            else logging.WARNING,
+            json.dumps(
+                {
+                    "event": "runtime.fingerprint_coherence",
+                    "profile_id": profile.id,
+                    "status": result["status"],
+                    "finding_codes": [finding["code"] for finding in findings],
+                },
+                sort_keys=True,
+            ),
+        )
+    if any(finding["severity"] == "error" for finding in findings):
+        raise ManagerError(
+            "fingerprint_incoherent",
+            "Fingerprint settings are incoherent.",
+            409,
+        )
 
 
 class RuntimeManager:
@@ -87,6 +146,7 @@ class RuntimeManager:
                     with timer.stage("profile_load"):
                         profile = get_profile(session, profile_id)
                         snapshot = self._snapshot(session, profile)
+                        _preflight_fingerprint_coherence(profile)
                     with timer.stage("session_create"):
                         runtime = create_runtime_session(session, profile)
                         runtime.manager_instance_id = self._instance_id
