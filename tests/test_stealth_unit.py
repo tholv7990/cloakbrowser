@@ -23,6 +23,109 @@ from unittest.mock import MagicMock, AsyncMock, patch as mock_patch, call
 
 
 # =========================================================================
+# Fingerprint override API
+# =========================================================================
+
+class TestFingerprintOverrides:
+    """Dedicated native fingerprint flags remain ordered after the seed."""
+
+    def test_fingerprint_override_omitted_values_preserve_baseline(self, monkeypatch):
+        import cloakbrowser.browser as browser
+
+        monkeypatch.setattr(
+            browser,
+            "get_default_stealth_args",
+            lambda: ["--fingerprint=424242", "--fingerprint-platform=windows"],
+        )
+
+        baseline = browser.build_args(True, [], headless=True)
+
+        assert browser.build_args(
+            True,
+            [],
+            headless=True,
+            gpu_vendor=None,
+            gpu_renderer=None,
+            hardware_concurrency=None,
+            device_memory=None,
+            screen_width=None,
+            screen_height=None,
+            brand=None,
+        ) == baseline
+
+    def test_fingerprint_override_values_replace_raw_duplicates_after_seed(self):
+        from cloakbrowser.browser import build_args
+
+        args = build_args(
+            True,
+            ["--fingerprint=424242", "--fingerprint-gpu-vendor=old"],
+            headless=True,
+            gpu_vendor="  NVIDIA Corporation  ",
+            gpu_renderer="  NVIDIA GeForce RTX 4060  ",
+            hardware_concurrency=8,
+            device_memory=16,
+            screen_width=1920,
+            screen_height=1080,
+            brand="  Chrome  ",
+        )
+        expected_overrides = [
+            "--fingerprint-gpu-vendor=NVIDIA Corporation",
+            "--fingerprint-gpu-renderer=NVIDIA GeForce RTX 4060",
+            "--fingerprint-hardware-concurrency=8",
+            "--fingerprint-device-memory=16",
+            "--fingerprint-screen-width=1920",
+            "--fingerprint-screen-height=1080",
+            "--fingerprint-brand=Chrome",
+        ]
+
+        assert [arg for arg in args if arg.startswith("--fingerprint-") and arg != "--fingerprint-platform=windows"][-7:] == expected_overrides
+        seed_index = args.index("--fingerprint=424242")
+        assert all(args.index(flag) > seed_index for flag in expected_overrides)
+        assert args.count("--fingerprint-gpu-vendor=NVIDIA Corporation") == 1
+        assert "--fingerprint-gpu-vendor=old" not in args
+
+    @pytest.mark.parametrize(
+        ("name", "value"),
+        [
+            ("gpu_vendor", ""),
+            ("gpu_renderer", "   "),
+            ("brand", " "),
+            ("hardware_concurrency", True),
+            ("device_memory", True),
+            ("device_memory", 0),
+            ("hardware_concurrency", -1),
+            ("device_memory", -1),
+            ("hardware_concurrency", 1025),
+            ("device_memory", 1025),
+            ("screen_width", 319),
+            ("screen_height", 319),
+            ("screen_width", 16385),
+            ("screen_height", 16385),
+        ],
+    )
+    def test_fingerprint_override_rejects_invalid_values(self, name, value):
+        from cloakbrowser.browser import build_args
+
+        with pytest.raises(ValueError):
+            build_args(True, [], headless=True, **{name: value})
+
+    def test_fingerprint_override_screen_values_do_not_change_viewport_flags(self):
+        from cloakbrowser.browser import build_args
+
+        args = build_args(
+            False,
+            [],
+            headless=True,
+            screen_width=1920,
+            screen_height=1080,
+        )
+
+        assert "--fingerprint-screen-width=1920" in args
+        assert "--fingerprint-screen-height=1080" in args
+        assert not any(arg.startswith("--window-size") or "viewport" in arg for arg in args)
+
+
+# =========================================================================
 # Helper: quick config
 # =========================================================================
 

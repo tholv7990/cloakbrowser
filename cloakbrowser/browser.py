@@ -202,6 +202,14 @@ def _launch_with_playwright(
     license_key: str | None = None,
     browser_version: str | None = None,
     _suppress_maximize: bool = False,
+    *,
+    gpu_vendor: str | None = None,
+    gpu_renderer: str | None = None,
+    hardware_concurrency: int | None = None,
+    device_memory: int | None = None,
+    screen_width: int | None = None,
+    screen_height: int | None = None,
+    brand: str | None = None,
     **kwargs: Any,
 ) -> Any:
     """Launch through an already-started synchronous Playwright instance."""
@@ -212,7 +220,16 @@ def _launch_with_playwright(
     args = _apply_fingerprint_preset(args, fingerprint_preset, persistent=False)
     args = _resolve_webrtc_args(args, proxy)
     args = _append_webrtc_exit_ip(args, exit_ip)
-    chrome_args = build_args(stealth_args, (args or []) + proxy_extra_args, timezone=timezone, locale=locale, headless=headless, extension_paths=extension_paths, start_maximized=binary_supports_maximized_window(license_key, browser_version) and not _suppress_maximize)
+    chrome_args = build_args(
+        stealth_args, (args or []) + proxy_extra_args,
+        timezone=timezone, locale=locale, headless=headless,
+        extension_paths=extension_paths,
+        start_maximized=binary_supports_maximized_window(license_key, browser_version)
+        and not _suppress_maximize,
+        gpu_vendor=gpu_vendor, gpu_renderer=gpu_renderer,
+        hardware_concurrency=hardware_concurrency, device_memory=device_memory,
+        screen_width=screen_width, screen_height=screen_height, brand=brand,
+    )
     _maybe_warn_windows_fonts(chrome_args)
     logger.debug("Launching stealth Chromium (headless=%s, args=%d)", headless, len(chrome_args))
     launch_env = build_launch_env(license_key, user_env=kwargs.pop("env", None))
@@ -258,6 +275,14 @@ async def _launch_with_playwright_async(
     license_key: str | None = None,
     browser_version: str | None = None,
     _suppress_maximize: bool = False,
+    *,
+    gpu_vendor: str | None = None,
+    gpu_renderer: str | None = None,
+    hardware_concurrency: int | None = None,
+    device_memory: int | None = None,
+    screen_width: int | None = None,
+    screen_height: int | None = None,
+    brand: str | None = None,
     **kwargs: Any,
 ) -> Any:
     """Launch through an already-started asynchronous Playwright instance."""
@@ -268,7 +293,16 @@ async def _launch_with_playwright_async(
     args = _apply_fingerprint_preset(args, fingerprint_preset, persistent=False)
     args = _resolve_webrtc_args(args, proxy)
     args = _append_webrtc_exit_ip(args, exit_ip)
-    chrome_args = build_args(stealth_args, (args or []) + proxy_extra_args, timezone=timezone, locale=locale, headless=headless, extension_paths=extension_paths, start_maximized=binary_supports_maximized_window(license_key, browser_version) and not _suppress_maximize)
+    chrome_args = build_args(
+        stealth_args, (args or []) + proxy_extra_args,
+        timezone=timezone, locale=locale, headless=headless,
+        extension_paths=extension_paths,
+        start_maximized=binary_supports_maximized_window(license_key, browser_version)
+        and not _suppress_maximize,
+        gpu_vendor=gpu_vendor, gpu_renderer=gpu_renderer,
+        hardware_concurrency=hardware_concurrency, device_memory=device_memory,
+        screen_width=screen_width, screen_height=screen_height, brand=brand,
+    )
     _maybe_warn_windows_fonts(chrome_args)
     logger.debug("Launching stealth Chromium async (headless=%s, args=%d)", headless, len(chrome_args))
     launch_env = build_launch_env(license_key, user_env=kwargs.pop("env", None))
@@ -313,6 +347,14 @@ def launch(
     license_key: str | None = None,
     browser_version: str | None = None,
     _suppress_maximize: bool = False,
+    *,
+    gpu_vendor: str | None = None,
+    gpu_renderer: str | None = None,
+    hardware_concurrency: int | None = None,
+    device_memory: int | None = None,
+    screen_width: int | None = None,
+    screen_height: int | None = None,
+    brand: str | None = None,
     **kwargs: Any,
 ) -> Any:
     """Launch stealth Chromium browser. Returns a Playwright Browser object.
@@ -359,6 +401,9 @@ def launch(
             human_preset=human_preset, human_config=human_config,
             extension_paths=extension_paths, license_key=license_key,
             browser_version=browser_version, _suppress_maximize=_suppress_maximize,
+            gpu_vendor=gpu_vendor, gpu_renderer=gpu_renderer,
+            hardware_concurrency=hardware_concurrency, device_memory=device_memory,
+            screen_width=screen_width, screen_height=screen_height, brand=brand,
             **kwargs,
         )
     except Exception:
@@ -398,6 +443,14 @@ async def launch_async(  # noqa: C901
     license_key: str | None = None,
     browser_version: str | None = None,
     _suppress_maximize: bool = False,
+    *,
+    gpu_vendor: str | None = None,
+    gpu_renderer: str | None = None,
+    hardware_concurrency: int | None = None,
+    device_memory: int | None = None,
+    screen_width: int | None = None,
+    screen_height: int | None = None,
+    brand: str | None = None,
     **kwargs: Any,
 ) -> Any:
     """Async version of launch(). Returns a Playwright Browser object.
@@ -442,6 +495,9 @@ async def launch_async(  # noqa: C901
             human_preset=human_preset, human_config=human_config,
             extension_paths=extension_paths, license_key=license_key,
             browser_version=browser_version, _suppress_maximize=_suppress_maximize,
+            gpu_vendor=gpu_vendor, gpu_renderer=gpu_renderer,
+            hardware_concurrency=hardware_concurrency, device_memory=device_memory,
+            screen_width=screen_width, screen_height=screen_height, brand=brand,
             **kwargs,
         )
     except Exception:
@@ -484,6 +540,14 @@ def launch_persistent_context(
     extension_paths: list[str] | None = None,
     license_key: str | None = None,
     browser_version: str | None = None,
+    *,
+    gpu_vendor: str | None = None,
+    gpu_renderer: str | None = None,
+    hardware_concurrency: int | None = None,
+    device_memory: int | None = None,
+    screen_width: int | None = None,
+    screen_height: int | None = None,
+    brand: str | None = None,
     **kwargs: Any,
 ) -> Any:
     """Launch stealth browser with a persistent profile and return a BrowserContext.
@@ -538,7 +602,17 @@ def launch_persistent_context(
     args = _apply_fingerprint_preset(args, fingerprint_preset, persistent=True)
     args = _resolve_webrtc_args(args, proxy)
     args = _append_webrtc_exit_ip(args, exit_ip)
-    chrome_args = build_args(stealth_args, (args or []) + proxy_extra_args, timezone=timezone, locale=locale, headless=headless, extension_paths=extension_paths, start_maximized=binary_supports_maximized_window(license_key, browser_version) and viewport is _VIEWPORT_UNSET and "viewport" not in kwargs and "no_viewport" not in kwargs)
+    chrome_args = build_args(
+        stealth_args, (args or []) + proxy_extra_args,
+        timezone=timezone, locale=locale, headless=headless,
+        extension_paths=extension_paths,
+        start_maximized=binary_supports_maximized_window(license_key, browser_version)
+        and viewport is _VIEWPORT_UNSET and "viewport" not in kwargs
+        and "no_viewport" not in kwargs,
+        gpu_vendor=gpu_vendor, gpu_renderer=gpu_renderer,
+        hardware_concurrency=hardware_concurrency, device_memory=device_memory,
+        screen_width=screen_width, screen_height=screen_height, brand=brand,
+    )
     _maybe_warn_windows_fonts(chrome_args)
 
     logger.debug(
@@ -631,6 +705,14 @@ async def launch_persistent_context_async(
     extension_paths: list[str] | None = None,
     license_key: str | None = None,
     browser_version: str | None = None,
+    *,
+    gpu_vendor: str | None = None,
+    gpu_renderer: str | None = None,
+    hardware_concurrency: int | None = None,
+    device_memory: int | None = None,
+    screen_width: int | None = None,
+    screen_height: int | None = None,
+    brand: str | None = None,
     **kwargs: Any,
 ) -> Any:
     """Async version of launch_persistent_context().
@@ -687,7 +769,17 @@ async def launch_persistent_context_async(
     args = _apply_fingerprint_preset(args, fingerprint_preset, persistent=True)
     args = _resolve_webrtc_args(args, proxy)
     args = _append_webrtc_exit_ip(args, exit_ip)
-    chrome_args = build_args(stealth_args, (args or []) + proxy_extra_args, timezone=timezone, locale=locale, headless=headless, extension_paths=extension_paths, start_maximized=binary_supports_maximized_window(license_key, browser_version) and viewport is _VIEWPORT_UNSET and "viewport" not in kwargs and "no_viewport" not in kwargs)
+    chrome_args = build_args(
+        stealth_args, (args or []) + proxy_extra_args,
+        timezone=timezone, locale=locale, headless=headless,
+        extension_paths=extension_paths,
+        start_maximized=binary_supports_maximized_window(license_key, browser_version)
+        and viewport is _VIEWPORT_UNSET and "viewport" not in kwargs
+        and "no_viewport" not in kwargs,
+        gpu_vendor=gpu_vendor, gpu_renderer=gpu_renderer,
+        hardware_concurrency=hardware_concurrency, device_memory=device_memory,
+        screen_width=screen_width, screen_height=screen_height, brand=brand,
+    )
     _maybe_warn_windows_fonts(chrome_args)
 
     logger.debug(
@@ -779,6 +871,14 @@ def launch_context(
     extension_paths: list[str] | None = None,
     license_key: str | None = None,
     browser_version: str | None = None,
+    *,
+    gpu_vendor: str | None = None,
+    gpu_renderer: str | None = None,
+    hardware_concurrency: int | None = None,
+    device_memory: int | None = None,
+    screen_width: int | None = None,
+    screen_height: int | None = None,
+    brand: str | None = None,
     **kwargs: Any,
 ) -> Any:
     """Launch stealth browser and return a BrowserContext with common options pre-set.
@@ -824,6 +924,10 @@ def launch_context(
                      fingerprint_preset=fingerprint_preset,
                      timezone=timezone, locale=locale, extension_paths=extension_paths,
                      license_key=license_key, browser_version=browser_version,
+                     gpu_vendor=gpu_vendor, gpu_renderer=gpu_renderer,
+                     hardware_concurrency=hardware_concurrency,
+                     device_memory=device_memory, screen_width=screen_width,
+                     screen_height=screen_height, brand=brand,
                      # Caller chose a viewport geometry → don't also auto-maximize
                      # the window (mirrors the persistent-context path + JS).
                      _suppress_maximize=(viewport is not _VIEWPORT_UNSET or "no_viewport" in kwargs))
@@ -886,6 +990,14 @@ async def launch_context_async(
     extension_paths: list[str] | None = None,
     license_key: str | None = None,
     browser_version: str | None = None,
+    *,
+    gpu_vendor: str | None = None,
+    gpu_renderer: str | None = None,
+    hardware_concurrency: int | None = None,
+    device_memory: int | None = None,
+    screen_width: int | None = None,
+    screen_height: int | None = None,
+    brand: str | None = None,
     **kwargs: Any,
 ) -> Any:
     """Async version of launch_context().
@@ -950,6 +1062,10 @@ async def launch_context_async(
                                  fingerprint_preset=fingerprint_preset,
                                  timezone=timezone, locale=locale, extension_paths=extension_paths,
                                  license_key=license_key, browser_version=browser_version,
+                                 gpu_vendor=gpu_vendor, gpu_renderer=gpu_renderer,
+                                 hardware_concurrency=hardware_concurrency,
+                                 device_memory=device_memory, screen_width=screen_width,
+                                 screen_height=screen_height, brand=brand,
                                  # Caller chose a viewport geometry → don't also auto-maximize
                                  # the window (mirrors the persistent-context path + JS).
                                  _suppress_maximize=(viewport is not _VIEWPORT_UNSET or "no_viewport" in kwargs))
@@ -1219,6 +1335,37 @@ def _append_webrtc_exit_ip(
     return args
 
 
+def _normalize_fingerprint_string(name: str, value: str | None) -> str | None:
+    """Return a trimmed dedicated fingerprint string or reject invalid input."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a non-empty string")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{name} must be a non-empty string")
+    return normalized
+
+
+def _normalize_fingerprint_int(
+    name: str, value: int | None, *, minimum: int, maximum: int
+) -> int | None:
+    """Return a bounded dedicated fingerprint integer or reject invalid input."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{name} must be an integer from {minimum} through {maximum}")
+    if not minimum <= value <= maximum:
+        raise ValueError(f"{name} must be an integer from {minimum} through {maximum}")
+    return value
+
+
+def _append_fingerprint_override(seen: dict[str, str], key: str, value: object) -> None:
+    """Move a dedicated normalized fingerprint flag to the end of ``seen``."""
+    seen.pop(key, None)
+    seen[key] = f"{key}={value}"
+
+
 def build_args(
     stealth_args: bool,
     extra_args: list[str] | None,
@@ -1227,11 +1374,20 @@ def build_args(
     headless: bool = True,
     extension_paths: list[str] | None = None,
     start_maximized: bool = False,
+    *,
+    gpu_vendor: str | None = None,
+    gpu_renderer: str | None = None,
+    hardware_concurrency: int | None = None,
+    device_memory: int | None = None,
+    screen_width: int | None = None,
+    screen_height: int | None = None,
+    brand: str | None = None,
 ) -> list[str]:
     """Combine stealth args with user-provided args and locale flags.
 
     Deduplicates by flag key (everything before '=').
-    Priority: stealth defaults < user args < dedicated params (timezone/locale).
+    Priority: stealth defaults < user args < timezone/locale < dedicated fingerprint
+    overrides < extensions/window-management flags.
     """
     seen: dict[str, str] = {}
 
@@ -1269,6 +1425,33 @@ def build_args(
             if key in seen:
                 logger.debug("Arg override: %s -> %s", seen[key], flag)
             seen[key] = flag
+
+    fingerprint_overrides = (
+        ("--fingerprint-gpu-vendor", _normalize_fingerprint_string("gpu_vendor", gpu_vendor)),
+        ("--fingerprint-gpu-renderer", _normalize_fingerprint_string("gpu_renderer", gpu_renderer)),
+        (
+            "--fingerprint-hardware-concurrency",
+            _normalize_fingerprint_int(
+                "hardware_concurrency", hardware_concurrency, minimum=1, maximum=1024
+            ),
+        ),
+        (
+            "--fingerprint-device-memory",
+            _normalize_fingerprint_int("device_memory", device_memory, minimum=1, maximum=1024),
+        ),
+        (
+            "--fingerprint-screen-width",
+            _normalize_fingerprint_int("screen_width", screen_width, minimum=320, maximum=16384),
+        ),
+        (
+            "--fingerprint-screen-height",
+            _normalize_fingerprint_int("screen_height", screen_height, minimum=320, maximum=16384),
+        ),
+        ("--fingerprint-brand", _normalize_fingerprint_string("brand", brand)),
+    )
+    for key, value in fingerprint_overrides:
+        if value is not None:
+            _append_fingerprint_override(seen, key, value)
 
     if extension_paths:
         abs_paths = [os.path.abspath(p) for p in extension_paths]
