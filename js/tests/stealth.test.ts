@@ -17,6 +17,70 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resolveConfig, rand, randRange, sleep } from "../src/human/config.js";
 import { humanType } from "../src/human/keyboard.js";
 import { humanMove, humanClick, clickTarget, humanIdle } from "../src/human/mouse.js";
+import { buildArgs } from "../src/args.js";
+
+// =========================================================================
+// Explicit fingerprint overrides (shared Playwright/Puppeteer builder)
+// =========================================================================
+describe("fingerprint overrides", () => {
+  it("replaces raw duplicate flags after the seed with normalized dedicated values", () => {
+    const args = buildArgs({
+      args: ["--fingerprint=424242", "--fingerprint-gpu-vendor=old"],
+      headless: true,
+      gpuVendor: "  NVIDIA Corporation  ",
+      gpuRenderer: "  NVIDIA GeForce RTX 4060  ",
+      hardwareConcurrency: 8,
+      deviceMemory: 16,
+      screenWidth: 1920,
+      screenHeight: 1080,
+      brand: "  Chrome  ",
+    });
+    const expectedOverrides = [
+      "--fingerprint-gpu-vendor=NVIDIA Corporation",
+      "--fingerprint-gpu-renderer=NVIDIA GeForce RTX 4060",
+      "--fingerprint-hardware-concurrency=8",
+      "--fingerprint-device-memory=16",
+      "--fingerprint-screen-width=1920",
+      "--fingerprint-screen-height=1080",
+      "--fingerprint-brand=Chrome",
+    ];
+
+    expect(args.filter(arg => arg.startsWith("--fingerprint-") && arg !== "--fingerprint-platform=windows").slice(-7))
+      .toEqual(expectedOverrides);
+    expect(args.indexOf("--fingerprint=424242")).toBeLessThan(args.indexOf(expectedOverrides[0]));
+    expect(args.filter(arg => arg === "--fingerprint-gpu-vendor=NVIDIA Corporation")).toHaveLength(1);
+    expect(args).not.toContain("--fingerprint-gpu-vendor=old");
+  });
+
+  it.each([
+    ["gpuVendor", ""],
+    ["gpuRenderer", "   "],
+    ["brand", " "],
+    ["hardwareConcurrency", true],
+    ["deviceMemory", false],
+    ["hardwareConcurrency", 2.5],
+    ["deviceMemory", Number.NaN],
+    ["hardwareConcurrency", Number.POSITIVE_INFINITY],
+    ["deviceMemory", 0],
+    ["hardwareConcurrency", -1],
+    ["deviceMemory", 1025],
+    ["screenWidth", 319],
+    ["screenHeight", 16385],
+  ])("rejects invalid %s values", (field, value) => {
+    expect(() => buildArgs({ stealthArgs: false, [field]: value } as any)).toThrow(field);
+  });
+
+  it.each([
+    ["hardwareConcurrency", 1, "--fingerprint-hardware-concurrency=1"],
+    ["hardwareConcurrency", 1024, "--fingerprint-hardware-concurrency=1024"],
+    ["deviceMemory", 1, "--fingerprint-device-memory=1"],
+    ["deviceMemory", 1024, "--fingerprint-device-memory=1024"],
+    ["screenWidth", 320, "--fingerprint-screen-width=320"],
+    ["screenHeight", 16384, "--fingerprint-screen-height=16384"],
+  ])("accepts bounded %s values", (field, value, flag) => {
+    expect(buildArgs({ stealthArgs: false, [field]: value } as any)).toContain(flag);
+  });
+});
 
 // =========================================================================
 // Helper: build mock page / raw objects

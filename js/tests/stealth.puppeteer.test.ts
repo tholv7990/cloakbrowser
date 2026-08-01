@@ -24,6 +24,43 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resolveConfig, rand, randRange, sleep } from "../src/human/config.js";
 import { humanType } from "../src/human-puppeteer/keyboard.js";
 import { humanMove, humanClick, clickTarget, humanIdle } from "../src/human/mouse.js";
+import { buildArgs } from "../src/args.js";
+
+// =========================================================================
+// Explicit fingerprint overrides (Puppeteer shared builder path)
+// =========================================================================
+describe("Puppeteer fingerprint overrides", () => {
+  it("preserves the baseline array when all override fields are omitted", () => {
+    const baseline = buildArgs({
+      stealthArgs: false,
+      args: ["--fingerprint=424242", "--fingerprint-platform=windows"],
+    });
+
+    expect(buildArgs({
+      stealthArgs: false,
+      args: ["--fingerprint=424242", "--fingerprint-platform=windows"],
+      gpuVendor: undefined,
+      gpuRenderer: undefined,
+      hardwareConcurrency: undefined,
+      deviceMemory: undefined,
+      screenWidth: undefined,
+      screenHeight: undefined,
+      brand: undefined,
+    })).toEqual(baseline);
+  });
+
+  it("adds screen fields without adding viewport or window geometry flags", () => {
+    const args = buildArgs({
+      stealthArgs: false,
+      screenWidth: 1920,
+      screenHeight: 1080,
+    });
+
+    expect(args).toContain("--fingerprint-screen-width=1920");
+    expect(args).toContain("--fingerprint-screen-height=1080");
+    expect(args.some(arg => arg.startsWith("--window-size") || arg.includes("viewport"))).toBe(false);
+  });
+});
 
 // =========================================================================
 // Helper: build mock page / raw objects (Puppeteer-style)

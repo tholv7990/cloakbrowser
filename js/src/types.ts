@@ -23,6 +23,20 @@ export interface LaunchOptions {
   stealthArgs?: boolean;
   /** Fingerprint behavior preset. "consistent" disables detectable rendering noise. */
   fingerprintPreset?: "default" | "consistent";
+  /** GPU vendor exposed by the native fingerprint, e.g. "NVIDIA Corporation". */
+  gpuVendor?: string;
+  /** GPU renderer exposed by the native fingerprint. */
+  gpuRenderer?: string;
+  /** Logical CPU core count exposed by the native fingerprint (1 through 1024). */
+  hardwareConcurrency?: number;
+  /** Device memory in GiB exposed by the native fingerprint (1 through 1024). */
+  deviceMemory?: number;
+  /** Screen width exposed by the native fingerprint (320 through 16384). */
+  screenWidth?: number;
+  /** Screen height exposed by the native fingerprint (320 through 16384). */
+  screenHeight?: number;
+  /** Browser brand exposed by the native fingerprint, e.g. "Chrome". */
+  brand?: string;
   /** IANA timezone, e.g. "America/New_York". Sets --fingerprint-timezone binary flag. */
   timezone?: string;
   /** BCP 47 locale, e.g. "en-US". Sets --lang binary flag. */
