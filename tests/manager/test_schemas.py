@@ -10,6 +10,8 @@ from manager_backend.features.profiles.schemas import (
     LocationSettings,
     ProfileCreate,
     ProfilePatch,
+    ProfileRead,
+    ProfileValidationDraft,
     WindowSettings,
 )
 from manager_backend.fingerprints import build_fingerprint_identity
@@ -224,6 +226,28 @@ def test_profile_screens_must_be_supplied_as_a_pair(schema):
         schema(**values, screen_width=1920)
     with pytest.raises(ValidationError):
         schema(**values, screen_height=None)
+
+
+@pytest.mark.parametrize(
+    "schema_type", [ProfileCreate, ProfilePatch, ProfileRead, ProfileValidationDraft]
+)
+def test_fingerprint_override_json_schema_matches_runtime_validation(schema_type):
+    schema = schema_type.model_json_schema()
+
+    for field in ("gpu_vendor", "gpu_renderer", "brand"):
+        string_schema = next(
+            item
+            for item in schema["properties"][field]["anyOf"]
+            if item["type"] == "string"
+        )
+        assert string_schema["minLength"] == 1
+
+    assert schema["dependentRequired"] == {
+        "screen_width": ["screen_height"],
+        "screen_height": ["screen_width"],
+    }
+    assert "screen_height" in schema["properties"]["screen_width"]["description"]
+    assert "screen_width" in schema["properties"]["screen_height"]["description"]
 
 
 @pytest.mark.parametrize(("field", "value"), _FINGERPRINT_OVERRIDES.items())

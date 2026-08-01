@@ -27,6 +27,13 @@ class CookieProfileConfig:
     locale: str | None
     timezone: str | None
     proxy_url: str | None
+    gpu_vendor: str | None
+    gpu_renderer: str | None
+    hardware_concurrency: int | None
+    device_memory: int | None
+    screen_width: int | None
+    screen_height: int | None
+    brand: str | None
 
     @classmethod
     def from_profile(
@@ -53,6 +60,13 @@ class CookieProfileConfig:
             locale=snapshot["locale"],
             timezone=snapshot["timezone"],
             proxy_url=proxy_url,
+            gpu_vendor=snapshot["gpu_vendor"],
+            gpu_renderer=snapshot["gpu_renderer"],
+            hardware_concurrency=snapshot["hardware_concurrency"],
+            device_memory=snapshot["device_memory"],
+            screen_width=snapshot["screen_width"],
+            screen_height=snapshot["screen_height"],
+            brand=snapshot["brand"],
         )
 
     def launch_snapshot(self) -> dict[str, Any]:
@@ -66,6 +80,13 @@ class CookieProfileConfig:
             "locale": self.locale,
             "timezone": self.timezone,
             "proxy_url": self.proxy_url,
+            "gpu_vendor": self.gpu_vendor,
+            "gpu_renderer": self.gpu_renderer,
+            "hardware_concurrency": self.hardware_concurrency,
+            "device_memory": self.device_memory,
+            "screen_width": self.screen_width,
+            "screen_height": self.screen_height,
+            "brand": self.brand,
         }
 
 

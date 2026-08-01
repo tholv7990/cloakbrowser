@@ -4,6 +4,7 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 import pytest
@@ -639,8 +640,32 @@ def test_stored_fingerprint_overrides_flow_through_snapshot_and_launch_kwargs(
     assert {key: kwargs[key] for key in expected} == expected
 
 
+def _capture_logger_messages(logger_name: str) -> tuple[list[str], Callable[[], None]]:
+    captured: list[str] = []
+
+    class _Sink(logging.Handler):
+        def emit(self, record):
+            captured.append(record.getMessage())
+
+    logger = logging.getLogger(logger_name)
+    sink = _Sink()
+    previous = (logger.level, logger.disabled, logging.root.manager.disable)
+    logging.disable(logging.NOTSET)
+    logger.addHandler(sink)
+    logger.setLevel(logging.INFO)
+    logger.disabled = False
+
+    def restore() -> None:
+        logger.removeHandler(sink)
+        logger.setLevel(previous[0])
+        logger.disabled = previous[1]
+        logging.disable(previous[2])
+
+    return captured, restore
+
+
 def test_runtime_preflight_blocks_error_findings_before_browser_launch(
-    db_session_factory, settings, caplog
+    db_session_factory, settings
 ):
     launcher = FakeLauncher()
     manager = RuntimeManager(db_session_factory, settings, launcher=launcher)
@@ -652,21 +677,23 @@ def test_runtime_preflight_blocks_error_findings_before_browser_launch(
         profile.gpu_renderer = secret_renderer
         session.commit()
 
-    with caplog.at_level(logging.INFO, logger="manager.runtime.coherence"):
+    messages, restore_logging = _capture_logger_messages("manager.runtime.coherence")
+    try:
         with pytest.raises(ManagerError) as caught:
             manager.start(profile_id)
+    finally:
+        restore_logging()
 
     assert caught.value.code == "fingerprint_incoherent"
     assert launcher.snapshots == {}
     with db_session_factory() as session:
         assert session.query(RuntimeSession).count() == 0
-    messages = [record.getMessage() for record in caplog.records]
     assert any("gpu.vendor_renderer_mismatch" in message for message in messages)
     assert all(secret_renderer not in message for message in messages)
 
 
 def test_runtime_preflight_logs_warning_codes_and_allows_browser_launch(
-    db_session_factory, settings, caplog
+    db_session_factory, settings
 ):
     launcher = FakeLauncher()
     manager = RuntimeManager(
@@ -691,12 +718,14 @@ def test_runtime_preflight_logs_warning_codes_and_allows_browser_launch(
         profile.location = {"geo_mode": "manual", "timezone": secret_timezone}
         session.commit()
 
-    with caplog.at_level(logging.INFO, logger="manager.runtime.coherence"):
+    messages, restore_logging = _capture_logger_messages("manager.runtime.coherence")
+    try:
         runtime = manager.start(profile_id)
         _wait_state(db_session_factory, runtime.id, "running")
+    finally:
+        restore_logging()
 
     assert profile_id in launcher.snapshots
-    messages = [record.getMessage() for record in caplog.records]
     assert any("geo.timezone_mismatch" in message for message in messages)
     assert all(secret_timezone not in message for message in messages)
     manager.shutdown()

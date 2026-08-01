@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from ...schemas.common import Page, StrictModel
 
@@ -100,13 +100,32 @@ class BehaviorSettings(StrictModel):
 
 
 class FingerprintOverrideFields(StrictModel):
-    gpu_vendor: str | None = Field(default=None, max_length=256)
-    gpu_renderer: str | None = Field(default=None, max_length=256)
+    model_config = ConfigDict(
+        json_schema_extra={
+            "dependentRequired": {
+                "screen_width": ["screen_height"],
+                "screen_height": ["screen_width"],
+            }
+        }
+    )
+
+    gpu_vendor: str | None = Field(default=None, min_length=1, max_length=256)
+    gpu_renderer: str | None = Field(default=None, min_length=1, max_length=256)
     hardware_concurrency: int | None = Field(default=None, ge=1, le=1024)
     device_memory: int | None = Field(default=None, ge=1, le=1024)
-    screen_width: int | None = Field(default=None, ge=320, le=16384)
-    screen_height: int | None = Field(default=None, ge=320, le=16384)
-    brand: str | None = Field(default=None, max_length=64)
+    screen_width: int | None = Field(
+        default=None,
+        ge=320,
+        le=16384,
+        description="Reported screen width; must be supplied together with screen_height.",
+    )
+    screen_height: int | None = Field(
+        default=None,
+        ge=320,
+        le=16384,
+        description="Reported screen height; must be supplied together with screen_width.",
+    )
+    brand: str | None = Field(default=None, min_length=1, max_length=64)
 
     @field_validator("gpu_vendor", "gpu_renderer", "brand", mode="before")
     @classmethod
