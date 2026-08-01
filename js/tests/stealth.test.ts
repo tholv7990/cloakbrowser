@@ -33,7 +33,7 @@ describe("fingerprint overrides", () => {
       deviceMemory: 16,
       screenWidth: 1920,
       screenHeight: 1080,
-      brand: "  Chrome  ",
+      brand: "  TestBrand  ",
     });
     const expectedOverrides = [
       "--fingerprint-gpu-vendor=NVIDIA Corporation",
@@ -42,7 +42,7 @@ describe("fingerprint overrides", () => {
       "--fingerprint-device-memory=16",
       "--fingerprint-screen-width=1920",
       "--fingerprint-screen-height=1080",
-      "--fingerprint-brand=Chrome",
+      "--fingerprint-brand=TestBrand",
     ];
 
     expect(args.filter(arg => arg.startsWith("--fingerprint-") && arg !== "--fingerprint-platform=windows").slice(-7))

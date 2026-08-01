@@ -35,7 +35,7 @@ export interface LaunchOptions {
   screenWidth?: number;
   /** Screen height exposed by the native fingerprint (320 through 16384). */
   screenHeight?: number;
-  /** Browser brand exposed by the native fingerprint, e.g. "Chrome". */
+  /** Browser brand exposed by the native fingerprint, e.g. "TestBrand". */
   brand?: string;
   /** IANA timezone, e.g. "America/New_York". Sets --fingerprint-timezone binary flag. */
   timezone?: string;
