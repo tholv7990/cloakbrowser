@@ -19,12 +19,14 @@ from ..runtime.routes import runtime_to_dict
 from .schemas import (
     BulkProfileRequest,
     BulkProfileResult,
+    FingerprintCoherenceResult,
     ProfileCreate,
     ProfileDirectoryOpen,
     ProfileLogPage,
     ProfilePage,
     ProfilePatch,
     ProfileRead,
+    ProfileValidationDraft,
 )
 from .directories import open_profile_directory, resolve_profile_directory
 from .service import (
@@ -37,6 +39,7 @@ from .service import (
     regenerate_fingerprint,
     set_trash_state,
     update_profile,
+    validate_profile_draft,
 )
 
 
@@ -80,6 +83,11 @@ def profiles(
 @router.post("/profiles", response_model=ProfileRead, status_code=status.HTTP_201_CREATED)
 def create(payload: ProfileCreate, request: Request, session: SessionDependency):
     return profile_to_dict(create_profile(session, payload), settings=request.app.state.settings)
+
+
+@router.post("/profiles/validate", response_model=FingerprintCoherenceResult)
+def validate_draft(payload: ProfileValidationDraft, session: SessionDependency):
+    return validate_profile_draft(session, payload)
 
 
 @router.post(

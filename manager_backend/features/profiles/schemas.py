@@ -139,6 +139,47 @@ class FingerprintOverrideFields(StrictModel):
         return self
 
 
+class ProfileValidationDraft(FingerprintOverrideFields):
+    browser_version_mode: Literal["installed", "pinned"] = "installed"
+    browser_version: str | None = None
+    user_agent_mode: Literal["automatic", "custom"] = "automatic"
+    custom_user_agent: str | None = Field(default=None, min_length=20, max_length=512)
+    location: LocationSettings = Field(default_factory=LocationSettings)
+    proxy_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_identity_modes(self):
+        if self.browser_version_mode == "pinned":
+            if self.browser_version is None or not _VERSION_RE.fullmatch(self.browser_version):
+                raise ValueError("pinned browser mode requires a full numeric version")
+        elif self.browser_version is not None:
+            raise ValueError("browser version requires pinned mode")
+        if self.user_agent_mode == "custom" and self.custom_user_agent is None:
+            raise ValueError("custom user-agent mode requires a value")
+        if self.user_agent_mode == "automatic" and self.custom_user_agent is not None:
+            raise ValueError("custom user agent requires custom mode")
+        return self
+
+
+class FingerprintCoherenceFinding(StrictModel):
+    code: Literal[
+        "ua.platform_mismatch",
+        "ua.version_mismatch",
+        "gpu.vendor_renderer_mismatch",
+        "gpu.platform_mismatch",
+        "geo.timezone_mismatch",
+        "geo.locale_mismatch",
+    ]
+    severity: Literal["warning", "error"]
+    field: str
+    message: str
+
+
+class FingerprintCoherenceResult(StrictModel):
+    status: Literal["coherent", "warning", "error"]
+    findings: list[FingerprintCoherenceFinding]
+
+
 class ProfileCreate(FingerprintOverrideFields):
     name: str = Field(min_length=1, max_length=80)
     folder_id: str | None = None

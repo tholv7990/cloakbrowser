@@ -13,11 +13,13 @@ from ...errors import ManagerError
 from ...fingerprints import build_fingerprint_identity, generate_unique_seed
 from ...models import Folder, Profile, Proxy, Tag, WorkflowStatus, utc_now
 from .directories import resolve_profile_directory
+from .fingerprint_coherence import validate_fingerprint_coherence
 from .schemas import (
     BulkProfileRequest,
     ProfileCreate,
     ProfilePatch,
     ProfileRead,
+    ProfileValidationDraft,
     _pinned_version_older_than_bundled,
 )
 
@@ -54,6 +56,26 @@ _SORT_FIELDS = {
     "updated_at": Profile.updated_at,
     "last_opened_at": Profile.last_opened_at,
 }
+
+
+def validate_profile_draft(
+    session: Session, payload: ProfileValidationDraft
+) -> dict[str, Any]:
+    values = payload.model_dump(mode="json")
+    proxy_id = values.pop("proxy_id", None)
+    if proxy_id is not None:
+        proxy = session.get(Proxy, proxy_id)
+        if (
+            proxy is not None
+            and proxy.deleted_at is None
+            and proxy.last_checked_at is not None
+        ):
+            values.update(
+                proxy_verified=True,
+                proxy_country=proxy.country,
+                proxy_timezone=proxy.timezone,
+            )
+    return validate_fingerprint_coherence(values)
 
 
 def _seed_is_taken(session: Session, seed: str) -> bool:

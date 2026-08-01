@@ -16,6 +16,16 @@ from manager_backend.features.proxies.service import delete_proxy
 from manager_backend.models import Profile, Proxy, Tag
 
 
+WINDOWS_UA_131 = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+LINUX_UA_131 = (
+    "Mozilla/5.0 (X11; Linux x86_64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+
+
 def patch_profile(client, auth_headers, profile, **changes):
     return client.patch(
         f"/api/v1/profiles/{profile['id']}",
@@ -29,6 +39,114 @@ def create_profile(client, auth_headers, name="Account A", **overrides):
     response = client.post("/api/v1/profiles", headers=auth_headers, json=payload)
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def test_validate_profile_draft_returns_strict_coherent_response(client, auth_headers):
+    response = client.post(
+        "/api/v1/profiles/validate",
+        headers=auth_headers,
+        json={
+            "browser_version_mode": "pinned",
+            "browser_version": "131.0.6778.86",
+            "user_agent_mode": "custom",
+            "custom_user_agent": WINDOWS_UA_131,
+            "gpu_vendor": "NVIDIA Corporation",
+            "gpu_renderer": "ANGLE (NVIDIA, GeForce RTX 3060, Direct3D11)",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"status": "coherent", "findings": []}
+
+
+def test_validate_profile_draft_returns_typed_error_finding(client, auth_headers):
+    response = client.post(
+        "/api/v1/profiles/validate",
+        headers=auth_headers,
+        json={"user_agent_mode": "custom", "custom_user_agent": LINUX_UA_131},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "status": "error",
+        "findings": [
+            {
+                "code": "ua.platform_mismatch",
+                "severity": "error",
+                "field": "custom_user_agent",
+                "message": "Custom user agent must identify Windows.",
+            }
+        ],
+    }
+
+
+def test_validate_profile_draft_uses_verified_proxy_geo_without_persisting(
+    client, auth_headers
+):
+    with client.app.state.session_factory() as session:
+        proxy = Proxy(
+            label="Verified Vietnam",
+            scheme="http",
+            host="proxy.example",
+            port=8080,
+            country="VN",
+            timezone="Asia/Ho_Chi_Minh",
+            last_checked_at=datetime.now(timezone.utc),
+        )
+        session.add(proxy)
+        session.commit()
+        proxy_id = proxy.id
+        proxy_updated_at = proxy.updated_at
+        profiles_before = session.query(Profile).count()
+
+    response = client.post(
+        "/api/v1/profiles/validate",
+        headers=auth_headers,
+        json={
+            "proxy_id": proxy_id,
+            "location": {
+                "geo_mode": "manual",
+                "timezone": "Europe/London",
+                "locale": "en-GB",
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "status": "warning",
+        "findings": [
+            {
+                "code": "geo.timezone_mismatch",
+                "severity": "warning",
+                "field": "location.timezone",
+                "message": "Manual timezone differs from the verified proxy timezone.",
+            },
+            {
+                "code": "geo.locale_mismatch",
+                "severity": "warning",
+                "field": "location.locale",
+                "message": "Manual locale differs from the verified proxy country.",
+            },
+        ],
+    }
+    with client.app.state.session_factory() as session:
+        assert session.query(Profile).count() == profiles_before
+        persisted_proxy = session.get(Proxy, proxy_id)
+        persisted_updated_at = persisted_proxy.updated_at
+        if persisted_updated_at.tzinfo is None:
+            persisted_updated_at = persisted_updated_at.replace(tzinfo=timezone.utc)
+        assert persisted_updated_at == proxy_updated_at
+
+
+def test_validate_profile_draft_requires_authentication(client):
+    response = client.post(
+        "/api/v1/profiles/validate",
+        headers={"Origin": "http://127.0.0.1:5173"},
+        json={},
+    )
+
+    assert response.status_code == 401
 
 
 def test_create_generates_unique_stable_fingerprint_identity(client, auth_headers):
