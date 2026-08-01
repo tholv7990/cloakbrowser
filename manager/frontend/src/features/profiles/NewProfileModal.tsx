@@ -12,7 +12,11 @@ import { Field } from '@/components/ui/Field';
 import { Input, Textarea } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Badge } from '@/components/ui/Badge';
-import { defaultWizardValues, wizardValuesToPayload } from '@/schemas/profile';
+import {
+  defaultWizardValues,
+  wizardValuesToPayload,
+  wizardValuesToValidationDraft,
+} from '@/schemas/profile';
 import { parseProxyText } from '@/schemas/proxy';
 import { useProxyProviders } from '@/features/proxies/api';
 import { useSettings } from '@/features/settings/api';
@@ -195,6 +199,24 @@ export function NewProfileModal({
           browser_version_mode: browserVersion ? 'pinned' : 'installed',
           browser_version: browserVersion,
         });
+        try {
+          const validation = await api.validateProfileDraft(wizardValuesToValidationDraft(values));
+          if (validation.findings.some((finding) => finding.severity === 'error')) {
+            toast({
+              title: t('new.validationBlocked'),
+              description: t('new.validationErrors'),
+              tone: 'danger',
+            });
+            return;
+          }
+        } catch {
+          toast({
+            title: t('new.validationBlocked'),
+            description: t('editor.coherence.unavailable'),
+            tone: 'danger',
+          });
+          return;
+        }
         try {
           await api.createProfile(wizardValuesToPayload(values));
           ok += 1;

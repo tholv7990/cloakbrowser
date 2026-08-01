@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FormProvider, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -67,8 +67,11 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
   const [savedProfile, setSavedProfile] = useState<ProfileRead | null>(null);
   const [assignmentPending, setAssignmentPending] = useState(false);
   const [persisting, setPersisting] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [coherence, setCoherence] = useState<FingerprintCoherenceResult | null>(null);
+  const [validationUnavailable, setValidationUnavailable] = useState(false);
   const validationRevision = useRef(0);
+  const submissionInFlight = useRef(false);
 
   const [templates, setTemplates] = useState<ProfileTemplate[]>(() => listTemplates());
   const [appliedTemplateId, setAppliedTemplateId] = useState('');
@@ -114,20 +117,42 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
     mode: 'onBlur',
   });
   const watchedValues = useWatch({ control: form.control });
+  const currentDraftKey = useRef('');
+  currentDraftKey.current = JSON.stringify(
+    wizardValuesToValidationDraft(watchedValues as ProfileWizardValues),
+  );
+
+  const validateCurrentDraft = useCallback(
+    async (values: ProfileWizardValues, revision: number) => {
+      const draft = wizardValuesToValidationDraft(values);
+      const draftKey = JSON.stringify(draft);
+      try {
+        const result = await validateProfileDraft(draft);
+        if (validationRevision.current !== revision || currentDraftKey.current !== draftKey) {
+          return { state: 'stale' as const };
+        }
+        setCoherence(result);
+        setValidationUnavailable(false);
+        return { state: 'current' as const, result };
+      } catch {
+        if (validationRevision.current !== revision || currentDraftKey.current !== draftKey) {
+          return { state: 'stale' as const };
+        }
+        setCoherence(null);
+        setValidationUnavailable(true);
+        return { state: 'failed' as const };
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const revision = ++validationRevision.current;
     const timer = window.setTimeout(() => {
-      validateProfileDraft(wizardValuesToValidationDraft(watchedValues as ProfileWizardValues))
-        .then((result) => {
-          if (validationRevision.current === revision) setCoherence(result);
-        })
-        .catch(() => {
-          if (validationRevision.current === revision) setCoherence(null);
-        });
+      void validateCurrentDraft(watchedValues as ProfileWizardValues, revision);
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [watchedValues]);
+  }, [validateCurrentDraft, watchedValues]);
 
   // Load an existing profile into the form once (edit mode).
   useEffect(() => {
@@ -214,7 +239,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
     );
   }
 
-  const saving = createProfile.isPending || updateProfile.isPending || persisting;
+  const saving = createProfile.isPending || updateProfile.isPending || persisting || submitting;
 
   const persist = async (): Promise<string | null> => {
     const valid = await form.trigger();
@@ -232,13 +257,10 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
       return null;
     }
     const values = form.getValues();
-    try {
-      const latestCoherence = await validateProfileDraft(wizardValuesToValidationDraft(values));
-      setCoherence(latestCoherence);
-      if (latestCoherence.findings.some((finding) => finding.severity === 'error')) return null;
-    } catch {
-      // Saving still reaches the backend's authoritative schema/validation gates.
-    }
+    const revision = ++validationRevision.current;
+    const validation = await validateCurrentDraft(values, revision);
+    if (validation.state !== 'current') return null;
+    if (validation.result.findings.some((finding) => finding.severity === 'error')) return null;
     setPersisting(true);
     const result = await persistProfileWithExtensions({
       savedProfile,
@@ -270,20 +292,34 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
     return result.profile.id;
   };
 
-  const onSave = async () => {
-    const id = await persist();
-    if (id) navigate('/profiles');
+  const runSubmission = (submit: () => Promise<void>) => {
+    if (submissionInFlight.current) return;
+    submissionInFlight.current = true;
+    setSubmitting(true);
+    void submit().finally(() => {
+      submissionInFlight.current = false;
+      setSubmitting(false);
+    });
   };
 
-  const onSaveAndRun = async () => {
-    const id = await persist();
-    if (!id) return;
-    try {
-      await api.startProfile(id);
-    } catch {
-      // Start failures surface via events/runtime state on the list.
-    }
-    navigate('/profiles');
+  const onSave = () => {
+    runSubmission(async () => {
+      const id = await persist();
+      if (id) navigate('/profiles');
+    });
+  };
+
+  const onSaveAndRun = () => {
+    runSubmission(async () => {
+      const id = await persist();
+      if (!id) return;
+      try {
+        await api.startProfile(id);
+      } catch {
+        // Start failures surface via events/runtime state on the list.
+      }
+      navigate('/profiles');
+    });
   };
   const coherenceHasError = Boolean(
     coherence?.findings.some((finding) => finding.severity === 'error'),
@@ -398,7 +434,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
-          <CoherenceSummary result={coherence} />
+          <CoherenceSummary result={coherence} validationUnavailable={validationUnavailable} />
           {assignmentPending && (
             <div role="alert" className="mr-auto flex max-w-md items-center gap-2 text-2xs text-warning">
               <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -412,7 +448,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
             variant="secondary"
             onClick={onSave}
             loading={saving}
-            disabled={coherenceHasError}
+            disabled={coherenceHasError || submitting}
           >
             <Save className="h-4 w-4" /> {t('common.save')}
           </Button>
@@ -420,7 +456,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
             variant="primary"
             onClick={onSaveAndRun}
             loading={saving}
-            disabled={coherenceHasError}
+            disabled={coherenceHasError || submitting}
           >
             <Play className="h-4 w-4" /> {t('editor.saveRun')}
           </Button>

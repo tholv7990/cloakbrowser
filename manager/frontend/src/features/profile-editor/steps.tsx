@@ -64,8 +64,25 @@ function InlineFindings({
   );
 }
 
-export function CoherenceSummary({ result }: { result: FingerprintCoherenceResult | null }) {
+export function CoherenceSummary({
+  result,
+  validationUnavailable = false,
+}: {
+  result: FingerprintCoherenceResult | null;
+  validationUnavailable?: boolean;
+}) {
   const t = useT();
+  if (validationUnavailable) {
+    return (
+      <div
+        role="alert"
+        aria-live="polite"
+        className="mr-auto max-w-lg rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-2xs text-danger"
+      >
+        {t('editor.coherence.unavailable')}
+      </div>
+    );
+  }
   if (!result?.findings.length) return null;
   const hasError = result.findings.some((finding) => finding.severity === 'error');
   return (

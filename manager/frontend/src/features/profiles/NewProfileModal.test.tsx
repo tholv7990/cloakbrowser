@@ -22,10 +22,10 @@ beforeEach(() => {
   localStorage.clear();
 });
 
-function templateSelect(): HTMLElement {
+function templateSelect(optionName: RegExp = /legacy pinned/i): HTMLElement {
   const select = screen
     .getAllByRole('combobox')
-    .find((el) => within(el).queryByRole('option', { name: /legacy pinned/i }));
+    .find((el) => within(el).queryByRole('option', { name: optionName }));
   if (!select) throw new Error('template select not found');
   return select;
 }
@@ -160,5 +160,44 @@ describe('NewProfileModal', () => {
     const names = mockStore.profiles.map((p) => p.name);
     expect(names).toContain('Batch 01');
     expect(names).toContain('Batch 03');
+  });
+
+  it('validates an incoherent template and does not create the profile', async () => {
+    localStorage.setItem(
+      'cb.profileTemplates',
+      JSON.stringify([
+        {
+          id: 'incoherent',
+          name: 'Incoherent identity',
+          createdAt: 1,
+          config: {
+            gpu_vendor: 'Neutral Graphics',
+            gpu_renderer: 'ANGLE (Neutral Graphics, Model 800, Metal)',
+          },
+        },
+      ]),
+    );
+    vi.spyOn(api, 'validateProfileDraft').mockResolvedValue({
+      status: 'error',
+      findings: [
+        {
+          code: 'gpu.platform_mismatch',
+          severity: 'error',
+          field: 'gpu_renderer',
+          message: 'Server text is not rendered.',
+        },
+      ],
+    });
+    const createProfile = vi.spyOn(api, 'createProfile');
+    const user = userEvent.setup();
+    renderWithProviders(<NewProfileModal open onClose={() => undefined} folders={[]} />);
+
+    await user.type(screen.getByPlaceholderText(/marketplace/i), 'Guarded quick create');
+    await user.selectOptions(templateSelect(/incoherent identity/i), 'incoherent');
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
+
+    await waitFor(() => expect(api.validateProfileDraft).toHaveBeenCalled());
+    expect(createProfile).not.toHaveBeenCalled();
+    expect(await screen.findByText('Resolve the fingerprint errors before creating profiles.')).toBeInTheDocument();
   });
 });

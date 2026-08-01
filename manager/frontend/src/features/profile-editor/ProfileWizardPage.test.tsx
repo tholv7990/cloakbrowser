@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/utils';
 import * as profilesApi from '@/features/profiles/api';
 import { ProfileWizardPage } from './ProfileWizardPage';
+
+const mutationMocks = vi.hoisted(() => ({
+  create: vi.fn(),
+  update: vi.fn(),
+}));
 
 vi.mock('@/hooks/useAppData', () => ({
   useAppData: () => ({
@@ -34,14 +39,16 @@ vi.mock('@/features/proxies/api', async (importOriginal) => ({
 }));
 
 vi.mock('./api', () => ({
-  useCreateProfile: () => ({ isPending: false, mutateAsync: vi.fn() }),
-  useUpdateProfile: () => ({ isPending: false, mutateAsync: vi.fn() }),
+  useCreateProfile: () => ({ isPending: false, mutateAsync: mutationMocks.create }),
+  useUpdateProfile: () => ({ isPending: false, mutateAsync: mutationMocks.update }),
   useProfile: () => ({ data: undefined, isLoading: false, isError: false }),
   useProfileExtensions: () => ({ data: undefined, isLoading: false, isError: false }),
 }));
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  mutationMocks.create.mockReset();
+  mutationMocks.update.mockReset();
   vi.spyOn(profilesApi, 'validateProfileDraft').mockResolvedValue({
     status: 'coherent',
     findings: [],
@@ -116,5 +123,105 @@ describe('ProfileWizardPage fingerprint coherence validation', () => {
     );
     expect(screen.getByRole('button', { name: /^save$/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /save .* run/i })).toBeDisabled();
+  });
+
+  it('does not let a delayed pre-save response overwrite validation for a newer draft', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ProfileWizardPage mode="create" />);
+    await waitFor(() => expect(profilesApi.validateProfileDraft).toHaveBeenCalled());
+    await user.type(screen.getByPlaceholderText('e.g. marketplace-us-01'), 'Guarded');
+    await waitFor(() => expect(profilesApi.validateProfileDraft).toHaveBeenCalledTimes(2), {
+      timeout: 1500,
+    });
+
+    let resolveOld!: (value: Awaited<ReturnType<typeof profilesApi.validateProfileDraft>>) => void;
+    const oldResponse = new Promise<Awaited<ReturnType<typeof profilesApi.validateProfileDraft>>>(
+      (resolve) => {
+        resolveOld = resolve;
+      },
+    );
+    vi.mocked(profilesApi.validateProfileDraft).mockReset();
+    vi.mocked(profilesApi.validateProfileDraft).mockImplementation((draft) =>
+      draft.gpu_vendor
+        ? Promise.resolve({
+            status: 'warning',
+            findings: [
+              {
+                code: 'geo.timezone_mismatch',
+                severity: 'warning',
+                field: 'location.timezone',
+                message: 'Server text is not rendered.',
+              },
+            ],
+          })
+        : oldResponse,
+    );
+
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(profilesApi.validateProfileDraft).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole('button', { name: 'Advanced settings' }));
+    await user.click(screen.getByText('Explicit fingerprint attributes'));
+    await user.type(screen.getByLabelText('GPU vendor'), 'Neutral Graphics');
+
+    expect(await screen.findByRole('status', {}, { timeout: 1500 })).toHaveTextContent(
+      'Manual timezone differs from the verified proxy timezone.',
+    );
+    resolveOld({
+      status: 'error',
+      findings: [
+        {
+          code: 'gpu.platform_mismatch',
+          severity: 'error',
+          field: 'gpu_renderer',
+          message: 'Server text is not rendered.',
+        },
+      ],
+    });
+    await act(async () => oldResponse);
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Manual timezone differs from the verified proxy timezone.',
+    );
+    expect(screen.queryByText('GPU renderer is incompatible')).not.toBeInTheDocument();
+    expect(mutationMocks.create).not.toHaveBeenCalled();
+  });
+
+  it('blocks persistence and announces a localized validation request failure', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ProfileWizardPage mode="create" />);
+    await waitFor(() => expect(profilesApi.validateProfileDraft).toHaveBeenCalled());
+    await user.type(screen.getByPlaceholderText('e.g. marketplace-us-01'), 'Offline guard');
+    await waitFor(() => expect(profilesApi.validateProfileDraft).toHaveBeenCalledTimes(2), {
+      timeout: 1500,
+    });
+    vi.mocked(profilesApi.validateProfileDraft).mockRejectedValueOnce(new Error('offline'));
+
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Fingerprint validation is unavailable. Try saving again.',
+    );
+    expect(mutationMocks.create).not.toHaveBeenCalled();
+  });
+
+  it('admits only one save transaction while validation is pending', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ProfileWizardPage mode="create" />);
+    await waitFor(() => expect(profilesApi.validateProfileDraft).toHaveBeenCalled());
+    await user.type(screen.getByPlaceholderText('e.g. marketplace-us-01'), 'Single submit');
+    await waitFor(() => expect(profilesApi.validateProfileDraft).toHaveBeenCalledTimes(2), {
+      timeout: 1500,
+    });
+    vi.mocked(profilesApi.validateProfileDraft).mockReset();
+    vi.mocked(profilesApi.validateProfileDraft).mockImplementation(() => new Promise(() => {}));
+    const save = screen.getByRole('button', { name: /^save$/i });
+
+    act(() => {
+      fireEvent.click(save);
+      fireEvent.click(save);
+    });
+
+    await waitFor(() => expect(profilesApi.validateProfileDraft).toHaveBeenCalledTimes(1));
+    expect(save).toBeDisabled();
   });
 });

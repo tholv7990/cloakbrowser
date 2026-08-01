@@ -73,6 +73,8 @@ export const vi: Record<keyof typeof en, string> = {
   'new.createN': 'Tạo tất cả',
   'new.created': 'Đã tạo {count} hồ sơ',
   'new.createdPartial': 'Đã tạo {ok}/{total}',
+  'new.validationBlocked': 'Đã chặn tạo hồ sơ',
+  'new.validationErrors': 'Hãy khắc phục lỗi dấu vân tay trước khi tạo hồ sơ.',
   'common.import': 'Nhập',
   'common.export': 'Xuất',
   'common.save': 'Lưu',
@@ -429,6 +431,7 @@ export const vi: Record<keyof typeof en, string> = {
   'editor.coherence.title': 'Tính nhất quán của dấu vân tay',
   'editor.coherence.warning': 'Xem lại cảnh báo dấu vân tay này trước khi lưu.',
   'editor.coherence.error': 'Khắc phục lỗi dấu vân tay này trước khi lưu.',
+  'editor.coherence.unavailable': 'Không thể xác thực dấu vân tay. Hãy thử lưu lại.',
   'editor.finding.ua.platformMismatch': 'Tác nhân người dùng tùy chỉnh phải nhận diện Windows.',
   'editor.finding.ua.versionMismatch':
     'Phiên bản chính Chromium của tác nhân người dùng phải khớp với phiên bản trình duyệt đã ghim.',

@@ -71,6 +71,8 @@ export const en = {
   'new.createN': 'Create all',
   'new.created': 'Created {count} profile(s)',
   'new.createdPartial': 'Created {ok} of {total}',
+  'new.validationBlocked': 'Profile creation blocked',
+  'new.validationErrors': 'Resolve the fingerprint errors before creating profiles.',
   'common.import': 'Import',
   'common.export': 'Export',
   'common.save': 'Save',
@@ -420,6 +422,7 @@ export const en = {
   'editor.coherence.title': 'Fingerprint coherence',
   'editor.coherence.warning': 'Review this fingerprint warning before saving.',
   'editor.coherence.error': 'Resolve this fingerprint error before saving.',
+  'editor.coherence.unavailable': 'Fingerprint validation is unavailable. Try saving again.',
   'editor.finding.ua.platformMismatch': 'Custom user agent must identify Windows.',
   'editor.finding.ua.versionMismatch':
     'Custom user agent Chromium major must match the pinned browser major.',
