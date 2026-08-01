@@ -21,24 +21,30 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
 import { resolveConfig, rand, randRange, sleep } from "../src/human/config.js";
 import { humanType } from "../src/human-puppeteer/keyboard.js";
 import { humanMove, humanClick, clickTarget, humanIdle } from "../src/human/mouse.js";
 import { buildArgs } from "../src/args.js";
+
+const fingerprintOverrideFixture = JSON.parse(
+  readFileSync(new URL("../../tests/fixtures/fingerprint_override_parity.json", import.meta.url), "utf8"),
+);
 
 // =========================================================================
 // Explicit fingerprint overrides (Puppeteer shared builder path)
 // =========================================================================
 describe("Puppeteer fingerprint overrides", () => {
   it("preserves the baseline array when all override fields are omitted", () => {
+    const { raw_args: rawArgs } = fingerprintOverrideFixture;
     const baseline = buildArgs({
       stealthArgs: false,
-      args: ["--fingerprint=424242", "--fingerprint-platform=windows"],
+      args: rawArgs,
     });
 
     expect(buildArgs({
       stealthArgs: false,
-      args: ["--fingerprint=424242", "--fingerprint-platform=windows"],
+      args: rawArgs,
       gpuVendor: undefined,
       gpuRenderer: undefined,
       hardwareConcurrency: undefined,
@@ -50,14 +56,15 @@ describe("Puppeteer fingerprint overrides", () => {
   });
 
   it("adds screen fields without adding viewport or window geometry flags", () => {
+    const { normalized_values: normalized } = fingerprintOverrideFixture;
     const args = buildArgs({
       stealthArgs: false,
-      screenWidth: 1920,
-      screenHeight: 1080,
+      screenWidth: normalized.screen_width,
+      screenHeight: normalized.screen_height,
     });
 
-    expect(args).toContain("--fingerprint-screen-width=1920");
-    expect(args).toContain("--fingerprint-screen-height=1080");
+    expect(args).toContain(`--fingerprint-screen-width=${normalized.screen_width}`);
+    expect(args).toContain(`--fingerprint-screen-height=${normalized.screen_height}`);
     expect(args.some(arg => arg.startsWith("--window-size") || arg.includes("viewport"))).toBe(false);
   });
 });

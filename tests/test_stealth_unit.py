@@ -17,9 +17,15 @@ import json
 import math
 import sys
 import time
+from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch as mock_patch, call
+
+
+FINGERPRINT_OVERRIDE_FIXTURE = json.loads(
+    (Path(__file__).parent / "fixtures" / "fingerprint_override_parity.json").read_text()
+)
 
 
 # =========================================================================
@@ -56,27 +62,14 @@ class TestFingerprintOverrides:
     def test_fingerprint_override_values_replace_raw_duplicates_after_seed(self):
         from cloakbrowser.browser import build_args
 
+        fixture = FINGERPRINT_OVERRIDE_FIXTURE
         args = build_args(
-            True,
-            ["--fingerprint=424242", "--fingerprint-gpu-vendor=old"],
+            False,
+            fixture["raw_args"],
             headless=True,
-            gpu_vendor="  NVIDIA Corporation  ",
-            gpu_renderer="  NVIDIA GeForce RTX 4060  ",
-            hardware_concurrency=8,
-            device_memory=16,
-            screen_width=1920,
-            screen_height=1080,
-            brand="  TestBrand  ",
+            **fixture["override_input"],
         )
-        expected_overrides = [
-            "--fingerprint-gpu-vendor=NVIDIA Corporation",
-            "--fingerprint-gpu-renderer=NVIDIA GeForce RTX 4060",
-            "--fingerprint-hardware-concurrency=8",
-            "--fingerprint-device-memory=16",
-            "--fingerprint-screen-width=1920",
-            "--fingerprint-screen-height=1080",
-            "--fingerprint-brand=TestBrand",
-        ]
+        expected_overrides = fixture["expected_override_flags"]
 
         assert [arg for arg in args if arg.startswith("--fingerprint-") and arg != "--fingerprint-platform=windows"][-7:] == expected_overrides
         seed_index = args.index("--fingerprint=424242")

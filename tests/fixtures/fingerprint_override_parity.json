@@ -1,0 +1,34 @@
+{
+  "raw_args": [
+    "--fingerprint=424242",
+    "--fingerprint-platform=windows",
+    "--fingerprint-gpu-vendor=old"
+  ],
+  "override_input": {
+    "gpu_vendor": "  NVIDIA Corporation  ",
+    "gpu_renderer": "  NVIDIA GeForce RTX 4060  ",
+    "hardware_concurrency": 8,
+    "device_memory": 16,
+    "screen_width": 1920,
+    "screen_height": 1080,
+    "brand": "  TestBrand  "
+  },
+  "normalized_values": {
+    "gpu_vendor": "NVIDIA Corporation",
+    "gpu_renderer": "NVIDIA GeForce RTX 4060",
+    "hardware_concurrency": 8,
+    "device_memory": 16,
+    "screen_width": 1920,
+    "screen_height": 1080,
+    "brand": "TestBrand"
+  },
+  "expected_override_flags": [
+    "--fingerprint-gpu-vendor=NVIDIA Corporation",
+    "--fingerprint-gpu-renderer=NVIDIA GeForce RTX 4060",
+    "--fingerprint-hardware-concurrency=8",
+    "--fingerprint-device-memory=16",
+    "--fingerprint-screen-width=1920",
+    "--fingerprint-screen-height=1080",
+    "--fingerprint-brand=TestBrand"
+  ]
+}

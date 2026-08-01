@@ -14,41 +14,39 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
 import { resolveConfig, rand, randRange, sleep } from "../src/human/config.js";
 import { humanType } from "../src/human/keyboard.js";
 import { humanMove, humanClick, clickTarget, humanIdle } from "../src/human/mouse.js";
 import { buildArgs } from "../src/args.js";
+
+const fingerprintOverrideFixture = JSON.parse(
+  readFileSync(new URL("../../tests/fixtures/fingerprint_override_parity.json", import.meta.url), "utf8"),
+);
 
 // =========================================================================
 // Explicit fingerprint overrides (shared Playwright/Puppeteer builder)
 // =========================================================================
 describe("fingerprint overrides", () => {
   it("replaces raw duplicate flags after the seed with normalized dedicated values", () => {
+    const { raw_args: rawArgs, override_input: input, expected_override_flags: expectedOverrides } = fingerprintOverrideFixture;
     const args = buildArgs({
-      args: ["--fingerprint=424242", "--fingerprint-gpu-vendor=old"],
+      stealthArgs: false,
+      args: rawArgs,
       headless: true,
-      gpuVendor: "  NVIDIA Corporation  ",
-      gpuRenderer: "  NVIDIA GeForce RTX 4060  ",
-      hardwareConcurrency: 8,
-      deviceMemory: 16,
-      screenWidth: 1920,
-      screenHeight: 1080,
-      brand: "  TestBrand  ",
+      gpuVendor: input.gpu_vendor,
+      gpuRenderer: input.gpu_renderer,
+      hardwareConcurrency: input.hardware_concurrency,
+      deviceMemory: input.device_memory,
+      screenWidth: input.screen_width,
+      screenHeight: input.screen_height,
+      brand: input.brand,
     });
-    const expectedOverrides = [
-      "--fingerprint-gpu-vendor=NVIDIA Corporation",
-      "--fingerprint-gpu-renderer=NVIDIA GeForce RTX 4060",
-      "--fingerprint-hardware-concurrency=8",
-      "--fingerprint-device-memory=16",
-      "--fingerprint-screen-width=1920",
-      "--fingerprint-screen-height=1080",
-      "--fingerprint-brand=TestBrand",
-    ];
 
     expect(args.filter(arg => arg.startsWith("--fingerprint-") && arg !== "--fingerprint-platform=windows").slice(-7))
       .toEqual(expectedOverrides);
     expect(args.indexOf("--fingerprint=424242")).toBeLessThan(args.indexOf(expectedOverrides[0]));
-    expect(args.filter(arg => arg === "--fingerprint-gpu-vendor=NVIDIA Corporation")).toHaveLength(1);
+    expect(args.filter(arg => arg === expectedOverrides[0])).toHaveLength(1);
     expect(args).not.toContain("--fingerprint-gpu-vendor=old");
   });
 

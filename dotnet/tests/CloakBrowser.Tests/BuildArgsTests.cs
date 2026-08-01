@@ -1,10 +1,129 @@
 using CloakBrowser;
+using System.Text.Json;
 using Xunit;
 
 namespace CloakBrowser.Tests;
 
 public class BuildArgsTests
 {
+    private sealed class FingerprintOverrideFixture
+    {
+        public List<string> RawArgs { get; set; } = [];
+        public Dictionary<string, JsonElement> OverrideInput { get; set; } = [];
+        public List<string> ExpectedOverrideFlags { get; set; } = [];
+    }
+
+    private static FingerprintOverrideFixture ReadFingerprintOverrideFixture()
+    {
+        var root = FindRepositoryRoot();
+        var path = Path.Combine(root, "tests", "fixtures", "fingerprint_override_parity.json");
+        return JsonSerializer.Deserialize<FingerprintOverrideFixture>(File.ReadAllText(path),
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory != null && !File.Exists(Path.Combine(directory.FullName, ".git")))
+            directory = directory.Parent;
+        return directory?.FullName ?? throw new DirectoryNotFoundException("Repository root not found");
+    }
+
+    [Fact]
+    public void FingerprintOverride_ValuesReplaceRawDuplicatesAfterSeed()
+    {
+        var fixture = ReadFingerprintOverrideFixture();
+        var input = fixture.OverrideInput;
+
+        var args = CloakLauncher.BuildArgs(
+            stealthArgs: false,
+            extraArgs: fixture.RawArgs,
+            headless: true,
+            gpuVendor: input["gpu_vendor"].GetString(),
+            gpuRenderer: input["gpu_renderer"].GetString(),
+            hardwareConcurrency: input["hardware_concurrency"].GetInt32(),
+            deviceMemory: input["device_memory"].GetInt32(),
+            screenWidth: input["screen_width"].GetInt32(),
+            screenHeight: input["screen_height"].GetInt32(),
+            brand: input["brand"].GetString());
+
+        Assert.Equal(fixture.ExpectedOverrideFlags, args.TakeLast(7));
+        Assert.True(args.IndexOf("--fingerprint=424242") < args.IndexOf(fixture.ExpectedOverrideFlags[0]));
+        Assert.Single(args, arg => arg == fixture.ExpectedOverrideFlags[0]);
+        Assert.DoesNotContain("--fingerprint-gpu-vendor=old", args);
+    }
+
+    [Fact]
+    public void FingerprintOverride_OmittedValuesPreserveBaseline()
+    {
+        var fixture = ReadFingerprintOverrideFixture();
+        var baseline = CloakLauncher.BuildArgs(false, fixture.RawArgs, headless: true);
+
+        var args = CloakLauncher.BuildArgs(
+            stealthArgs: false,
+            extraArgs: fixture.RawArgs,
+            headless: true,
+            gpuVendor: null,
+            gpuRenderer: null,
+            hardwareConcurrency: null,
+            deviceMemory: null,
+            screenWidth: null,
+            screenHeight: null,
+            brand: null);
+
+        Assert.Equal(baseline, args);
+    }
+
+    [Theory]
+    [InlineData("gpuVendor", "")]
+    [InlineData("gpuRenderer", "   ")]
+    [InlineData("brand", " ")]
+    public void FingerprintOverride_RejectsEmptyStrings(string field, string value)
+    {
+        var exception = Assert.Throws<ArgumentException>(() => field switch
+        {
+            "gpuVendor" => CloakLauncher.BuildArgs(false, [], gpuVendor: value),
+            "gpuRenderer" => CloakLauncher.BuildArgs(false, [], gpuRenderer: value),
+            "brand" => CloakLauncher.BuildArgs(false, [], brand: value),
+            _ => throw new InvalidOperationException(),
+        });
+
+        Assert.Contains(field, exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("hardwareConcurrency", 0)]
+    [InlineData("deviceMemory", 1025)]
+    [InlineData("screenWidth", 319)]
+    [InlineData("screenHeight", 16385)]
+    public void FingerprintOverride_RejectsOutOfRangeIntegers(string field, int value)
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => field switch
+        {
+            "hardwareConcurrency" => CloakLauncher.BuildArgs(false, [], hardwareConcurrency: value),
+            "deviceMemory" => CloakLauncher.BuildArgs(false, [], deviceMemory: value),
+            "screenWidth" => CloakLauncher.BuildArgs(false, [], screenWidth: value),
+            "screenHeight" => CloakLauncher.BuildArgs(false, [], screenHeight: value),
+            _ => throw new InvalidOperationException(),
+        });
+
+        Assert.Contains(field, exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void FingerprintOverride_ScreenValuesDoNotAddViewportFlags()
+    {
+        var args = CloakLauncher.BuildArgs(
+            stealthArgs: false,
+            extraArgs: [],
+            screenWidth: 1920,
+            screenHeight: 1080);
+
+        Assert.Contains("--fingerprint-screen-width=1920", args);
+        Assert.Contains("--fingerprint-screen-height=1080", args);
+        Assert.DoesNotContain(args, arg => arg.StartsWith("--window-size") || arg.Contains("viewport"));
+    }
+
     [Fact]
     public void ConsistentPresetAddsNoiseFlagAndPersistentQuota()
     {

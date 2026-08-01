@@ -35,7 +35,14 @@ public static class CloakLauncher
         var chromeArgs = BuildArgs(options.StealthArgs, combined, timezone, locale, options.Headless, options.ExtensionPaths,
             fingerprintPreset: options.FingerprintPreset,
             startMaximized: Config.BinarySupportsMaximizedWindow(options.LicenseKey, options.BrowserVersion)
-                && !options.SuppressMaximize);
+                && !options.SuppressMaximize,
+            gpuVendor: options.GpuVendor,
+            gpuRenderer: options.GpuRenderer,
+            hardwareConcurrency: options.HardwareConcurrency,
+            deviceMemory: options.DeviceMemory,
+            screenWidth: options.ScreenWidth,
+            screenHeight: options.ScreenHeight,
+            brand: options.Brand);
         MaybeWarnWindowsFonts(chromeArgs);
 
         CloakLog.Debug($"Launching stealth Chromium (headless={options.Headless}, args={chromeArgs.Count})");
@@ -108,6 +115,14 @@ public static class CloakLauncher
             Proxy = options.Proxy,
             Args = args,
             StealthArgs = options.StealthArgs,
+            FingerprintPreset = options.FingerprintPreset,
+            GpuVendor = options.GpuVendor,
+            GpuRenderer = options.GpuRenderer,
+            HardwareConcurrency = options.HardwareConcurrency,
+            DeviceMemory = options.DeviceMemory,
+            ScreenWidth = options.ScreenWidth,
+            ScreenHeight = options.ScreenHeight,
+            Brand = options.Brand,
             Timezone = timezone,
             Locale = locale,
             ExtensionPaths = options.ExtensionPaths,
@@ -162,7 +177,14 @@ public static class CloakLauncher
         var chromeArgs = BuildArgs(options.StealthArgs, combined, timezone, locale, options.Headless, options.ExtensionPaths,
             fingerprintPreset: options.FingerprintPreset, persistent: true,
             startMaximized: Config.BinarySupportsMaximizedWindow(options.LicenseKey, options.BrowserVersion)
-                && !options.NoViewport && options.Viewport == null);
+                && !options.NoViewport && options.Viewport == null,
+            gpuVendor: options.GpuVendor,
+            gpuRenderer: options.GpuRenderer,
+            hardwareConcurrency: options.HardwareConcurrency,
+            deviceMemory: options.DeviceMemory,
+            screenWidth: options.ScreenWidth,
+            screenHeight: options.ScreenHeight,
+            brand: options.Brand);
         MaybeWarnWindowsFonts(chromeArgs);
 
         CloakLog.Debug($"Launching persistent stealth Chromium (headless={options.Headless}, user_data_dir={userDataDir})");
@@ -311,7 +333,8 @@ public static class CloakLauncher
     /// <summary>
     /// Combine stealth args with user-provided args and locale/timezone flags.
     /// Deduplicates by flag key (everything before <c>=</c>).
-    /// Priority: stealth defaults &lt; user args &lt; dedicated params (timezone/locale).
+    /// Priority: stealth defaults &lt; user args &lt; timezone/locale &lt; dedicated
+    /// fingerprint overrides &lt; extensions/window-management flags.
     /// </summary>
     public static List<string> BuildArgs(
         bool stealthArgs,
@@ -322,7 +345,14 @@ public static class CloakLauncher
         List<string>? extensionPaths = null,
         FingerprintPreset fingerprintPreset = FingerprintPreset.Default,
         bool persistent = false,
-        bool startMaximized = false)
+        bool startMaximized = false,
+        string? gpuVendor = null,
+        string? gpuRenderer = null,
+        int? hardwareConcurrency = null,
+        int? deviceMemory = null,
+        int? screenWidth = null,
+        int? screenHeight = null,
+        string? brand = null)
     {
         // Preserve insertion order while deduping by key.
         var seen = new Dictionary<string, string>();
@@ -334,6 +364,15 @@ public static class CloakLauncher
                 CloakLog.Debug($"Arg override: {seen[key]} -> {value}");
             else
                 order.Add(key);
+            seen[key] = value;
+        }
+
+        void SetFingerprintOverride(string key, string value)
+        {
+            if (seen.Remove(key, out var previous))
+                CloakLog.Debug($"Arg override: {previous} -> {value}");
+            order.Remove(key);
+            order.Add(key);
             seen[key] = value;
         }
 
@@ -369,6 +408,22 @@ public static class CloakLauncher
             Set("--fingerprint-locale", $"--fingerprint-locale={locale}");
         }
 
+        var fingerprintOverrides = new (string Key, string? Value)[]
+        {
+            ("--fingerprint-gpu-vendor", NormalizeFingerprintString(nameof(gpuVendor), gpuVendor)),
+            ("--fingerprint-gpu-renderer", NormalizeFingerprintString(nameof(gpuRenderer), gpuRenderer)),
+            ("--fingerprint-hardware-concurrency", NormalizeFingerprintInteger(nameof(hardwareConcurrency), hardwareConcurrency, 1, 1024)?.ToString()),
+            ("--fingerprint-device-memory", NormalizeFingerprintInteger(nameof(deviceMemory), deviceMemory, 1, 1024)?.ToString()),
+            ("--fingerprint-screen-width", NormalizeFingerprintInteger(nameof(screenWidth), screenWidth, 320, 16384)?.ToString()),
+            ("--fingerprint-screen-height", NormalizeFingerprintInteger(nameof(screenHeight), screenHeight, 320, 16384)?.ToString()),
+            ("--fingerprint-brand", NormalizeFingerprintString(nameof(brand), brand)),
+        };
+        foreach (var (key, value) in fingerprintOverrides)
+        {
+            if (value != null)
+                SetFingerprintOverride(key, $"{key}={value}");
+        }
+
         if (extensionPaths != null && extensionPaths.Count > 0)
         {
             var absPaths = extensionPaths.Select(Path.GetFullPath);
@@ -390,6 +445,30 @@ public static class CloakLauncher
         }
 
         return order.Select(k => seen[k]).ToList();
+    }
+
+    private static string? NormalizeFingerprintString(string name, string? value)
+    {
+        if (value == null)
+            return null;
+        var normalized = value.Trim();
+        if (normalized.Length == 0)
+            throw new ArgumentException($"{name} must be a non-empty string", name);
+        return normalized;
+    }
+
+    private static int? NormalizeFingerprintInteger(string name, int? value, int minimum, int maximum)
+    {
+        if (value == null)
+            return null;
+        if (value < minimum || value > maximum)
+        {
+            throw new ArgumentOutOfRangeException(
+                name,
+                value,
+                $"{name} must be an integer from {minimum} through {maximum}");
+        }
+        return value;
     }
 
     // -----------------------------------------------------------------------

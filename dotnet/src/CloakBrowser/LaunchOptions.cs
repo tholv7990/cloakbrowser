@@ -29,6 +29,27 @@ public class LaunchOptions
     /// <summary>Fingerprint behavior preset. Consistent disables detectable rendering noise.</summary>
     public FingerprintPreset FingerprintPreset { get; set; } = FingerprintPreset.Default;
 
+    /// <summary>GPU vendor exposed by the native fingerprint, e.g. <c>NVIDIA Corporation</c>.</summary>
+    public string? GpuVendor { get; set; }
+
+    /// <summary>GPU renderer exposed by the native fingerprint.</summary>
+    public string? GpuRenderer { get; set; }
+
+    /// <summary>Logical CPU core count exposed by the native fingerprint (1 through 1024).</summary>
+    public int? HardwareConcurrency { get; set; }
+
+    /// <summary>Device memory in GiB exposed by the native fingerprint (1 through 1024).</summary>
+    public int? DeviceMemory { get; set; }
+
+    /// <summary>Screen width exposed by the native fingerprint (320 through 16384).</summary>
+    public int? ScreenWidth { get; set; }
+
+    /// <summary>Screen height exposed by the native fingerprint (320 through 16384).</summary>
+    public int? ScreenHeight { get; set; }
+
+    /// <summary>Browser brand exposed by the native fingerprint, e.g. <c>TestBrand</c>.</summary>
+    public string? Brand { get; set; }
+
     /// <summary>IANA timezone, e.g. <c>America/New_York</c> - sets <c>--fingerprint-timezone</c>.</summary>
     public string? Timezone { get; set; }
 
