@@ -227,6 +227,13 @@ export interface ProfileWrite {
   browser_version: string | null;
   user_agent_mode: UserAgentMode;
   custom_user_agent: string | null;
+  gpu_vendor: string | null;
+  gpu_renderer: string | null;
+  hardware_concurrency: number | null;
+  device_memory: number | null;
+  screen_width: number | null;
+  screen_height: number | null;
+  brand: string | null;
   location: LocationSettings;
   window: WindowSettings;
   behavior: BehaviorSettings;

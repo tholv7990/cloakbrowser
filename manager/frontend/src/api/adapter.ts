@@ -84,6 +84,7 @@ import type {
   Tag,
   WorkflowStatus,
 } from '@/types/api';
+import type { FingerprintCoherenceResult, ProfileValidationDraft } from '@/features/profiles/types';
 
 export interface ApiAdapter {
   readonly mode: 'mock' | 'real';
@@ -115,6 +116,7 @@ export interface ApiAdapter {
   listProfiles(params: ProfileListParams): Promise<Paginated<ProfileRead>>;
   getProfile(id: string): Promise<ProfileRead>;
   createProfile(payload: ProfileCreatePayload): Promise<ProfileRead>;
+  validateProfileDraft(payload: ProfileValidationDraft): Promise<FingerprintCoherenceResult>;
   quickCreateProfile(payload: ProfileCreatePayload): Promise<ProfileRead>;
   updateProfile(id: string, payload: ProfileUpdatePayload): Promise<ProfileRead>;
   duplicateProfile(id: string): Promise<ProfileRead>;
@@ -224,7 +226,6 @@ export interface ApiAdapter {
   cancelShopCheckRun(id: string): Promise<ShopCheckRunDetail>;
   exportShopCheckRun(id: string): Promise<ShopCheckExportResult>;
   cleanupShopCheckRun(id: string, payload: ShopCheckCleanupPayload): Promise<ShopCheckCleanupResult>;
-
 
   // Shopify Builder — stores / analysis / plans (draft-only)
   listStores(): Promise<ShopifyStore[]>;

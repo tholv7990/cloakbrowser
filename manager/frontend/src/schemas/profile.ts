@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ProfileRead, ProfileUpdatePayload, ProfileWrite } from '@/types/api';
+import type { ProfileValidationDraft } from '@/features/profiles/types';
 
 const VERSION_RE = /^[0-9]+(?:\.[0-9]+){3,4}$/;
 const URL_SCHEME_RE = /^(https?|chrome-extension):\/\//i;
@@ -40,6 +41,13 @@ export const profileWizardSchema = z
     browser_version: z.string().trim(),
     user_agent_mode: z.enum(['automatic', 'custom']),
     custom_user_agent: z.string().trim(),
+    gpu_vendor: z.string().trim().max(256),
+    gpu_renderer: z.string().trim().max(256),
+    hardware_concurrency: z.string().trim(),
+    device_memory: z.string().trim(),
+    screen_width: z.string().trim(),
+    screen_height: z.string().trim(),
+    brand: z.string().trim().max(64),
 
     // Step 4 — Window and appearance
     window_mode: z.enum(['maximized', 'custom']),
@@ -66,6 +74,24 @@ export const profileWizardSchema = z
     if (v.user_agent_mode === 'custom' && v.custom_user_agent.trim().length < 20) {
       add('custom_user_agent', 'Enter the full custom user-agent string.');
     }
+    const validateInteger = (field: keyof typeof v, min: number, max: number) => {
+      const value = v[field];
+      if (typeof value !== 'string' || value === '') return;
+      const number = Number(value);
+      if (!Number.isInteger(number) || number < min || number > max) {
+        add(field, `Enter a whole number from ${min} to ${max}.`);
+      }
+    };
+    validateInteger('hardware_concurrency', 1, 1024);
+    validateInteger('device_memory', 1, 1024);
+    validateInteger('screen_width', 320, 16384);
+    validateInteger('screen_height', 320, 16384);
+    if (Boolean(v.screen_width) !== Boolean(v.screen_height)) {
+      add(
+        v.screen_width ? 'screen_height' : 'screen_width',
+        'Screen width and height must be supplied together.',
+      );
+    }
     if (v.window_mode === 'custom') {
       if (!v.window_width) add('window_width', 'Width is required in custom mode.');
       if (!v.window_height) add('window_height', 'Height is required in custom mode.');
@@ -91,7 +117,18 @@ export type ProfileWizardValues = z.infer<typeof profileWizardSchema>;
 export const stepFields: Record<number, (keyof ProfileWizardValues)[]> = {
   0: ['name', 'notes', 'startup_urls_text'],
   1: ['locale', 'timezone', 'latitude', 'longitude'],
-  2: ['fingerprint_seed', 'browser_version', 'custom_user_agent'],
+  2: [
+    'fingerprint_seed',
+    'browser_version',
+    'custom_user_agent',
+    'gpu_vendor',
+    'gpu_renderer',
+    'hardware_concurrency',
+    'device_memory',
+    'screen_width',
+    'screen_height',
+    'brand',
+  ],
   3: ['window_width', 'window_height'],
   4: [],
   5: [],
@@ -135,6 +172,13 @@ export function defaultWizardValues(overrides?: Partial<ProfileWizardValues>): P
     browser_version: '',
     user_agent_mode: 'automatic',
     custom_user_agent: '',
+    gpu_vendor: '',
+    gpu_renderer: '',
+    hardware_concurrency: '',
+    device_memory: '',
+    screen_width: '',
+    screen_height: '',
+    brand: '',
     window_mode: 'maximized',
     window_width: '',
     window_height: '',
@@ -176,6 +220,13 @@ export function profileToWizardValues(
     browser_version: p.browser_version ?? '',
     user_agent_mode: p.user_agent_mode,
     custom_user_agent: p.custom_user_agent ?? '',
+    gpu_vendor: p.gpu_vendor ?? '',
+    gpu_renderer: p.gpu_renderer ?? '',
+    hardware_concurrency: str(p.hardware_concurrency),
+    device_memory: str(p.device_memory),
+    screen_width: str(p.screen_width),
+    screen_height: str(p.screen_height),
+    brand: p.brand ?? '',
     window_mode: p.window.mode,
     window_width: str(p.window.width),
     window_height: str(p.window.height),
@@ -208,6 +259,13 @@ export function wizardValuesToPayload(v: ProfileWizardValues): ProfileWrite {
     browser_version: v.browser_version_mode === 'pinned' ? v.browser_version.trim() : null,
     user_agent_mode: v.user_agent_mode,
     custom_user_agent: v.user_agent_mode === 'custom' ? v.custom_user_agent.trim() : null,
+    gpu_vendor: v.gpu_vendor.trim() || null,
+    gpu_renderer: v.gpu_renderer.trim() || null,
+    hardware_concurrency: numOrNull(v.hardware_concurrency),
+    device_memory: numOrNull(v.device_memory),
+    screen_width: numOrNull(v.screen_width),
+    screen_height: numOrNull(v.screen_height),
+    brand: v.brand.trim() || null,
     location: {
       geo_mode: v.geo_mode,
       locale: v.locale.trim() || null,
@@ -250,6 +308,13 @@ const PATCHABLE_PROFILE_KEYS: (keyof Omit<ProfileWrite, 'fingerprint_seed'>)[] =
   'browser_version',
   'user_agent_mode',
   'custom_user_agent',
+  'gpu_vendor',
+  'gpu_renderer',
+  'hardware_concurrency',
+  'device_memory',
+  'screen_width',
+  'screen_height',
+  'brand',
   'location',
   'window',
   'behavior',
@@ -279,4 +344,24 @@ export function wizardValuesToPatch(
     }
   }
   return { expected_updated_at: loaded.updated_at, ...changed };
+}
+
+/** Project editor values onto the backend's read-only coherence endpoint. */
+export function wizardValuesToValidationDraft(v: ProfileWizardValues): ProfileValidationDraft {
+  const payload = wizardValuesToPayload(v);
+  return {
+    browser_version_mode: payload.browser_version_mode,
+    browser_version: payload.browser_version,
+    user_agent_mode: payload.user_agent_mode,
+    custom_user_agent: payload.custom_user_agent,
+    location: payload.location,
+    proxy_id: payload.proxy_id,
+    gpu_vendor: payload.gpu_vendor,
+    gpu_renderer: payload.gpu_renderer,
+    hardware_concurrency: payload.hardware_concurrency,
+    device_memory: payload.device_memory,
+    screen_width: payload.screen_width,
+    screen_height: payload.screen_height,
+    brand: payload.brand,
+  };
 }

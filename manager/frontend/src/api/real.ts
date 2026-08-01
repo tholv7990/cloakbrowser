@@ -66,6 +66,7 @@ import type {
   Tag,
   WorkflowStatus,
 } from '@/types/api';
+import type { FingerprintCoherenceResult, ProfileValidationDraft } from '@/features/profiles/types';
 import type { ApiAdapter } from './adapter';
 import { apiDownload, apiRequest } from './http';
 
@@ -114,6 +115,8 @@ export const realApi: ApiAdapter = {
   getProfile: (id) => apiRequest<ProfileRead>(`/profiles/${id}`),
   createProfile: (payload: ProfileCreatePayload) =>
     apiRequest<ProfileRead>('/profiles', { method: 'POST', body: payload }),
+  validateProfileDraft: (payload: ProfileValidationDraft) =>
+    apiRequest<FingerprintCoherenceResult>('/profiles/validate', { method: 'POST', body: payload }),
   quickCreateProfile: (payload: ProfileCreatePayload) =>
     apiRequest<ProfileRead>('/profiles/quick-create', { method: 'POST', body: payload }),
   updateProfile: (id, payload: ProfileUpdatePayload) =>
@@ -293,7 +296,6 @@ export const realApi: ApiAdapter = {
       method: 'POST',
       body: payload,
     }),
-
 
   listStores: () => apiRequest<ShopifyStore[]>('/shopify-builder/stores'),
   connectStore: (payload) =>

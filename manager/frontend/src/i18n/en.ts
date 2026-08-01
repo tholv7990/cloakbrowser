@@ -407,6 +407,29 @@ export const en = {
   'editor.fpSeed': 'Fingerprint seed',
   'editor.fpSeedWarn':
     'Generating a new fingerprint changes this profile stable identity. Websites may recognize it as a new device.',
+  'editor.fpExplicit': 'Explicit fingerprint attributes',
+  'editor.fpExplicitHint':
+    'Optional. Empty fields stay automatic and are derived coherently from the fingerprint seed.',
+  'editor.gpuRenderer': 'GPU renderer',
+  'editor.hardwareConcurrency': 'Hardware concurrency',
+  'editor.deviceMemory': 'Device memory (GB)',
+  'editor.screenWidth': 'Screen width',
+  'editor.screenHeight': 'Screen height',
+  'editor.brand': 'Browser brand',
+  'editor.screenPairHint': 'Set both dimensions or leave both automatic.',
+  'editor.coherence.title': 'Fingerprint coherence',
+  'editor.coherence.warning': 'Review this fingerprint warning before saving.',
+  'editor.coherence.error': 'Resolve this fingerprint error before saving.',
+  'editor.finding.ua.platformMismatch': 'Custom user agent must identify Windows.',
+  'editor.finding.ua.versionMismatch':
+    'Custom user agent Chromium major must match the pinned browser major.',
+  'editor.finding.gpu.vendorRendererMismatch':
+    'GPU vendor and renderer identify different hardware families.',
+  'editor.finding.gpu.platformMismatch':
+    'GPU renderer is incompatible with the Windows browser persona.',
+  'editor.finding.geo.timezoneMismatch':
+    'Manual timezone differs from the verified proxy timezone.',
+  'editor.finding.geo.localeMismatch': 'Manual locale differs from the verified proxy country.',
   'editor.browserVersion': 'Browser version',
   'editor.installed': 'Installed ({version})',
   'editor.pinned': 'Pinned',
@@ -473,6 +496,8 @@ export const en = {
   'editor.review.proxy': 'Proxy',
   'editor.review.window': 'Window',
   'editor.review.startupUrls': 'Startup URLs',
+  'editor.review.explicitFingerprint': 'Explicit fingerprint attributes',
+  'editor.review.screenSize': 'Screen size',
   'editor.review.pinnedVersion': 'Pinned {version}',
   'editor.review.directConnection': 'Direct connection',
   'editor.review.maximized': 'Maximized',

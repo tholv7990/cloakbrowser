@@ -78,6 +78,7 @@ import type {
   RuntimeState,
   Settings,
 } from '@/types/api';
+import type { FingerprintCoherenceResult } from '@/features/profiles/types';
 import { ApiError } from '@/api/http';
 import type { ApiAdapter } from '@/api/adapter';
 import { setCsrfToken } from '@/api/config';
@@ -362,6 +363,13 @@ function buildProfile(payload: Partial<ProfileCreatePayload>, name: string): Pro
     browser_version: payload.browser_version ?? null,
     user_agent_mode: payload.user_agent_mode ?? 'automatic',
     custom_user_agent: payload.custom_user_agent ?? null,
+    gpu_vendor: payload.gpu_vendor ?? null,
+    gpu_renderer: payload.gpu_renderer ?? null,
+    hardware_concurrency: payload.hardware_concurrency ?? null,
+    device_memory: payload.device_memory ?? null,
+    screen_width: payload.screen_width ?? null,
+    screen_height: payload.screen_height ?? null,
+    brand: payload.brand ?? null,
     location: payload.location ?? defaultLocation(proxy),
     window: payload.window ?? defaultWindow(),
     behavior: payload.behavior ?? defaultBehavior(),
@@ -808,6 +816,11 @@ export const mockApi: ApiAdapter = {
     mockStore.recomputeProxyAssignments();
     mockStore.emit('profile.created', { profile: structuredClone(profile) });
     return structuredClone(profile);
+  },
+
+  async validateProfileDraft(): Promise<FingerprintCoherenceResult> {
+    await delay(40);
+    return { status: 'coherent', findings: [] };
   },
 
   async quickCreateProfile(payload: ProfileCreatePayload): Promise<ProfileRead> {

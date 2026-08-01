@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FormProvider, useForm } from 'react-hook-form';
+import { FormProvider, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   AlertTriangle,
@@ -34,13 +34,16 @@ import {
   stepFields,
   wizardValuesToPatch,
   wizardValuesToPayload,
+  wizardValuesToValidationDraft,
   type ProfileWizardValues,
 } from '@/schemas/profile';
-import { WIZARD_STEPS, type WizardRefs } from './steps';
+import { CoherenceSummary, WIZARD_STEPS, type WizardRefs } from './steps';
 import { useCreateProfile, useProfile, useProfileExtensions, useUpdateProfile } from './api';
 import { persistProfileWithExtensions } from './persistence';
 import { useT } from '@/i18n';
 import type { ProfileRead } from '@/types/api';
+import type { FingerprintCoherenceResult } from '@/features/profiles/types';
+import { validateProfileDraft } from '@/features/profiles/api';
 
 // Fast create: show only the essentials (name + proxy). Everything else has a
 // safe default and lives behind the "Advanced settings" toggle.
@@ -64,6 +67,8 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
   const [savedProfile, setSavedProfile] = useState<ProfileRead | null>(null);
   const [assignmentPending, setAssignmentPending] = useState(false);
   const [persisting, setPersisting] = useState(false);
+  const [coherence, setCoherence] = useState<FingerprintCoherenceResult | null>(null);
+  const validationRevision = useRef(0);
 
   const [templates, setTemplates] = useState<ProfileTemplate[]>(() => listTemplates());
   const [appliedTemplateId, setAppliedTemplateId] = useState('');
@@ -108,6 +113,21 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
     defaultValues: defaultWizardValues(),
     mode: 'onBlur',
   });
+  const watchedValues = useWatch({ control: form.control });
+
+  useEffect(() => {
+    const revision = ++validationRevision.current;
+    const timer = window.setTimeout(() => {
+      validateProfileDraft(wizardValuesToValidationDraft(watchedValues as ProfileWizardValues))
+        .then((result) => {
+          if (validationRevision.current === revision) setCoherence(result);
+        })
+        .catch(() => {
+          if (validationRevision.current === revision) setCoherence(null);
+        });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [watchedValues]);
 
   // Load an existing profile into the form once (edit mode).
   useEffect(() => {
@@ -128,6 +148,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
       browserVersion: app.browserVersion,
       platform: app.platform,
       isEdit: mode === 'edit',
+      coherence,
     }),
     [
       app.folders,
@@ -138,6 +159,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
       app.platform,
       proxiesQuery.data,
       mode,
+      coherence,
     ],
   );
 
@@ -210,6 +232,13 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
       return null;
     }
     const values = form.getValues();
+    try {
+      const latestCoherence = await validateProfileDraft(wizardValuesToValidationDraft(values));
+      setCoherence(latestCoherence);
+      if (latestCoherence.findings.some((finding) => finding.severity === 'error')) return null;
+    } catch {
+      // Saving still reaches the backend's authoritative schema/validation gates.
+    }
     setPersisting(true);
     const result = await persistProfileWithExtensions({
       savedProfile,
@@ -256,6 +285,9 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
     }
     navigate('/profiles');
   };
+  const coherenceHasError = Boolean(
+    coherence?.findings.some((finding) => finding.severity === 'error'),
+  );
 
   return (
     <FormProvider {...form}>
@@ -366,6 +398,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
+          <CoherenceSummary result={coherence} />
           {assignmentPending && (
             <div role="alert" className="mr-auto flex max-w-md items-center gap-2 text-2xs text-warning">
               <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -375,10 +408,20 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
               </Button>
             </div>
           )}
-          <Button variant="secondary" onClick={onSave} loading={saving}>
+          <Button
+            variant="secondary"
+            onClick={onSave}
+            loading={saving}
+            disabled={coherenceHasError}
+          >
             <Save className="h-4 w-4" /> {t('common.save')}
           </Button>
-          <Button variant="primary" onClick={onSaveAndRun} loading={saving}>
+          <Button
+            variant="primary"
+            onClick={onSaveAndRun}
+            loading={saving}
+            disabled={coherenceHasError}
+          >
             <Play className="h-4 w-4" /> {t('editor.saveRun')}
           </Button>
         </div>

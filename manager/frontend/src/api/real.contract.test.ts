@@ -29,6 +29,43 @@ describe('real Manager adapter contract', () => {
     });
   });
 
+  it('posts a fingerprint draft to the canonical validation endpoint', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ status: 'coherent', findings: [] }));
+    const draft = {
+      browser_version_mode: 'installed' as const,
+      browser_version: null,
+      user_agent_mode: 'automatic' as const,
+      custom_user_agent: null,
+      location: {
+        geo_mode: 'proxy' as const,
+        locale: 'en-US',
+        timezone: 'America/New_York',
+        webrtc_mode: 'proxy' as const,
+        geolocation_mode: 'ask' as const,
+        latitude: null,
+        longitude: null,
+        accuracy: null,
+      },
+      proxy_id: null,
+      gpu_vendor: 'Neutral Graphics',
+      gpu_renderer: null,
+      hardware_concurrency: null,
+      device_memory: null,
+      screen_width: null,
+      screen_height: null,
+      brand: null,
+    };
+
+    await realApi.validateProfileDraft(draft);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/profiles/validate');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual(draft);
+  });
+
   it('maps paginated logs, extension operations, and diagnostics filters to canonical routes', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')

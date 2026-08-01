@@ -16,6 +16,78 @@ import { useCreateProxy, useQuickTest } from '@/features/proxies/api';
 import type { ProfileWizardValues } from '@/schemas/profile';
 import { randomSeed } from '@/schemas/profile';
 import { useT, type TranslationKey } from '@/i18n';
+import type {
+  FingerprintCoherenceCode,
+  FingerprintCoherenceFinding,
+  FingerprintCoherenceResult,
+} from '@/features/profiles/types';
+
+const FINDING_TRANSLATION_KEYS: Record<FingerprintCoherenceCode, TranslationKey> = {
+  'ua.platform_mismatch': 'editor.finding.ua.platformMismatch',
+  'ua.version_mismatch': 'editor.finding.ua.versionMismatch',
+  'gpu.vendor_renderer_mismatch': 'editor.finding.gpu.vendorRendererMismatch',
+  'gpu.platform_mismatch': 'editor.finding.gpu.platformMismatch',
+  'geo.timezone_mismatch': 'editor.finding.geo.timezoneMismatch',
+  'geo.locale_mismatch': 'editor.finding.geo.localeMismatch',
+};
+
+function findingKey(finding: FingerprintCoherenceFinding): TranslationKey {
+  return FINDING_TRANSLATION_KEYS[finding.code];
+}
+
+function findingDescriptionIds(prefix: string, findings: FingerprintCoherenceFinding[]): string | undefined {
+  return findings.length ? findings.map((_, index) => `${prefix}-${index}`).join(' ') : undefined;
+}
+
+function InlineFindings({
+  findings,
+  idPrefix,
+}: {
+  findings: FingerprintCoherenceFinding[];
+  idPrefix: string;
+}) {
+  const t = useT();
+  return (
+    <>
+      {findings.map((finding, index) => (
+        <p
+          key={finding.code}
+          id={`${idPrefix}-${index}`}
+          className={
+            finding.severity === 'error' ? 'text-2xs text-danger' : 'text-2xs text-warning'
+          }
+        >
+          {t(findingKey(finding))}
+        </p>
+      ))}
+    </>
+  );
+}
+
+export function CoherenceSummary({ result }: { result: FingerprintCoherenceResult | null }) {
+  const t = useT();
+  if (!result?.findings.length) return null;
+  const hasError = result.findings.some((finding) => finding.severity === 'error');
+  return (
+    <div
+      role={hasError ? 'alert' : 'status'}
+      aria-live="polite"
+      className={
+        hasError
+          ? 'mr-auto max-w-lg rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-2xs text-danger'
+          : 'mr-auto max-w-lg rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-2xs text-warning'
+      }
+    >
+      <p className="font-medium">{t('editor.coherence.title')}</p>
+      <p>{t(hasError ? 'editor.coherence.error' : 'editor.coherence.warning')}</p>
+      <ul className="mt-1 list-disc pl-4">
+        {result.findings.map((finding) => (
+          <li key={`${finding.code}-${finding.field}`}>{t(findingKey(finding))}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 export interface WizardRefs {
   folders: Folder[];
@@ -26,6 +98,7 @@ export interface WizardRefs {
   browserVersion: string;
   platform: string;
   isEdit: boolean;
+  coherence?: FingerprintCoherenceResult | null;
 }
 
 function Warning({ children }: { children: React.ReactNode }) {
@@ -207,6 +280,12 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
   const [checkError, setCheckError] = useState<string | null>(null);
   const createProxy = useCreateProxy();
   const quickTest = useQuickTest();
+  const localeFindings = refs.coherence?.findings.filter(
+    (finding) => finding.field === 'location.locale',
+  ) ?? [];
+  const timezoneFindings = refs.coherence?.findings.filter(
+    (finding) => finding.field === 'location.timezone',
+  ) ?? [];
 
   // Note: the check is cleared explicitly on Remove and at the start of each run
   // — not via a proxyId effect, which would race (and wipe) the auto-check that
@@ -348,11 +427,34 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
         />
       </div>
       <div className="grid grid-cols-2 gap-4">
-        <Field label={t('editor.locale')} error={formState.errors.locale?.message}>
-          <Input placeholder="en-US" {...register('locale')} />
+        <Field
+          label={t('editor.locale')}
+          htmlFor="wiz-locale"
+          error={formState.errors.locale?.message}
+        >
+          <Input
+            id="wiz-locale"
+            placeholder="en-US"
+            aria-describedby={findingDescriptionIds('finding-location-locale', localeFindings)}
+            invalid={localeFindings.some((finding) => finding.severity === 'error')}
+            {...register('locale')}
+          />
+          <InlineFindings findings={localeFindings} idPrefix="finding-location-locale" />
         </Field>
-        <Field label={t('editor.timezone')} error={formState.errors.timezone?.message}>
-          <Input mono placeholder="America/New_York" {...register('timezone')} />
+        <Field
+          label={t('editor.timezone')}
+          htmlFor="wiz-timezone"
+          error={formState.errors.timezone?.message}
+        >
+          <Input
+            id="wiz-timezone"
+            mono
+            placeholder="America/New_York"
+            aria-describedby={findingDescriptionIds('finding-location-timezone', timezoneFindings)}
+            invalid={timezoneFindings.some((finding) => finding.severity === 'error')}
+            {...register('timezone')}
+          />
+          <InlineFindings findings={timezoneFindings} idPrefix="finding-location-timezone" />
         </Field>
       </div>
       <SelectField
@@ -390,6 +492,10 @@ const IdentityStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
   const seed = useWatch<ProfileWizardValues>({ name: 'fingerprint_seed' }) as string;
   const versionMode = useWatch<ProfileWizardValues>({ name: 'browser_version_mode' }) as string;
   const uaMode = useWatch<ProfileWizardValues>({ name: 'user_agent_mode' }) as string;
+  const fieldFindings = (field: string) =>
+    refs.coherence?.findings.filter((finding) => finding.field === field) ?? [];
+  const userAgentFindings = fieldFindings('custom_user_agent');
+  const gpuRendererFindings = fieldFindings('gpu_renderer');
   const osLabel =
     ({ windows: 'Windows', macos: 'macOS', linux: 'Linux' } as Record<string, string>)[
       refs.platform
@@ -466,11 +572,123 @@ const IdentityStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
       {uaMode === 'custom' && (
         <Field
           label={t('editor.customUserAgent')}
+          htmlFor="wiz-custom-user-agent"
           error={formState.errors.custom_user_agent?.message}
         >
-          <Textarea rows={2} className="font-mono text-[12px]" {...register('custom_user_agent')} />
+          <Textarea
+            id="wiz-custom-user-agent"
+            rows={2}
+            className="font-mono text-[12px]"
+            aria-describedby={findingDescriptionIds('finding-custom-user-agent', userAgentFindings)}
+            invalid={
+              Boolean(formState.errors.custom_user_agent) ||
+              userAgentFindings.some((finding) => finding.severity === 'error')
+            }
+            {...register('custom_user_agent')}
+          />
+          <InlineFindings findings={userAgentFindings} idPrefix="finding-custom-user-agent" />
         </Field>
       )}
+      <details className="rounded-md border border-line bg-surface-sunken">
+        <summary className="cursor-pointer px-3 py-2.5 text-[13px] font-medium text-ink">
+          {t('editor.fpExplicit')}
+        </summary>
+        <div className="space-y-4 border-t border-line px-3 py-3">
+          <p className="text-2xs text-ink-faint">{t('editor.fpExplicitHint')}</p>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label={t('editor.gpuVendor')} htmlFor="wiz-gpu-vendor">
+              <Input id="wiz-gpu-vendor" {...register('gpu_vendor')} />
+            </Field>
+            <Field
+              label={t('editor.gpuRenderer')}
+              htmlFor="wiz-gpu-renderer"
+              error={formState.errors.gpu_renderer?.message}
+            >
+              <Input
+                id="wiz-gpu-renderer"
+                aria-describedby={findingDescriptionIds(
+                  'finding-gpu-renderer',
+                  gpuRendererFindings,
+                )}
+                invalid={
+                  Boolean(formState.errors.gpu_renderer) ||
+                  gpuRendererFindings.some((finding) => finding.severity === 'error')
+                }
+                {...register('gpu_renderer')}
+              />
+              <InlineFindings findings={gpuRendererFindings} idPrefix="finding-gpu-renderer" />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Field
+              label={t('editor.hardwareConcurrency')}
+              htmlFor="wiz-hardware-concurrency"
+              error={formState.errors.hardware_concurrency?.message}
+            >
+              <Input
+                id="wiz-hardware-concurrency"
+                type="number"
+                min={1}
+                max={1024}
+                step={1}
+                {...register('hardware_concurrency')}
+              />
+            </Field>
+            <Field
+              label={t('editor.deviceMemory')}
+              htmlFor="wiz-device-memory"
+              error={formState.errors.device_memory?.message}
+            >
+              <Input
+                id="wiz-device-memory"
+                type="number"
+                min={1}
+                max={1024}
+                step={1}
+                {...register('device_memory')}
+              />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Field
+              label={t('editor.screenWidth')}
+              htmlFor="wiz-screen-width"
+              error={formState.errors.screen_width?.message}
+            >
+              <Input
+                id="wiz-screen-width"
+                type="number"
+                min={320}
+                max={16384}
+                step={1}
+                {...register('screen_width')}
+              />
+            </Field>
+            <Field
+              label={t('editor.screenHeight')}
+              htmlFor="wiz-screen-height"
+              hint={t('editor.screenPairHint')}
+              error={formState.errors.screen_height?.message}
+            >
+              <Input
+                id="wiz-screen-height"
+                type="number"
+                min={320}
+                max={16384}
+                step={1}
+                {...register('screen_height')}
+              />
+            </Field>
+          </div>
+          <Field
+            label={t('editor.brand')}
+            htmlFor="wiz-brand"
+            error={formState.errors.brand?.message}
+          >
+            <Input id="wiz-brand" {...register('brand')} />
+          </Field>
+        </div>
+      </details>
       <p className="text-2xs text-ink-faint">{t('editor.platformNote')}</p>
     </div>
   );
@@ -638,6 +856,19 @@ const ReviewStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
     ],
     [t('editor.review.startupUrls'), urls.length ? `${urls.length}` : t('editor.review.none')],
   ];
+  const explicitRows: [string, string][] = [];
+  if (values.gpu_vendor) explicitRows.push([t('editor.gpuVendor'), values.gpu_vendor]);
+  if (values.gpu_renderer) explicitRows.push([t('editor.gpuRenderer'), values.gpu_renderer]);
+  if (values.hardware_concurrency)
+    explicitRows.push([t('editor.hardwareConcurrency'), values.hardware_concurrency]);
+  if (values.device_memory) explicitRows.push([t('editor.deviceMemory'), values.device_memory]);
+  if (values.screen_width && values.screen_height) {
+    explicitRows.push([
+      t('editor.review.screenSize'),
+      `${values.screen_width}×${values.screen_height}`,
+    ]);
+  }
+  if (values.brand) explicitRows.push([t('editor.brand'), values.brand]);
   const warnings: string[] = [];
   if (values.geo_mode === 'proxy' && !values.proxy_id) warnings.push(t('editor.warn.geoNoProxy'));
   if (proxy && proxy.reputation === 'malicious') warnings.push(t('editor.warn.maliciousProxy'));
@@ -664,6 +895,23 @@ const ReviewStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
           </div>
         ))}
       </dl>
+      {explicitRows.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-[13px] font-medium text-ink">
+            {t('editor.review.explicitFingerprint')}
+          </h4>
+          <dl className="divide-y divide-line rounded-md border border-line">
+            {explicitRows.map(([label, value]) => (
+              <div key={label} className="flex items-start justify-between gap-4 px-3 py-2">
+                <dt className="text-2xs uppercase tracking-wide text-ink-faint">{label}</dt>
+                <dd className="max-w-[60%] truncate text-right text-[13px] text-ink" title={value}>
+                  {value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      )}
       {warnings.length > 0 && (
         <div className="space-y-2">
           {warnings.map((warning) => (

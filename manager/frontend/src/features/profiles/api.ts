@@ -15,6 +15,11 @@ import { useToast } from '@/components/ui/Toast';
 import { emptyProfileWrite } from './view';
 import { handleProfileConflict, PROFILE_CONFLICT_REVIEW_MESSAGE } from './conflicts';
 import { mergeProfileLogTail, synchronizeTailCursor } from './logTail';
+import type { ProfileValidationDraft } from './types';
+
+export function validateProfileDraft(draft: ProfileValidationDraft) {
+  return api.validateProfileDraft(draft);
+}
 
 export function useProfiles(params: ProfileListParams) {
   return useQuery({

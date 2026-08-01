@@ -1,4 +1,44 @@
-import type { ProfileSort } from '@/types/api';
+import type { BrowserVersionMode, LocationSettings, ProfileSort, UserAgentMode } from '@/types/api';
+
+export interface FingerprintOverrides {
+  gpu_vendor: string | null;
+  gpu_renderer: string | null;
+  hardware_concurrency: number | null;
+  device_memory: number | null;
+  screen_width: number | null;
+  screen_height: number | null;
+  brand: string | null;
+}
+
+export interface ProfileValidationDraft extends FingerprintOverrides {
+  browser_version_mode: BrowserVersionMode;
+  browser_version: string | null;
+  user_agent_mode: UserAgentMode;
+  custom_user_agent: string | null;
+  location: LocationSettings;
+  proxy_id: string | null;
+}
+
+export type FingerprintCoherenceCode =
+  | 'ua.platform_mismatch'
+  | 'ua.version_mismatch'
+  | 'gpu.vendor_renderer_mismatch'
+  | 'gpu.platform_mismatch'
+  | 'geo.timezone_mismatch'
+  | 'geo.locale_mismatch';
+
+export interface FingerprintCoherenceFinding {
+  code: FingerprintCoherenceCode;
+  severity: 'warning' | 'error';
+  field: string;
+  /** Diagnostic fallback for unknown clients; the UI localizes from `code`. */
+  message: string;
+}
+
+export interface FingerprintCoherenceResult {
+  status: 'coherent' | 'warning' | 'error';
+  findings: FingerprintCoherenceFinding[];
+}
 
 /** Server-supported profile filters (spec §13 GET /profiles query params). */
 export interface ProfileFilters {
