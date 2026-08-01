@@ -31,6 +31,22 @@ _FINGERPRINT_FIELDS = {
     "location",
     "window",
     "behavior",
+    "gpu_vendor",
+    "gpu_renderer",
+    "hardware_concurrency",
+    "device_memory",
+    "screen_width",
+    "screen_height",
+    "browser_brand",
+}
+_OVERRIDE_API_TO_MODEL = {
+    "gpu_vendor": "gpu_vendor",
+    "gpu_renderer": "gpu_renderer",
+    "hardware_concurrency": "hardware_concurrency",
+    "device_memory": "device_memory",
+    "screen_width": "screen_width",
+    "screen_height": "screen_height",
+    "brand": "browser_brand",
 }
 _SORT_FIELDS = {
     "name": Profile.name,
@@ -96,6 +112,10 @@ def _concurrent_reference_error() -> ManagerError:
 
 
 def _fingerprint_identity(seed: str, values: dict[str, Any]):
+    overrides = {
+        api_field: values.get(api_field, values.get(model_field))
+        for api_field, model_field in _OVERRIDE_API_TO_MODEL.items()
+    }
     return build_fingerprint_identity(
         seed=seed,
         fingerprint_preset=values["fingerprint_preset"],
@@ -106,6 +126,7 @@ def _fingerprint_identity(seed: str, values: dict[str, Any]):
         location=values["location"],
         window=values["window"],
         behavior=values["behavior"],
+        overrides=overrides,
     )
 
 
@@ -113,6 +134,7 @@ def _profile_values(payload: ProfileCreate) -> tuple[dict[str, Any], list[str]]:
     values = payload.model_dump()
     tag_ids = values.pop("tag_ids")
     values["status_id"] = values.pop("workflow_status_id")
+    values["browser_brand"] = values.pop("brand")
     values["location"] = payload.location.model_dump(mode="json")
     values["window"] = payload.window.model_dump(mode="json")
     values["behavior"] = payload.behavior.model_dump(mode="json")
@@ -205,6 +227,13 @@ def profile_to_dict(
         "browser_version": profile.browser_version,
         "user_agent_mode": profile.user_agent_mode,
         "custom_user_agent": profile.custom_user_agent,
+        "gpu_vendor": profile.gpu_vendor,
+        "gpu_renderer": profile.gpu_renderer,
+        "hardware_concurrency": profile.hardware_concurrency,
+        "device_memory": profile.device_memory,
+        "screen_width": profile.screen_width,
+        "screen_height": profile.screen_height,
+        "brand": profile.browser_brand,
         "location": profile.location,
         "window": profile.window,
         "behavior": profile.behavior,
@@ -371,6 +400,8 @@ def update_profile(
     tag_ids = changes.pop("tag_ids", None)
     if "workflow_status_id" in changes:
         changes["status_id"] = changes.pop("workflow_status_id")
+    if "brand" in changes:
+        changes["browser_brand"] = changes.pop("brand")
     for nested in ("location", "window", "behavior"):
         if nested in changes:
             changes[nested] = getattr(payload, nested).model_dump(mode="json")
@@ -462,6 +493,13 @@ def duplicate_profile(session: Session, profile_id: str) -> Profile:
         browser_version=source.browser_version,
         user_agent_mode=source.user_agent_mode,
         custom_user_agent=source.custom_user_agent,
+        gpu_vendor=source.gpu_vendor,
+        gpu_renderer=source.gpu_renderer,
+        hardware_concurrency=source.hardware_concurrency,
+        device_memory=source.device_memory,
+        screen_width=source.screen_width,
+        screen_height=source.screen_height,
+        brand=source.browser_brand,
         location=source.location,
         window=source.window,
         behavior=source.behavior,

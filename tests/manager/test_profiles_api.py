@@ -79,12 +79,75 @@ def test_create_list_patch_and_trash_profile(client, auth_headers):
     assert restored.json()["deleted_at"] is None
 
 
+def test_create_and_patch_round_trip_fingerprint_overrides(client, auth_headers):
+    original_overrides = {
+        "gpu_vendor": "Test GPU Vendor",
+        "gpu_renderer": "Test GPU Renderer",
+        "hardware_concurrency": 8,
+        "device_memory": 16,
+        "screen_width": 1920,
+        "screen_height": 1080,
+        "brand": "TestBrand",
+    }
+    created = create_profile(client, auth_headers, **original_overrides)
+    assert {field: created[field] for field in original_overrides} == original_overrides
+
+    updated_overrides = {
+        "gpu_vendor": "Updated GPU Vendor",
+        "gpu_renderer": "Updated GPU Renderer",
+        "hardware_concurrency": 12,
+        "device_memory": 32,
+        "screen_width": 1366,
+        "screen_height": 768,
+        "brand": "UpdatedBrand",
+    }
+    response = patch_profile(client, auth_headers, created, **updated_overrides)
+
+    assert response.status_code == 200, response.text
+    updated = response.json()
+    assert {field: updated[field] for field in updated_overrides} == updated_overrides
+    assert updated["fingerprint_seed"] == created["fingerprint_seed"]
+    assert updated["fingerprint_config_hash"] != created["fingerprint_config_hash"]
+
+
+def test_create_returns_null_fingerprint_override_defaults(client, auth_headers):
+    profile = create_profile(client, auth_headers)
+
+    assert {
+        field: profile[field]
+        for field in (
+            "gpu_vendor",
+            "gpu_renderer",
+            "hardware_concurrency",
+            "device_memory",
+            "screen_width",
+            "screen_height",
+            "brand",
+        )
+    } == {
+        "gpu_vendor": None,
+        "gpu_renderer": None,
+        "hardware_concurrency": None,
+        "device_memory": None,
+        "screen_width": None,
+        "screen_height": None,
+        "brand": None,
+    }
+
+
 def test_duplicate_copies_settings_but_gets_new_identity(client, auth_headers):
     original = create_profile(
         client,
         auth_headers,
         startup_urls=["https://example.com", "https://example.org"],
         location={"geo_mode": "manual", "timezone": "Asia/Saigon"},
+        gpu_vendor="Test GPU Vendor",
+        gpu_renderer="Test GPU Renderer",
+        hardware_concurrency=8,
+        device_memory=16,
+        screen_width=1920,
+        screen_height=1080,
+        brand="TestBrand",
     )
 
     response = client.post(
@@ -98,6 +161,16 @@ def test_duplicate_copies_settings_but_gets_new_identity(client, auth_headers):
     assert duplicate["fingerprint_config_hash"] != original["fingerprint_config_hash"]
     assert duplicate["startup_urls"] == original["startup_urls"]
     assert duplicate["location"] == original["location"]
+    for field in (
+        "gpu_vendor",
+        "gpu_renderer",
+        "hardware_concurrency",
+        "device_memory",
+        "screen_width",
+        "screen_height",
+        "brand",
+    ):
+        assert duplicate[field] == original[field]
 
 
 def test_duplicate_clears_the_proxy(client, auth_headers):

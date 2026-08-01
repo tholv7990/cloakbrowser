@@ -148,6 +148,101 @@ def test_operational_behavior_does_not_change_fingerprint_hash():
     assert first.config_hash == second.config_hash
 
 
+_FINGERPRINT_OVERRIDES = {
+    "gpu_vendor": "Test GPU Vendor",
+    "gpu_renderer": "Test GPU Renderer",
+    "hardware_concurrency": 8,
+    "device_memory": 16,
+    "screen_width": 1920,
+    "screen_height": 1080,
+    "brand": "TestBrand",
+}
+
+
+def test_profile_accepts_and_normalizes_fingerprint_overrides():
+    profile = ProfileCreate(
+        name="A",
+        gpu_vendor="  Test GPU Vendor  ",
+        gpu_renderer="  Test GPU Renderer  ",
+        hardware_concurrency=1,
+        device_memory=1024,
+        screen_width=320,
+        screen_height=16384,
+        brand="  TestBrand  ",
+    )
+
+    assert profile.gpu_vendor == "Test GPU Vendor"
+    assert profile.gpu_renderer == "Test GPU Renderer"
+    assert profile.hardware_concurrency == 1
+    assert profile.device_memory == 1024
+    assert profile.screen_width == 320
+    assert profile.screen_height == 16384
+    assert profile.brand == "TestBrand"
+
+
+@pytest.mark.parametrize("field", ["gpu_vendor", "gpu_renderer", "brand"])
+def test_profile_rejects_blank_fingerprint_override_strings(field):
+    with pytest.raises(ValidationError):
+        ProfileCreate(name="A", **{field: "   "})
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("gpu_vendor", "v" * 257), ("gpu_renderer", "r" * 257), ("brand", "b" * 65)],
+)
+def test_profile_rejects_oversized_fingerprint_override_strings(field, value):
+    with pytest.raises(ValidationError):
+        ProfileCreate(name="A", **{field: value})
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("hardware_concurrency", True),
+        ("device_memory", 0),
+        ("hardware_concurrency", 1025),
+        ("screen_width", 319),
+        ("screen_height", 16385),
+    ],
+)
+def test_profile_rejects_invalid_fingerprint_override_integers(field, value):
+    payload = {field: value}
+    if field == "screen_width":
+        payload["screen_height"] = 1080
+    elif field == "screen_height":
+        payload["screen_width"] = 1920
+    with pytest.raises(ValidationError):
+        ProfileCreate(name="A", **payload)
+
+
+@pytest.mark.parametrize("schema", [ProfileCreate, ProfilePatch])
+def test_profile_screens_must_be_supplied_as_a_pair(schema):
+    values = {"name": "A"} if schema is ProfileCreate else {
+        "expected_updated_at": datetime.now(timezone.utc)
+    }
+    with pytest.raises(ValidationError):
+        schema(**values, screen_width=1920)
+    with pytest.raises(ValidationError):
+        schema(**values, screen_height=None)
+
+
+@pytest.mark.parametrize(("field", "value"), _FINGERPRINT_OVERRIDES.items())
+def test_each_fingerprint_override_changes_config_hash(field, value):
+    baseline = build_fingerprint_identity(seed="42")
+    changed = build_fingerprint_identity(seed="42", overrides={field: value})
+
+    assert changed.config_hash != baseline.config_hash
+
+
+def test_null_fingerprint_overrides_preserve_existing_identity_hash():
+    baseline = build_fingerprint_identity(seed="42")
+    with_null_overrides = build_fingerprint_identity(
+        seed="42", overrides={field: None for field in _FINGERPRINT_OVERRIDES}
+    )
+
+    assert with_null_overrides == baseline
+
+
 def test_pinned_version_older_than_bundled_is_rejected():
     # F-011 (partial, no false positives): you can never pin a build older than the
     # bundled free one. Full unresolvable-version rejection needs the cloud version list.
@@ -182,6 +277,9 @@ def test_profile_defaults_are_safe_and_consistent():
     assert profile.window.mode == "maximized"
     assert profile.behavior.permissions == {}
     assert profile.startup_urls == []
+    assert {
+        field: getattr(profile, field) for field in _FINGERPRINT_OVERRIDES
+    } == {field: None for field in _FINGERPRINT_OVERRIDES}
 
 
 def test_profile_patch_requires_concurrency_token_and_tracks_only_provided_fields():

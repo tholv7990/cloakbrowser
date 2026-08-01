@@ -491,6 +491,57 @@ def test_import_assigns_fresh_identity_and_deterministic_collision_names(
             assert (settings.profile_root / imported_id).is_dir()
 
 
+def test_fingerprint_overrides_survive_export_import_round_trip(
+    db_session_factory, settings
+):
+    expected = {
+        "gpu_vendor": "Test GPU Vendor",
+        "gpu_renderer": "Test GPU Renderer",
+        "hardware_concurrency": 8,
+        "device_memory": 16,
+        "screen_width": 1920,
+        "screen_height": 1080,
+        "brand": "TestBrand",
+    }
+    with db_session_factory() as session:
+        source = Profile(
+            name="Fingerprint overrides",
+            fingerprint_seed="703",
+            fingerprint_revision=2,
+            fingerprint_config_hash="a" * 64,
+            gpu_vendor=expected["gpu_vendor"],
+            gpu_renderer=expected["gpu_renderer"],
+            hardware_concurrency=expected["hardware_concurrency"],
+            device_memory=expected["device_memory"],
+            screen_width=expected["screen_width"],
+            screen_height=expected["screen_height"],
+            browser_brand=expected["brand"],
+        )
+        session.add(source)
+        session.commit()
+        document = export_profile(session, source.id, exported_at=FIXED_EXPORTED_AT)
+
+    assert {
+        field: getattr(document.profile, field) for field in expected
+    } == expected
+
+    with db_session_factory() as session:
+        result = import_profile(session, settings, document)
+    with db_session_factory() as session:
+        imported = session.get(Profile, result.profile_id)
+        assert imported is not None
+        assert {
+            "gpu_vendor": imported.gpu_vendor,
+            "gpu_renderer": imported.gpu_renderer,
+            "hardware_concurrency": imported.hardware_concurrency,
+            "device_memory": imported.device_memory,
+            "screen_width": imported.screen_width,
+            "screen_height": imported.screen_height,
+            "brand": imported.browser_brand,
+        } == expected
+        assert imported.fingerprint_config_hash != "a" * 64
+
+
 def test_import_warns_without_assigning_proxy_or_missing_extensions(
     db_session_factory, settings
 ):

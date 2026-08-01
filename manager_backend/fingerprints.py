@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -35,6 +35,23 @@ def _fingerprint_behavior(value: Any) -> dict[str, Any]:
     return {}
 
 
+_OVERRIDE_KEYS = (
+    "gpu_vendor",
+    "gpu_renderer",
+    "hardware_concurrency",
+    "device_memory",
+    "screen_width",
+    "screen_height",
+    "brand",
+)
+
+
+def _fingerprint_overrides(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    if value is None:
+        return {}
+    return {key: _plain(value[key]) for key in _OVERRIDE_KEYS if value.get(key) is not None}
+
+
 def build_fingerprint_identity(
     *,
     seed: str,
@@ -46,6 +63,7 @@ def build_fingerprint_identity(
     location: Any = None,
     window: Any = None,
     behavior: Any = None,
+    overrides: Mapping[str, Any] | None = None,
 ) -> FingerprintIdentity:
     payload = {
         "revision": FINGERPRINT_REVISION,
@@ -59,6 +77,11 @@ def build_fingerprint_identity(
         "window": _plain(window) if window is not None else {},
         "fingerprint_behavior": _fingerprint_behavior(behavior),
     }
+    normalized_overrides = _fingerprint_overrides(overrides)
+    if normalized_overrides:
+        # Keep the legacy all-automatic payload byte-for-byte stable, while explicit
+        # values become part of the identity configuration.
+        payload["overrides"] = normalized_overrides
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return FingerprintIdentity(
         seed=seed,

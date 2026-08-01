@@ -206,6 +206,13 @@ class Profile(TimestampMixin, Base):
     browser_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
     user_agent_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="automatic")
     custom_user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    gpu_vendor: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    gpu_renderer: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    hardware_concurrency: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    device_memory: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    screen_width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    screen_height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    browser_brand: Mapped[str | None] = mapped_column(String(64), nullable=True)
     location: Mapped[dict[str, Any]] = mapped_column(
         "location_json", JSON, default=lambda: {"geo_mode": "proxy"}, nullable=False
     )

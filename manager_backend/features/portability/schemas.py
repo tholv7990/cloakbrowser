@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from pydantic import ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from ...schemas.common import StrictModel
-from ..profiles.schemas import LocationSettings, WindowSettings
+from ..profiles.schemas import FingerprintOverrideFields, LocationSettings, WindowSettings
 
 
 PROFILE_EXPORT_FORMAT = "cloakbrowser-manager-profile"
@@ -105,7 +105,9 @@ class PortableExtension(PortableStrictModel):
         return value
 
 
-class PortableProfile(PortableStrictModel):
+class PortableProfile(FingerprintOverrideFields):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
     name: str = Field(min_length=1, max_length=80)
     folder: PortableFolder | None = None
     workflow_status: PortableColoredCatalog | None = None
@@ -146,6 +148,13 @@ class PortableProfile(PortableStrictModel):
             browser_version=self.browser_version,
             user_agent_mode=self.user_agent_mode,
             custom_user_agent=self.custom_user_agent,
+            gpu_vendor=self.gpu_vendor,
+            gpu_renderer=self.gpu_renderer,
+            hardware_concurrency=self.hardware_concurrency,
+            device_memory=self.device_memory,
+            screen_width=self.screen_width,
+            screen_height=self.screen_height,
+            brand=self.brand,
             location=self.location.model_dump(mode="python"),
             window=self.window.model_dump(mode="python"),
             behavior=self.behavior.model_dump(mode="python"),

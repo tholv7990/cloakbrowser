@@ -99,7 +99,47 @@ class BehaviorSettings(StrictModel):
     permissions: dict[str, Literal["ask", "allow", "block"]] = Field(default_factory=dict)
 
 
-class ProfileCreate(StrictModel):
+class FingerprintOverrideFields(StrictModel):
+    gpu_vendor: str | None = Field(default=None, max_length=256)
+    gpu_renderer: str | None = Field(default=None, max_length=256)
+    hardware_concurrency: int | None = Field(default=None, ge=1, le=1024)
+    device_memory: int | None = Field(default=None, ge=1, le=1024)
+    screen_width: int | None = Field(default=None, ge=320, le=16384)
+    screen_height: int | None = Field(default=None, ge=320, le=16384)
+    brand: str | None = Field(default=None, max_length=64)
+
+    @field_validator("gpu_vendor", "gpu_renderer", "brand", mode="before")
+    @classmethod
+    def normalize_override_string(cls, value):
+        if value is None or not isinstance(value, str):
+            return value
+        value = value.strip()
+        if not value:
+            raise ValueError("fingerprint override cannot be blank")
+        return value
+
+    @field_validator(
+        "hardware_concurrency",
+        "device_memory",
+        "screen_width",
+        "screen_height",
+        mode="before",
+    )
+    @classmethod
+    def validate_override_integer(cls, value):
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+            raise ValueError("fingerprint override must be an integer")
+        return value
+
+    @model_validator(mode="after")
+    def validate_screen_pair(self):
+        supplied = self.model_fields_set.intersection({"screen_width", "screen_height"})
+        if len(supplied) == 1 or (self.screen_width is None) != (self.screen_height is None):
+            raise ValueError("screen width and height must be supplied together")
+        return self
+
+
+class ProfileCreate(FingerprintOverrideFields):
     name: str = Field(min_length=1, max_length=80)
     folder_id: str | None = None
     workflow_status_id: str | None = None
@@ -173,7 +213,7 @@ class ProfileCreate(StrictModel):
         return self
 
 
-class ProfilePatch(StrictModel):
+class ProfilePatch(FingerprintOverrideFields):
     expected_updated_at: datetime
     name: str = Field(default=None, min_length=1, max_length=80)  # type: ignore[assignment]
     folder_id: str | None = None
