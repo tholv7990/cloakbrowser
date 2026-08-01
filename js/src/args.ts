@@ -33,6 +33,26 @@ function appendFingerprintOverride(seen: Map<string, string>, key: string, value
   seen.set(key, `${key}=${value}`);
 }
 
+function normalizedFingerprintOverrides(options: LaunchOptions) {
+  return [
+    ["--fingerprint-gpu-vendor", normalizeFingerprintString("gpuVendor", options.gpuVendor)],
+    ["--fingerprint-gpu-renderer", normalizeFingerprintString("gpuRenderer", options.gpuRenderer)],
+    [
+      "--fingerprint-hardware-concurrency",
+      normalizeFingerprintInteger("hardwareConcurrency", options.hardwareConcurrency, 1, 1024),
+    ],
+    ["--fingerprint-device-memory", normalizeFingerprintInteger("deviceMemory", options.deviceMemory, 1, 1024)],
+    ["--fingerprint-screen-width", normalizeFingerprintInteger("screenWidth", options.screenWidth, 320, 16384)],
+    ["--fingerprint-screen-height", normalizeFingerprintInteger("screenHeight", options.screenHeight, 320, 16384)],
+    ["--fingerprint-brand", normalizeFingerprintString("brand", options.brand)],
+  ] as const;
+}
+
+/** Validate dedicated fingerprint overrides without resolving or launching anything. */
+export function validateFingerprintOverrides(options: LaunchOptions): void {
+  normalizedFingerprintOverrides(options);
+}
+
 /**
  * Build deduplicated Chromium CLI args from stealth defaults + user overrides.
  *
@@ -94,19 +114,7 @@ export function buildArgs(options: LaunchOptions): string[] {
     }
   }
 
-  const fingerprintOverrides = [
-    ["--fingerprint-gpu-vendor", normalizeFingerprintString("gpuVendor", options.gpuVendor)],
-    ["--fingerprint-gpu-renderer", normalizeFingerprintString("gpuRenderer", options.gpuRenderer)],
-    [
-      "--fingerprint-hardware-concurrency",
-      normalizeFingerprintInteger("hardwareConcurrency", options.hardwareConcurrency, 1, 1024),
-    ],
-    ["--fingerprint-device-memory", normalizeFingerprintInteger("deviceMemory", options.deviceMemory, 1, 1024)],
-    ["--fingerprint-screen-width", normalizeFingerprintInteger("screenWidth", options.screenWidth, 320, 16384)],
-    ["--fingerprint-screen-height", normalizeFingerprintInteger("screenHeight", options.screenHeight, 320, 16384)],
-    ["--fingerprint-brand", normalizeFingerprintString("brand", options.brand)],
-  ] as const;
-  for (const [key, value] of fingerprintOverrides) {
+  for (const [key, value] of normalizedFingerprintOverrides(options)) {
     if (value !== undefined) appendFingerprintOverride(seen, key, value);
   }
 

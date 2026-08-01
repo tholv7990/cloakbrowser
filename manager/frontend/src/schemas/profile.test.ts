@@ -134,6 +134,56 @@ describe('explicit fingerprint attributes', () => {
     expect(onlyHeight.success).toBe(false);
   });
 
+  it('uses explicit or default masked screens to validate custom windows', () => {
+    const smallerScreen = profileWizardSchema.safeParse(
+      defaultWizardValues({
+        name: 'A',
+        screen_width: '1366',
+        screen_height: '768',
+        window_mode: 'custom',
+        window_width: '1920',
+        window_height: '1080',
+      }),
+    );
+    expect(smallerScreen.success).toBe(false);
+
+    const largerScreen = profileWizardSchema.safeParse(
+      defaultWizardValues({
+        name: 'A',
+        screen_width: '2560',
+        screen_height: '1440',
+        window_mode: 'custom',
+        window_width: '2400',
+        window_height: '1200',
+      }),
+    );
+    expect(largerScreen.success).toBe(true);
+
+    const defaultScreen = profileWizardSchema.safeParse(
+      defaultWizardValues({
+        name: 'A',
+        screen_width: '',
+        screen_height: '',
+        window_mode: 'custom',
+        window_width: '1920',
+        window_height: '1080',
+      }),
+    );
+    expect(defaultScreen.success).toBe(true);
+
+    const beyondDefault = profileWizardSchema.safeParse(
+      defaultWizardValues({
+        name: 'A',
+        screen_width: '',
+        screen_height: '',
+        window_mode: 'custom',
+        window_width: '1921',
+        window_height: '1080',
+      }),
+    );
+    expect(beyondDefault.success).toBe(false);
+  });
+
   it('hydrates all explicit overrides when editing an existing profile', () => {
     const loaded = {
       ...profiles[0],

@@ -12,7 +12,7 @@ import {
   binarySupportsHeadlessNoViewport,
   binarySupportsHttpProxyInlineAuth,
 } from "./config.js";
-import { buildArgs } from "./args.js";
+import { buildArgs, validateFingerprintOverrides } from "./args.js";
 import { maybeWarnWindowsFonts } from "./fonts.js";
 import { ensureBinary } from "./download.js";
 import { isSocksProxy, normalizeHttpStringUrl, parseProxyUrl, reconstructHttpUrl, resolveProxyConfig } from "./proxy.js";
@@ -151,6 +151,7 @@ async function applyPostLaunch(
  * ```
  */
 export async function launch(options: LaunchOptions = {}): Promise<Browser> {
+  validateFingerprintOverrides(options);
   const puppeteer = await import("puppeteer-core");
   const { binaryPath, args } = await resolveArgs(options);
   const proxyAuth = resolveProxy(options, args);
@@ -205,6 +206,7 @@ export async function launch(options: LaunchOptions = {}): Promise<Browser> {
 export async function launchPersistentContext(
   options: LaunchOptions & { userDataDir: string }
 ): Promise<Browser> {
+  validateFingerprintOverrides(options);
   const puppeteer = await import("puppeteer-core");
   const { binaryPath, args } = await resolveArgs(options);
   const proxyAuth = resolveProxy(options, args);

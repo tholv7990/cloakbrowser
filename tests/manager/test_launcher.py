@@ -401,6 +401,32 @@ def test_headed_runtime_sizes_window_to_spoofed_screen():
     ]
 
 
+def test_headed_runtime_sizes_window_to_explicit_masked_screen():
+    smaller = persistent_context_kwargs(
+        {
+            "fingerprint_seed": 8200,
+            "fingerprint_preset": "consistent",
+            "screen_width": 1366,
+            "screen_height": 768,
+            "window": {"mode": "maximized"},
+        },
+        headless=False,
+    )
+    assert "--window-size=1366,768" in smaller["args"]
+
+    larger_custom = persistent_context_kwargs(
+        {
+            "fingerprint_seed": 8200,
+            "fingerprint_preset": "consistent",
+            "screen_width": 2560,
+            "screen_height": 1440,
+            "window": {"mode": "custom", "width": 2400, "height": 1200},
+        },
+        headless=False,
+    )
+    assert "--window-size=2400,1200" in larger_custom["args"]
+
+
 def test_headed_launch_opens_a_loopback_cdp_port_headless_does_not():
     # Input-sync (Phase B) needs a CDP endpoint; only headed runtime launches get one.
     headed = persistent_context_kwargs(

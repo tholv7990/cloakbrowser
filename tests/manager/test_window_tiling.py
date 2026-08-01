@@ -144,6 +144,9 @@ def _install_fake_manager(client, windows=None, monitors=None):
     from manager_backend.features.runtime.windows import Monitor
 
     class _WM:
+        def __init__(self):
+            self.moved = []
+
         def list_monitors(self):
             return monitors if monitors is not None else [
                 Monitor("0", "Main", 1920, 1080, (0, 0, 1920, 1040), True)
@@ -153,9 +156,12 @@ def _install_fake_manager(client, windows=None, monitors=None):
             return (windows or {}).get(user_data_dir)
 
         def move_window(self, hwnd, rect):
+            self.moved.append((hwnd, rect))
             return True
 
-    client.app.state.window_manager = _WM()
+    manager = _WM()
+    client.app.state.window_manager = manager
+    return manager
 
 
 def test_get_monitors(client, auth_headers):
@@ -190,6 +196,41 @@ def test_arrange_positions_running_window(client, auth_headers):
     )
     assert resp.status_code == 200
     assert resp.json()["results"] == [{"profile_id": "p1", "ok": True, "error": None}]
+
+
+@pytest.mark.parametrize(
+    ("screen", "expected_size"),
+    [
+        ({}, (1920, 1080)),
+        ({"screen_width": 1366, "screen_height": 768}, (1366, 768)),
+        ({"screen_width": 2560, "screen_height": 1440}, (2560, 1440)),
+    ],
+)
+def test_arrange_uses_each_profiles_effective_masked_screen(
+    client, auth_headers, screen, expected_size
+):
+    profile = client.post(
+        "/api/v1/profiles",
+        headers=auth_headers,
+        json={"name": f"Screen {expected_size[0]}", **screen},
+    ).json()
+    settings = client.app.state.settings
+    udd = str(settings.profile_root / profile["id"] / "user-data")
+    monitor = Monitor("0", "Ultra", 3440, 2160, (0, 0, 3440, 2000), True)
+    manager = _install_fake_manager(
+        client,
+        windows={udd: 123},
+        monitors=[monitor],
+    )
+
+    response = client.post(
+        "/api/v1/runtime/windows/arrange",
+        headers=auth_headers,
+        json={"profile_ids": [profile["id"]], "monitor_id": "0", "layout": "grid"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert manager.moved == [(123, (0, 0, *expected_size))]
 
 
 def test_arrange_traversal_id_is_not_running(client, auth_headers):
@@ -271,6 +312,24 @@ def test_window_guard_shrinks_a_window_larger_than_the_spoofed_screen():
     manager = _GuardManager((0, 0, 3440, 1400))
     assert clamp_window_to_screen("udd", (1920, 1080), manager) is True
     assert manager.moved == [(0, 0, 1920, 1080)]
+
+
+def test_worker_window_guard_uses_snapshot_masked_screen(tmp_path, monkeypatch):
+    from manager_backend.features.runtime import windows
+    from manager_backend.features.runtime.worker import ProfileWorker
+
+    manager = _GuardManager((0, 0, 1600, 900))
+    monkeypatch.setattr(windows, "WINDOW_MANAGER", manager)
+    worker = ProfileWorker.__new__(ProfileWorker)
+    worker.snapshot = {
+        "profile_dir": tmp_path,
+        "screen_width": 1366,
+        "screen_height": 768,
+    }
+
+    worker._guard_window_size()
+
+    assert manager.moved == [(0, 0, 1366, 768)]
 
 
 def test_window_guard_leaves_a_window_that_already_fits_alone():

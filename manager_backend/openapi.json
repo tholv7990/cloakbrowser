@@ -17124,7 +17124,7 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 1920.0,
+                "maximum": 16384.0,
                 "minimum": 800.0
               },
               {
@@ -17137,7 +17137,7 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 1080.0,
+                "maximum": 16384.0,
                 "minimum": 600.0
               },
               {

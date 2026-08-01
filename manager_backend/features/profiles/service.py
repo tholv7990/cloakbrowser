@@ -21,6 +21,7 @@ from .schemas import (
     ProfileRead,
     ProfileValidationDraft,
     _pinned_version_older_than_bundled,
+    validate_window_against_masked_screen,
 )
 
 
@@ -429,6 +430,19 @@ def update_profile(
             changes[nested] = getattr(payload, nested).model_dump(mode="json")
 
     _validate_identity_modes(profile, changes)
+    try:
+        validate_window_against_masked_screen(
+            changes.get("window", profile.window),
+            changes.get("screen_width", profile.screen_width),
+            changes.get("screen_height", profile.screen_height),
+        )
+    except ValueError as error:
+        raise ManagerError(
+            "validation_error",
+            "One or more request fields are invalid.",
+            422,
+            {"window": str(error)},
+        ) from error
 
     stored_updated_at = profile.updated_at
     try:

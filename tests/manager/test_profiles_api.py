@@ -253,6 +253,44 @@ def test_create_returns_null_fingerprint_override_defaults(client, auth_headers)
     }
 
 
+def test_patch_revalidates_window_against_effective_masked_screen(client, auth_headers):
+    profile = create_profile(
+        client,
+        auth_headers,
+        screen_width=1366,
+        screen_height=768,
+        window={"mode": "custom", "width": 1280, "height": 720},
+    )
+
+    too_large = patch_profile(
+        client,
+        auth_headers,
+        profile,
+        window={"mode": "custom", "width": 1920, "height": 1080},
+    )
+    assert too_large.status_code == 422
+
+    larger_screen = patch_profile(
+        client,
+        auth_headers,
+        profile,
+        screen_width=2560,
+        screen_height=1440,
+        window={"mode": "custom", "width": 2400, "height": 1200},
+    )
+    assert larger_screen.status_code == 200, larger_screen.text
+
+    restored_default = patch_profile(
+        client,
+        auth_headers,
+        larger_screen.json(),
+        screen_width=None,
+        screen_height=None,
+        window={"mode": "custom", "width": 1920, "height": 1080},
+    )
+    assert restored_default.status_code == 200, restored_default.text
+
+
 def test_duplicate_copies_settings_but_gets_new_identity(client, auth_headers):
     original = create_profile(
         client,

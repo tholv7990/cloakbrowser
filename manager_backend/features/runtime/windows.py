@@ -148,6 +148,7 @@ def arrange_windows(
     layout: str,
     manager: WindowManagerProtocol,
     max_size: tuple[int, int] | None = None,
+    max_sizes: dict[str, tuple[int, int]] | None = None,
 ) -> list[dict]:
     """Position the running profiles' windows on `work_area`. `items` is
     (profile_id, user_data_dir|None); a None dir or a profile with no live
@@ -160,8 +161,13 @@ def arrange_windows(
             results[index] = {"profile_id": profile_id, "ok": False, "error": "not_running"}
         else:
             running.append((index, hwnd))
-    rects = compute_layout(len(running), work_area, layout, max_size)
+    rects = compute_layout(
+        len(running), work_area, layout, None if max_sizes is not None else max_size
+    )
     for (index, hwnd), rect in zip(running, rects):
+        if max_sizes is not None:
+            profile_id = items[index][0]
+            rect = _clamp([rect], max_sizes.get(profile_id, max_size))[0]
         ok = bool(manager.move_window(hwnd, rect))
         results[index] = {
             "profile_id": items[index][0],

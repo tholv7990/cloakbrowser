@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ...dependencies import get_session
 from ...errors import ManagerError
-from ...models import RuntimeSession
+from ...models import Profile, RuntimeSession
 from .input_sync import broadcast
 from .launcher import spoofed_screen_size
 from .schemas import (
@@ -95,7 +95,7 @@ def list_monitors(request: Request):
 
 
 @router.post("/runtime/windows/arrange", response_model=ArrangeResponse)
-def arrange(payload: ArrangeRequest, request: Request):
+def arrange(payload: ArrangeRequest, request: Request, session: SessionDependency):
     manager = request.app.state.window_manager
     settings = request.app.state.settings
     monitor = _select_monitor(manager.list_monitors(), payload.monitor_id)
@@ -112,10 +112,27 @@ def arrange(payload: ArrangeRequest, request: Request):
             items.append((pid, str(settings.profile_root / pid / "user-data")))
         else:
             items.append((pid, None))
+    profiles = list(
+        session.scalars(select(Profile).where(Profile.id.in_(payload.profile_ids)))
+    )
+    max_sizes = {
+        profile.id: spoofed_screen_size(
+            {
+                "screen_width": profile.screen_width,
+                "screen_height": profile.screen_height,
+            }
+        )
+        for profile in profiles
+    }
     # Cap tiles at the spoofed screen: on a monitor larger than it, a one- or
     # two-window tile would otherwise hand every page an impossible viewport.
     results = arrange_windows(
-        items, monitor.work_area, payload.layout, manager, spoofed_screen_size()
+        items,
+        monitor.work_area,
+        payload.layout,
+        manager,
+        spoofed_screen_size(),
+        max_sizes,
     )
     return {"results": results}
 

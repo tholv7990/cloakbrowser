@@ -66,16 +66,43 @@ def test_maximized_window_rejects_custom_dimensions():
 
 
 @pytest.mark.parametrize(("width", "height"), [(2560, 1080), (1920, 1440)])
-def test_custom_window_exceeding_spoofed_screen_is_rejected(width, height):
+def test_custom_window_exceeding_default_masked_screen_is_rejected(width, height):
     # F-015: a window larger than the spoofed 1920x1080 screen makes
     # outerWidth/innerWidth > screen.width — an impossible, detectable geometry.
     with pytest.raises(ValidationError):
-        WindowSettings(mode="custom", width=width, height=height)
+        ProfileCreate(
+            name="A",
+            window={"mode": "custom", "width": width, "height": height},
+        )
 
 
-def test_custom_window_within_spoofed_screen_is_accepted():
-    window = WindowSettings(mode="custom", width=1366, height=768)
-    assert (window.width, window.height) == (1366, 768)
+def test_custom_window_within_default_masked_screen_is_accepted():
+    profile = ProfileCreate(
+        name="A",
+        window={"mode": "custom", "width": 1366, "height": 768},
+    )
+    assert (profile.window.width, profile.window.height) == (1366, 768)
+
+
+def test_custom_window_cannot_exceed_smaller_explicit_masked_screen():
+    with pytest.raises(ValidationError):
+        ProfileCreate(
+            name="A",
+            screen_width=1366,
+            screen_height=768,
+            window={"mode": "custom", "width": 1920, "height": 1080},
+        )
+
+
+def test_larger_explicit_masked_screen_allows_containing_custom_window():
+    profile = ProfileCreate(
+        name="A",
+        screen_width=2560,
+        screen_height=1440,
+        window={"mode": "custom", "width": 2400, "height": 1200},
+    )
+
+    assert (profile.window.width, profile.window.height) == (2400, 1200)
 
 
 _WINDOWS_UA = (

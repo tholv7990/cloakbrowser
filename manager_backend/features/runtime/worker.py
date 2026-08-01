@@ -96,7 +96,7 @@ class ProfileWorker(threading.Thread):
 
             clamp_window_to_screen(
                 str(self.snapshot["profile_dir"] / "user-data"),
-                spoofed_screen_size(),
+                spoofed_screen_size(self.snapshot),
                 WINDOW_MANAGER,
             )
         except Exception:

@@ -391,6 +391,15 @@ def launch(
         >>> print(page.title())
         >>> browser.close()
     """
+    _validate_fingerprint_overrides(
+        gpu_vendor=gpu_vendor,
+        gpu_renderer=gpu_renderer,
+        hardware_concurrency=hardware_concurrency,
+        device_memory=device_memory,
+        screen_width=screen_width,
+        screen_height=screen_height,
+        brand=brand,
+    )
     from playwright.sync_api import sync_playwright
     pw = sync_playwright().start()
     try:
@@ -485,6 +494,15 @@ async def launch_async(  # noqa: C901
         >>>
         >>> asyncio.run(main())
     """
+    _validate_fingerprint_overrides(
+        gpu_vendor=gpu_vendor,
+        gpu_renderer=gpu_renderer,
+        hardware_concurrency=hardware_concurrency,
+        device_memory=device_memory,
+        screen_width=screen_width,
+        screen_height=screen_height,
+        brand=brand,
+    )
     from playwright.async_api import async_playwright
     pw = await async_playwright().start()
     try:
@@ -590,6 +608,15 @@ def launch_persistent_context(
         >>> page.goto("https://protected-site.com")
         >>> ctx.close()  # Profile is saved; re-use path next run to restore state.
     """
+    _validate_fingerprint_overrides(
+        gpu_vendor=gpu_vendor,
+        gpu_renderer=gpu_renderer,
+        hardware_concurrency=hardware_concurrency,
+        device_memory=device_memory,
+        screen_width=screen_width,
+        screen_height=screen_height,
+        brand=brand,
+    )
     _check_removed_kwargs(kwargs)
 
     from playwright.sync_api import sync_playwright
@@ -757,6 +784,15 @@ async def launch_persistent_context_async(
         >>>
         >>> asyncio.run(main())
     """
+    _validate_fingerprint_overrides(
+        gpu_vendor=gpu_vendor,
+        gpu_renderer=gpu_renderer,
+        hardware_concurrency=hardware_concurrency,
+        device_memory=device_memory,
+        screen_width=screen_width,
+        screen_height=screen_height,
+        brand=brand,
+    )
     _check_removed_kwargs(kwargs)
 
     from playwright.async_api import async_playwright
@@ -908,6 +944,15 @@ def launch_context(
     Returns:
         Playwright BrowserContext object.
     """
+    _validate_fingerprint_overrides(
+        gpu_vendor=gpu_vendor,
+        gpu_renderer=gpu_renderer,
+        hardware_concurrency=hardware_concurrency,
+        device_memory=device_memory,
+        screen_width=screen_width,
+        screen_height=screen_height,
+        brand=brand,
+    )
     _check_removed_kwargs(kwargs)
 
     timezone = _resolve_timezone(timezone, kwargs)
@@ -1047,6 +1092,15 @@ async def launch_context_async(
         >>>
         >>> asyncio.run(main())
     """
+    _validate_fingerprint_overrides(
+        gpu_vendor=gpu_vendor,
+        gpu_renderer=gpu_renderer,
+        hardware_concurrency=hardware_concurrency,
+        device_memory=device_memory,
+        screen_width=screen_width,
+        screen_height=screen_height,
+        brand=brand,
+    )
     _check_removed_kwargs(kwargs)
 
     timezone = _resolve_timezone(timezone, kwargs)
@@ -1366,6 +1420,69 @@ def _append_fingerprint_override(seen: dict[str, str], key: str, value: object) 
     seen[key] = f"{key}={value}"
 
 
+def _normalized_fingerprint_overrides(
+    *,
+    gpu_vendor: str | None,
+    gpu_renderer: str | None,
+    hardware_concurrency: int | None,
+    device_memory: int | None,
+    screen_width: int | None,
+    screen_height: int | None,
+    brand: str | None,
+) -> tuple[tuple[str, str | int | None], ...]:
+    """Validate dedicated values without resolving a binary or touching I/O."""
+    return (
+        ("--fingerprint-gpu-vendor", _normalize_fingerprint_string("gpu_vendor", gpu_vendor)),
+        ("--fingerprint-gpu-renderer", _normalize_fingerprint_string("gpu_renderer", gpu_renderer)),
+        (
+            "--fingerprint-hardware-concurrency",
+            _normalize_fingerprint_int(
+                "hardware_concurrency", hardware_concurrency, minimum=1, maximum=1024
+            ),
+        ),
+        (
+            "--fingerprint-device-memory",
+            _normalize_fingerprint_int(
+                "device_memory", device_memory, minimum=1, maximum=1024
+            ),
+        ),
+        (
+            "--fingerprint-screen-width",
+            _normalize_fingerprint_int(
+                "screen_width", screen_width, minimum=320, maximum=16384
+            ),
+        ),
+        (
+            "--fingerprint-screen-height",
+            _normalize_fingerprint_int(
+                "screen_height", screen_height, minimum=320, maximum=16384
+            ),
+        ),
+        ("--fingerprint-brand", _normalize_fingerprint_string("brand", brand)),
+    )
+
+
+def _validate_fingerprint_overrides(
+    *,
+    gpu_vendor: str | None,
+    gpu_renderer: str | None,
+    hardware_concurrency: int | None,
+    device_memory: int | None,
+    screen_width: int | None,
+    screen_height: int | None,
+    brand: str | None,
+) -> None:
+    _normalized_fingerprint_overrides(
+        gpu_vendor=gpu_vendor,
+        gpu_renderer=gpu_renderer,
+        hardware_concurrency=hardware_concurrency,
+        device_memory=device_memory,
+        screen_width=screen_width,
+        screen_height=screen_height,
+        brand=brand,
+    )
+
+
 def build_args(
     stealth_args: bool,
     extra_args: list[str] | None,
@@ -1426,28 +1543,14 @@ def build_args(
                 logger.debug("Arg override: %s -> %s", seen[key], flag)
             seen[key] = flag
 
-    fingerprint_overrides = (
-        ("--fingerprint-gpu-vendor", _normalize_fingerprint_string("gpu_vendor", gpu_vendor)),
-        ("--fingerprint-gpu-renderer", _normalize_fingerprint_string("gpu_renderer", gpu_renderer)),
-        (
-            "--fingerprint-hardware-concurrency",
-            _normalize_fingerprint_int(
-                "hardware_concurrency", hardware_concurrency, minimum=1, maximum=1024
-            ),
-        ),
-        (
-            "--fingerprint-device-memory",
-            _normalize_fingerprint_int("device_memory", device_memory, minimum=1, maximum=1024),
-        ),
-        (
-            "--fingerprint-screen-width",
-            _normalize_fingerprint_int("screen_width", screen_width, minimum=320, maximum=16384),
-        ),
-        (
-            "--fingerprint-screen-height",
-            _normalize_fingerprint_int("screen_height", screen_height, minimum=320, maximum=16384),
-        ),
-        ("--fingerprint-brand", _normalize_fingerprint_string("brand", brand)),
+    fingerprint_overrides = _normalized_fingerprint_overrides(
+        gpu_vendor=gpu_vendor,
+        gpu_renderer=gpu_renderer,
+        hardware_concurrency=hardware_concurrency,
+        device_memory=device_memory,
+        screen_width=screen_width,
+        screen_height=screen_height,
+        brand=brand,
     )
     for key, value in fingerprint_overrides:
         if value is not None:

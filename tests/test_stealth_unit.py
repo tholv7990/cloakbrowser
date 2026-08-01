@@ -117,6 +117,81 @@ class TestFingerprintOverrides:
         assert "--fingerprint-screen-height=1080" in args
         assert not any(arg.startswith("--window-size") or "viewport" in arg for arg in args)
 
+    @pytest.mark.parametrize(
+        ("entrypoint", "persistent"),
+        [
+            ("launch", False),
+            ("launch_context", False),
+            ("launch_persistent_context", True),
+        ],
+    )
+    def test_invalid_override_precedes_all_sync_launch_side_effects(
+        self, entrypoint, persistent, tmp_path, monkeypatch
+    ):
+        import cloakbrowser.browser as browser
+        import playwright.sync_api
+
+        ensure_binary = MagicMock(return_value=str(tmp_path / "chrome"))
+        resolve_geoip = MagicMock(return_value=(None, None, None))
+        resolve_proxy = MagicMock(return_value=({}, []))
+        resolve_webrtc = MagicMock(side_effect=lambda args, _proxy: args)
+        playwright_factory = MagicMock()
+        playwright_factory.return_value.start.return_value = MagicMock()
+        monkeypatch.setattr(browser, "ensure_binary", ensure_binary)
+        monkeypatch.setattr(browser, "maybe_resolve_geoip", resolve_geoip)
+        monkeypatch.setattr(browser, "_resolve_proxy_config", resolve_proxy)
+        monkeypatch.setattr(browser, "_resolve_webrtc_args", resolve_webrtc)
+        monkeypatch.setattr(playwright.sync_api, "sync_playwright", playwright_factory)
+
+        launch = getattr(browser, entrypoint)
+        positional = (tmp_path / "profile",) if persistent else ()
+        with pytest.raises(ValueError, match="gpu_vendor"):
+            launch(*positional, gpu_vendor="   ")
+
+        ensure_binary.assert_not_called()
+        resolve_geoip.assert_not_called()
+        resolve_proxy.assert_not_called()
+        resolve_webrtc.assert_not_called()
+        playwright_factory.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("entrypoint", "persistent"),
+        [
+            ("launch_async", False),
+            ("launch_context_async", False),
+            ("launch_persistent_context_async", True),
+        ],
+    )
+    async def test_invalid_override_precedes_all_async_launch_side_effects(
+        self, entrypoint, persistent, tmp_path, monkeypatch
+    ):
+        import cloakbrowser.browser as browser
+        import playwright.async_api
+
+        ensure_binary = MagicMock(return_value=str(tmp_path / "chrome"))
+        resolve_geoip = MagicMock(return_value=(None, None, None))
+        resolve_proxy = MagicMock(return_value=({}, []))
+        resolve_webrtc = MagicMock(side_effect=lambda args, _proxy: args)
+        playwright_factory = MagicMock()
+        playwright_factory.return_value.start = AsyncMock(return_value=MagicMock())
+        monkeypatch.setattr(browser, "ensure_binary", ensure_binary)
+        monkeypatch.setattr(browser, "maybe_resolve_geoip", resolve_geoip)
+        monkeypatch.setattr(browser, "_resolve_proxy_config", resolve_proxy)
+        monkeypatch.setattr(browser, "_resolve_webrtc_args", resolve_webrtc)
+        monkeypatch.setattr(playwright.async_api, "async_playwright", playwright_factory)
+
+        launch = getattr(browser, entrypoint)
+        positional = (tmp_path / "profile",) if persistent else ()
+        with pytest.raises(ValueError, match="gpu_vendor"):
+            await launch(*positional, gpu_vendor="   ")
+
+        ensure_binary.assert_not_called()
+        resolve_geoip.assert_not_called()
+        resolve_proxy.assert_not_called()
+        resolve_webrtc.assert_not_called()
+        playwright_factory.assert_not_called()
+
 
 # =========================================================================
 # Helper: quick config

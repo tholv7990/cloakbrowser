@@ -69,16 +69,25 @@ class LocationSettings(StrictModel):
         return self
 
 
-# The consistent preset spoofs a 1920x1080 screen (and the free binary clamps to
-# it); a custom window must not exceed that, or outerWidth/innerWidth > screen.width
-# — an impossible, detectable geometry (F-015).
-_SPOOFED_SCREEN = (1920, 1080)
+# Profiles without dedicated dimensions report the legacy 1920x1080 screen.
+# A custom window must fit the effective reported screen, or outerWidth/innerWidth
+# can exceed screen.width — an impossible, detectable geometry (F-015).
+DEFAULT_MASKED_SCREEN_SIZE = (1920, 1080)
+
+
+def effective_masked_screen_size(
+    screen_width: int | None, screen_height: int | None
+) -> tuple[int, int]:
+    """Return the explicit reported screen, or the Manager's legacy default."""
+    if screen_width is not None and screen_height is not None:
+        return screen_width, screen_height
+    return DEFAULT_MASKED_SCREEN_SIZE
 
 
 class WindowSettings(StrictModel):
     mode: Literal["maximized", "custom"] = "maximized"
-    width: int | None = Field(default=None, ge=800, le=_SPOOFED_SCREEN[0])
-    height: int | None = Field(default=None, ge=600, le=_SPOOFED_SCREEN[1])
+    width: int | None = Field(default=None, ge=800, le=16384)
+    height: int | None = Field(default=None, ge=600, le=16384)
     # color_scheme retired (F-006): it was stored but never applied at launch.
 
     @model_validator(mode="after")
@@ -89,6 +98,24 @@ class WindowSettings(StrictModel):
         if self.mode == "maximized" and any(value is not None for value in dimensions):
             raise ValueError("maximized window mode does not accept dimensions")
         return self
+
+
+def validate_window_against_masked_screen(
+    window: WindowSettings | dict,
+    screen_width: int | None,
+    screen_height: int | None,
+) -> None:
+    """Reject a custom outer window larger than the screen reported to pages."""
+    mode = window.mode if isinstance(window, WindowSettings) else window.get("mode")
+    if mode != "custom":
+        return
+    width = window.width if isinstance(window, WindowSettings) else window.get("width")
+    height = window.height if isinstance(window, WindowSettings) else window.get("height")
+    max_width, max_height = effective_masked_screen_size(screen_width, screen_height)
+    if width is not None and height is not None and (
+        width > max_width or height > max_height
+    ):
+        raise ValueError("custom window must fit within the effective masked screen")
 
 
 class BehaviorSettings(StrictModel):
@@ -270,6 +297,9 @@ class ProfileCreate(FingerprintOverrideFields):
             raise ValueError("custom user-agent mode requires a value")
         if self.user_agent_mode == "automatic" and self.custom_user_agent is not None:
             raise ValueError("custom user agent requires custom mode")
+        validate_window_against_masked_screen(
+            self.window, self.screen_width, self.screen_height
+        )
         return self
 
 
@@ -325,6 +355,17 @@ class ProfilePatch(FingerprintOverrideFields):
             if parsed.username or parsed.password:
                 raise ValueError("startup URLs cannot contain credentials")
         return values
+
+    @model_validator(mode="after")
+    def validate_supplied_window_screen_pair(self):
+        if "window" in self.model_fields_set and {
+            "screen_width",
+            "screen_height",
+        }.issubset(self.model_fields_set):
+            validate_window_against_masked_screen(
+                self.window, self.screen_width, self.screen_height
+            )
+        return self
 
 
 class ProfileRead(ProfileCreate):

@@ -22,6 +22,7 @@ public static class CloakLauncher
     public static async Task<CloakBrowserHandle> LaunchAsync(LaunchOptions? options = null)
     {
         options ??= new LaunchOptions();
+        ValidateFingerprintOverrides(options);
 
         string binaryPath = await Download.EnsureBinaryAsync(options.LicenseKey, options.BrowserVersion).ConfigureAwait(false);
         var (timezone, locale, exitIp) = await MaybeResolveGeoIpAsync(
@@ -102,6 +103,7 @@ public static class CloakLauncher
     public static async Task<CloakContextHandle> LaunchContextAsync(LaunchContextOptions? options = null)
     {
         options ??= new LaunchContextOptions();
+        ValidateFingerprintOverrides(options);
 
         // Resolve geoip before launch so resolved values flow to binary flags.
         var (timezone, locale, exitIp) = await MaybeResolveGeoIpAsync(
@@ -109,31 +111,8 @@ public static class CloakLauncher
         var args = options.Args;
         args = MaybeAppendWebRtcExitIp(args, exitIp);
 
-        var browserHandle = await LaunchAsync(new LaunchOptions
-        {
-            Headless = options.Headless,
-            Proxy = options.Proxy,
-            Args = args,
-            StealthArgs = options.StealthArgs,
-            FingerprintPreset = options.FingerprintPreset,
-            GpuVendor = options.GpuVendor,
-            GpuRenderer = options.GpuRenderer,
-            HardwareConcurrency = options.HardwareConcurrency,
-            DeviceMemory = options.DeviceMemory,
-            ScreenWidth = options.ScreenWidth,
-            ScreenHeight = options.ScreenHeight,
-            Brand = options.Brand,
-            Timezone = timezone,
-            Locale = locale,
-            ExtensionPaths = options.ExtensionPaths,
-            LicenseKey = options.LicenseKey,
-            BrowserVersion = options.BrowserVersion,
-            // geoip already resolved above; don't re-resolve.
-            GeoIp = false,
-            // Caller chose a viewport geometry → don't also auto-maximize the
-            // window (mirrors the persistent-context path + Python/JS).
-            SuppressMaximize = options.Viewport != null || options.NoViewport,
-        }).ConfigureAwait(false);
+        var browserHandle = await LaunchAsync(
+            BuildContextBrowserLaunchOptions(options, args, timezone, locale)).ConfigureAwait(false);
 
         try
         {
@@ -164,6 +143,7 @@ public static class CloakLauncher
         string userDataDir, LaunchContextOptions? options = null)
     {
         options ??= new LaunchContextOptions();
+        ValidateFingerprintOverrides(options);
 
         string binaryPath = await Download.EnsureBinaryAsync(options.LicenseKey, options.BrowserVersion).ConfigureAwait(false);
         var (timezone, locale, exitIp) = await MaybeResolveGeoIpAsync(
@@ -408,17 +388,9 @@ public static class CloakLauncher
             Set("--fingerprint-locale", $"--fingerprint-locale={locale}");
         }
 
-        var fingerprintOverrides = new (string Key, string? Value)[]
-        {
-            ("--fingerprint-gpu-vendor", NormalizeFingerprintString(nameof(gpuVendor), gpuVendor)),
-            ("--fingerprint-gpu-renderer", NormalizeFingerprintString(nameof(gpuRenderer), gpuRenderer)),
-            ("--fingerprint-hardware-concurrency", NormalizeFingerprintInteger(nameof(hardwareConcurrency), hardwareConcurrency, 1, 1024)?.ToString()),
-            ("--fingerprint-device-memory", NormalizeFingerprintInteger(nameof(deviceMemory), deviceMemory, 1, 1024)?.ToString()),
-            ("--fingerprint-screen-width", NormalizeFingerprintInteger(nameof(screenWidth), screenWidth, 320, 16384)?.ToString()),
-            ("--fingerprint-screen-height", NormalizeFingerprintInteger(nameof(screenHeight), screenHeight, 320, 16384)?.ToString()),
-            ("--fingerprint-brand", NormalizeFingerprintString(nameof(brand), brand)),
-        };
-        foreach (var (key, value) in fingerprintOverrides)
+        foreach (var (key, value) in NormalizeFingerprintOverrides(
+                     gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory,
+                     screenWidth, screenHeight, brand))
         {
             if (value != null)
                 SetFingerprintOverride(key, $"{key}={value}");
@@ -445,6 +417,39 @@ public static class CloakLauncher
         }
 
         return order.Select(k => seen[k]).ToList();
+    }
+
+    private static (string Key, string? Value)[] NormalizeFingerprintOverrides(
+        string? gpuVendor,
+        string? gpuRenderer,
+        int? hardwareConcurrency,
+        int? deviceMemory,
+        int? screenWidth,
+        int? screenHeight,
+        string? brand)
+    {
+        return new (string Key, string? Value)[]
+        {
+            ("--fingerprint-gpu-vendor", NormalizeFingerprintString(nameof(gpuVendor), gpuVendor)),
+            ("--fingerprint-gpu-renderer", NormalizeFingerprintString(nameof(gpuRenderer), gpuRenderer)),
+            ("--fingerprint-hardware-concurrency", NormalizeFingerprintInteger(nameof(hardwareConcurrency), hardwareConcurrency, 1, 1024)?.ToString()),
+            ("--fingerprint-device-memory", NormalizeFingerprintInteger(nameof(deviceMemory), deviceMemory, 1, 1024)?.ToString()),
+            ("--fingerprint-screen-width", NormalizeFingerprintInteger(nameof(screenWidth), screenWidth, 320, 16384)?.ToString()),
+            ("--fingerprint-screen-height", NormalizeFingerprintInteger(nameof(screenHeight), screenHeight, 320, 16384)?.ToString()),
+            ("--fingerprint-brand", NormalizeFingerprintString(nameof(brand), brand)),
+        };
+    }
+
+    private static void ValidateFingerprintOverrides(LaunchOptions options)
+    {
+        _ = NormalizeFingerprintOverrides(
+            options.GpuVendor,
+            options.GpuRenderer,
+            options.HardwareConcurrency,
+            options.DeviceMemory,
+            options.ScreenWidth,
+            options.ScreenHeight,
+            options.Brand);
     }
 
     private static string? NormalizeFingerprintString(string name, string? value)
@@ -609,6 +614,36 @@ public static class CloakLauncher
     // -----------------------------------------------------------------------
     // Context option helpers
     // -----------------------------------------------------------------------
+
+    internal static LaunchOptions BuildContextBrowserLaunchOptions(
+        LaunchContextOptions options,
+        List<string>? args,
+        string? timezone,
+        string? locale)
+    {
+        return new LaunchOptions
+        {
+            Headless = options.Headless,
+            Proxy = options.Proxy,
+            Args = args,
+            StealthArgs = options.StealthArgs,
+            GpuVendor = options.GpuVendor,
+            GpuRenderer = options.GpuRenderer,
+            HardwareConcurrency = options.HardwareConcurrency,
+            DeviceMemory = options.DeviceMemory,
+            ScreenWidth = options.ScreenWidth,
+            ScreenHeight = options.ScreenHeight,
+            Brand = options.Brand,
+            Timezone = timezone,
+            Locale = locale,
+            ExtensionPaths = options.ExtensionPaths,
+            LicenseKey = options.LicenseKey,
+            BrowserVersion = options.BrowserVersion,
+            // GeoIP is already resolved by LaunchContextAsync.
+            GeoIp = false,
+            SuppressMaximize = options.Viewport != null || options.NoViewport,
+        };
+    }
 
     /// <summary>
     /// Resolve the viewport for a context. Headed: no emulated viewport so the page

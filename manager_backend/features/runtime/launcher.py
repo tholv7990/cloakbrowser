@@ -21,6 +21,7 @@ from cloakbrowser.config import get_chromium_version
 from ...config import ManagerSettings
 from ...models import Extension, Profile, profile_extensions
 from ..extensions.service import validate_registered_extension_path
+from ..profiles.schemas import effective_masked_screen_size
 from .timing import StartTimer
 
 
@@ -274,18 +275,18 @@ def urls_to_open(profile_dir: Path, startup_urls: list[str]) -> list[str]:
 # OS-maximizing to a larger real monitor — which would leak the real size (e.g.
 # an ultrawide) and contradict the spoofed screen. The 146 free binary lacks the
 # engine's screen-clamp (a 148+ feature), so the manager sizes the window itself.
-_DEFAULT_WINDOW_SIZE = (1920, 1080)
-
-
-def spoofed_screen_size() -> tuple[int, int]:
+def spoofed_screen_size(snapshot: dict[str, Any] | None = None) -> tuple[int, int]:
     """The screen size the fingerprint reports to pages. Nothing may exceed it: a
     window larger than the spoofed screen leaks the real viewport through
     innerWidth/innerHeight while screen/outerWidth stay spoofed."""
-    return _DEFAULT_WINDOW_SIZE
+    snapshot = snapshot or {}
+    return effective_masked_screen_size(
+        snapshot.get("screen_width"), snapshot.get("screen_height")
+    )
 
 
-def _window_size_arg(window: dict[str, Any]) -> str:
-    max_w, max_h = _DEFAULT_WINDOW_SIZE
+def _window_size_arg(window: dict[str, Any], max_size: tuple[int, int]) -> str:
+    max_w, max_h = max_size
     if window.get("mode") == "custom" and window.get("width") and window.get("height"):
         # Clamped: a custom size bigger than the spoofed screen is the same leak.
         return (
@@ -346,7 +347,11 @@ def persistent_context_kwargs(
     # loses that precedence.
     args = [f"--fingerprint={snapshot['fingerprint_seed']}"]
     if not headless:  # headed runtime only — not the cookie/diagnostic utility launches
-        args.append(_window_size_arg(snapshot.get("window") or {}))
+        args.append(
+            _window_size_arg(
+                snapshot.get("window") or {}, spoofed_screen_size(snapshot)
+            )
+        )
         # Loopback CDP endpoint for input-sync (Phase B): a random free port that
         # Chromium writes to <user-data-dir>/DevToolsActivePort. Headed runtime only;
         # utility/diagnostic (headless) launches stay clean.

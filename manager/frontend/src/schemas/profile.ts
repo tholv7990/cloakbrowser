@@ -4,6 +4,7 @@ import type { ProfileValidationDraft } from '@/features/profiles/types';
 
 const VERSION_RE = /^[0-9]+(?:\.[0-9]+){3,4}$/;
 const URL_SCHEME_RE = /^(https?|chrome-extension):\/\//i;
+const DEFAULT_MASKED_SCREEN = { width: 1920, height: 1080 } as const;
 
 const permission = z.enum(['ask', 'allow', 'block']);
 
@@ -95,6 +96,18 @@ export const profileWizardSchema = z
     if (v.window_mode === 'custom') {
       if (!v.window_width) add('window_width', 'Width is required in custom mode.');
       if (!v.window_height) add('window_height', 'Height is required in custom mode.');
+      const explicitScreenWidth = Number(v.screen_width);
+      const explicitScreenHeight = Number(v.screen_height);
+      const maskedWidth =
+        v.screen_width !== '' && Number.isInteger(explicitScreenWidth)
+          ? explicitScreenWidth
+          : DEFAULT_MASKED_SCREEN.width;
+      const maskedHeight =
+        v.screen_height !== '' && Number.isInteger(explicitScreenHeight)
+          ? explicitScreenHeight
+          : DEFAULT_MASKED_SCREEN.height;
+      validateInteger('window_width', 800, maskedWidth);
+      validateInteger('window_height', 600, maskedHeight);
     }
     if (v.geolocation_mode === 'manual') {
       if (!v.latitude) add('latitude', 'Latitude is required for manual geolocation.');

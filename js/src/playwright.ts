@@ -10,7 +10,7 @@ import {
   IGNORE_DEFAULT_ARGS,
   binarySupportsHeadlessNoViewport,
 } from "./config.js";
-import { buildArgs } from "./args.js";
+import { buildArgs, validateFingerprintOverrides } from "./args.js";
 import { maybeWarnWindowsFonts } from "./fonts.js";
 import { ensureBinary } from "./download.js";
 import { resolveProxyConfig } from "./proxy.js";
@@ -110,6 +110,7 @@ export function buildContextOptions(
 export async function buildLaunchOptions(
   options: LaunchOptions = {}
 ): Promise<PlaywrightLaunchOptions> {
+  validateFingerprintOverrides(options);
   const binaryPath =
     process.env.CLOAKBROWSER_BINARY_PATH ||
     (await ensureBinary(options.licenseKey, options.browserVersion));
@@ -171,6 +172,7 @@ export async function humanizeBrowser(
  * ```
  */
 export async function launch(options: LaunchOptions = {}): Promise<Browser> {
+  validateFingerprintOverrides(options);
   const { chromium } = await import("playwright-core");
   let browser: Browser;
   try {
@@ -230,6 +232,7 @@ function applyDefaultNoViewport(browser: Browser): void {
 export async function launchContext(
   options: LaunchContextOptions = {}
 ): Promise<BrowserContext> {
+  validateFingerprintOverrides(options);
   options = resolveTimezone(options);
   // Resolve geoip BEFORE launch() to avoid double-resolution
   const { exitIp, ...resolved } = await maybeResolveGeoip(options);
@@ -296,6 +299,7 @@ export async function launchContext(
 export async function launchPersistentContext(
   options: LaunchPersistentContextOptions
 ): Promise<BrowserContext> {
+  validateFingerprintOverrides(options);
   options = resolveTimezone(options);
   const { chromium } = await import("playwright-core");
 
