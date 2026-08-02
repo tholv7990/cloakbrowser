@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Settings2, Sparkles } from 'lucide-react';
-import type { Folder, ProxyProviderId, ProxyScheme } from '@/types/api';
+import type { Folder, Proxy, ProxyProviderId, ProxyScheme } from '@/types/api';
 import { api } from '@/api';
 import { useT } from '@/i18n';
 import { useToast } from '@/components/ui/Toast';
@@ -20,7 +20,7 @@ import {
 import { parseProxyText } from '@/schemas/proxy';
 import { useProxyProviders } from '@/features/proxies/api';
 import { useSettings } from '@/features/settings/api';
-import { ProxyInlineForm, emptyOneProxy, type OneProxy } from '@/features/proxies/ProxyInlineForm';
+import { ProxyEditorDrawer } from '@/features/proxies/ProxyEditorDrawer';
 import { ProvidersDialog } from '@/features/proxies/ProvidersDialog';
 import { listTemplates } from '@/features/profile-editor/profileTemplates';
 
@@ -52,7 +52,8 @@ export function NewProfileModal({
   const [folderId, setFolderId] = useState('');
   const [proxyMode, setProxyMode] = useState<ProxyMode>('none');
   const [proxyText, setProxyText] = useState('');
-  const [proxyOne, setProxyOne] = useState<OneProxy>(emptyOneProxy);
+  const [selectedProxy, setSelectedProxy] = useState<Proxy | null>(null);
+  const [proxyEditorOpen, setProxyEditorOpen] = useState(false);
   const [templateId, setTemplateId] = useState('builtin:no-leak');
   // '' = use the installed build; otherwise a pinned full version (e.g. 150.x).
   const [browserVersion, setBrowserVersion] = useState('');
@@ -89,7 +90,8 @@ export function NewProfileModal({
     setFolderId('');
     setProxyMode('none');
     setProxyText('');
-    setProxyOne(emptyOneProxy);
+    setSelectedProxy(null);
+    setProxyEditorOpen(false);
     setTemplateId('builtin:no-leak');
     setBrowserVersion('');
     setProviderId('iproyal');
@@ -110,12 +112,6 @@ export function NewProfileModal({
   const proxySpecForIndex = (
     i: number,
   ): { scheme: ProxyScheme; host: string; port: number; username: string; password: string } | null => {
-    if (proxyMode === 'one') {
-      const host = proxyOne.host.trim();
-      const port = Number(proxyOne.port);
-      if (!host || !port) return null;
-      return { scheme: proxyOne.scheme, host, port, username: proxyOne.username.trim(), password: proxyOne.password };
-    }
     if (proxyMode === 'list') {
       const parsed = proxyLines[i] ? parseProxyText(proxyLines[i]) : null;
       if (!parsed?.host || !parsed.port) return null;
@@ -212,9 +208,12 @@ export function NewProfileModal({
         let proxyId = '';
         if (proxyMode === 'provider') {
           proxyId = providerIds[i] ?? '';
+        } else if (proxyMode === 'one') {
+          proxyId = selectedProxy?.id ?? '';
         } else {
-          // 'one' uses the structured form (its chosen scheme); 'list' parses the
-          // i-th pasted line (scheme:// prefix honoured, else defaults to http).
+          // 'list' parses the i-th pasted line (scheme:// prefix honoured, else
+          // defaults to http). A selected single proxy is already persisted by
+          // ProxyEditorDrawer and remains reusable across profiles.
           const spec = plan.proxySpec;
           if (spec) {
             try {
@@ -354,7 +353,50 @@ export function NewProfileModal({
             <p className="text-2xs text-ink-faint">{t('new.providerHint', { count })}</p>
           </div>
         )}
-        {proxyMode === 'one' && <ProxyInlineForm value={proxyOne} onChange={setProxyOne} />}
+        {proxyMode === 'one' && (
+          <div className="rounded-md border border-line bg-surface-sunken p-3">
+            {selectedProxy ? (
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-medium text-ink">{selectedProxy.label}</p>
+                  <p className="truncate font-mono text-2xs text-ink-muted">
+                    {selectedProxy.masked_endpoint}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setProxyEditorOpen(true)}
+                  >
+                    {t('common.edit')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedProxy(null)}
+                  >
+                    {t('common.remove')}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-2xs text-ink-faint">{t('editor.directNoProxy')}</span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setProxyEditorOpen(true)}
+                >
+                  {t('common.add')}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
         {proxyMode === 'list' && (
           <>
             <Textarea
@@ -394,6 +436,23 @@ export function NewProfileModal({
         </p>
       </div>
     </Modal>
+    <ProxyEditorDrawer
+      open={proxyEditorOpen}
+      proxy={selectedProxy}
+      defaultLabel={name.trim()}
+      onClose={() => setProxyEditorOpen(false)}
+      onSaved={(proxy) => {
+        setSelectedProxy(proxy);
+      }}
+      onRemove={
+        selectedProxy
+          ? () => {
+              setSelectedProxy(null);
+              setProxyEditorOpen(false);
+            }
+          : undefined
+      }
+    />
     <ProvidersDialog open={providersOpen} onClose={() => setProvidersOpen(false)} />
     </>
   );

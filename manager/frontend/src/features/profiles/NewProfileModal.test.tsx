@@ -79,28 +79,70 @@ describe('NewProfileModal', () => {
     expect(mockStore.profiles.some((p) => p.name === 'Solo')).toBe(true);
   });
 
-  it('saves a single proxy with the chosen scheme (SOCKS5, not forced http)', async () => {
+  it('creates a proxy in the drawer and assigns it to the new profile', async () => {
     const user = userEvent.setup();
     const proxiesBefore = mockStore.proxies.length;
     renderWithProviders(<NewProfileModal open onClose={() => undefined} folders={[]} />);
 
     await user.type(screen.getByPlaceholderText(/marketplace/i), 'Sock');
     await user.selectOptions(proxySourceSelect(), 'one');
-    // The Type dropdown is the combobox carrying a "SOCKS5" option.
-    const typeSelect = screen
-      .getAllByRole('combobox')
-      .find((el) => within(el).queryByRole('option', { name: /^socks5$/i }));
-    if (!typeSelect) throw new Error('proxy type select not found');
-    await user.selectOptions(typeSelect, 'socks5');
-    // Paste a full proxy string into the paste line; it fills host/port/creds.
-    await user.type(screen.getByPlaceholderText('host:port:user:pass'), '1.2.3.4:9000:user:pass');
+    await user.click(screen.getByRole('button', { name: /^add$/i }));
+    await user.type(
+      await screen.findByPlaceholderText(/socks5h:\/\//i),
+      'socks5://user:pass@1.2.3.4:9000',
+    );
+    await user.click(screen.getByRole('button', { name: /create proxy/i }));
+
+    await waitFor(() => expect(mockStore.proxies.length).toBe(proxiesBefore + 1));
+    const createdProxy = mockStore.proxies[mockStore.proxies.length - 1];
+    await user.click(
+      within(screen.getByRole('dialog', { name: /edit proxy/i })).getAllByRole('button', {
+        name: /close/i,
+      })[0],
+    );
     await user.click(screen.getByRole('button', { name: /^create$/i }));
 
-    await waitFor(() => expect(mockStore.proxies.length).toBe(proxiesBefore + 1), { timeout: 3000 });
-    const created = mockStore.proxies[mockStore.proxies.length - 1];
-    expect(created.scheme).toBe('socks5');
-    expect(created.host).toBe('1.2.3.4');
-    expect(created.port).toBe(9000);
+    await waitFor(() => {
+      const createdProfile = mockStore.profiles.find((profile) => profile.name === 'Sock');
+      expect(createdProfile?.proxy_id).toBe(createdProxy.id);
+    });
+    expect(createdProxy.scheme).toBe('socks5');
+    expect(createdProxy.host).toBe('1.2.3.4');
+    expect(createdProxy.port).toBe(9000);
+  });
+
+  it('removes only the proxy assignment and keeps the reusable proxy', async () => {
+    const user = userEvent.setup();
+    const deleteProxy = vi.spyOn(api, 'deleteProxy');
+    renderWithProviders(<NewProfileModal open onClose={() => undefined} folders={[]} />);
+
+    await user.type(screen.getByPlaceholderText(/marketplace/i), 'Direct after remove');
+    await user.selectOptions(proxySourceSelect(), 'one');
+    await user.click(screen.getByRole('button', { name: /^add$/i }));
+    await user.type(
+      await screen.findByPlaceholderText(/socks5h:\/\//i),
+      'http://user:pass@198.51.100.42:8080',
+    );
+    await user.click(screen.getByRole('button', { name: /create proxy/i }));
+
+    await user.click(
+      within(await screen.findByRole('dialog', { name: /edit proxy/i })).getAllByRole('button', {
+        name: /close/i,
+      })[0],
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: /^remove$/i })).toBeEnabled());
+    const savedProxy = mockStore.proxies[mockStore.proxies.length - 1];
+    await user.click(screen.getByRole('button', { name: /^remove$/i }));
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
+
+    await waitFor(() => {
+      const createdProfile = mockStore.profiles.find(
+        (profile) => profile.name === 'Direct after remove',
+      );
+      expect(createdProfile?.proxy_id).toBeNull();
+    });
+    expect(mockStore.proxies.some((proxy) => proxy.id === savedProxy.id)).toBe(true);
+    expect(deleteProxy).not.toHaveBeenCalled();
   });
 
   it('generates provider proxies and assigns one per profile', async () => {
@@ -222,11 +264,8 @@ describe('NewProfileModal', () => {
 
     await user.type(screen.getByPlaceholderText(/marketplace/i), 'Atomic batch');
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '2' } });
-    await user.selectOptions(proxySourceSelect(), 'one');
-    await user.type(
-      screen.getByPlaceholderText('host:port:user:pass'),
-      '1.2.3.4:9000:user:pass',
-    );
+    await user.selectOptions(proxySourceSelect(), 'list');
+    await user.type(screen.getByPlaceholderText(/host:port:user:pass/i), '1.2.3.4:9000:user:pass');
     await user.click(screen.getByRole('button', { name: /create all/i }));
 
     await waitFor(() => expect(api.validateProfileDraft).toHaveBeenCalledTimes(2));
@@ -255,11 +294,8 @@ describe('NewProfileModal', () => {
 
     await user.type(screen.getByPlaceholderText(/marketplace/i), 'Offline batch');
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '2' } });
-    await user.selectOptions(proxySourceSelect(), 'one');
-    await user.type(
-      screen.getByPlaceholderText('host:port:user:pass'),
-      '1.2.3.4:9000:user:pass',
-    );
+    await user.selectOptions(proxySourceSelect(), 'list');
+    await user.type(screen.getByPlaceholderText(/host:port:user:pass/i), '1.2.3.4:9000:user:pass');
     await user.click(screen.getByRole('button', { name: /create all/i }));
 
     await waitFor(() => expect(api.validateProfileDraft).toHaveBeenCalledTimes(2));

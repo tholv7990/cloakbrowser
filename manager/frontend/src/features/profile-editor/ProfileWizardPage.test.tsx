@@ -1,13 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Route, Routes } from 'react-router-dom';
 import { renderWithProviders } from '@/test/utils';
+import { api } from '@/api';
+import { mockStore } from '@/mocks/store';
+import type { ProfileRead, Proxy } from '@/types/api';
 import * as profilesApi from '@/features/profiles/api';
 import { ProfileWizardPage } from './ProfileWizardPage';
 
 const mutationMocks = vi.hoisted(() => ({
   create: vi.fn(),
   update: vi.fn(),
+}));
+
+const queryMocks = vi.hoisted(() => ({
+  proxies: [] as Proxy[],
+  profile: null as ProfileRead | null,
+  profileExtensions: { extension_ids: [] as string[] },
 }));
 
 vi.mock('@/hooks/useAppData', () => ({
@@ -33,22 +43,27 @@ vi.mock('@/hooks/useAppData', () => ({
 
 vi.mock('@/features/proxies/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/proxies/api')>()),
-  useProxies: () => ({ data: [], isLoading: false, isError: false }),
-  useCreateProxy: () => ({ isPending: false, mutateAsync: vi.fn() }),
-  useQuickTest: () => ({ isPending: false, mutateAsync: vi.fn() }),
+  useProxies: () => ({ data: queryMocks.proxies, isLoading: false, isError: false }),
 }));
 
 vi.mock('./api', () => ({
   useCreateProfile: () => ({ isPending: false, mutateAsync: mutationMocks.create }),
   useUpdateProfile: () => ({ isPending: false, mutateAsync: mutationMocks.update }),
-  useProfile: () => ({ data: undefined, isLoading: false, isError: false }),
-  useProfileExtensions: () => ({ data: undefined, isLoading: false, isError: false }),
+  useProfile: () => ({ data: queryMocks.profile ?? undefined, isLoading: false, isError: false }),
+  useProfileExtensions: () => ({
+    data: queryMocks.profile ? queryMocks.profileExtensions : undefined,
+    isLoading: false,
+    isError: false,
+  }),
 }));
 
 beforeEach(() => {
   vi.restoreAllMocks();
   mutationMocks.create.mockReset();
   mutationMocks.update.mockReset();
+  mockStore.reset();
+  queryMocks.proxies = [];
+  queryMocks.profile = null;
   vi.spyOn(profilesApi, 'validateProfileDraft').mockResolvedValue({
     status: 'coherent',
     findings: [],
@@ -58,6 +73,46 @@ beforeEach(() => {
     disconnect() {}
   }
   vi.stubGlobal('IntersectionObserver', IntersectionObserverStub);
+});
+
+describe('ProfileWizardPage proxy drawer', () => {
+  it('edits the assigned reusable proxy without replacing its ID', async () => {
+    const user = userEvent.setup();
+    const selectedProxy = mockStore.proxies[0];
+    const profile = { ...mockStore.profiles[0], proxy_id: selectedProxy.id };
+    queryMocks.proxies = [selectedProxy];
+    queryMocks.profile = profile;
+    mutationMocks.update.mockResolvedValue(profile);
+    const updateProxy = vi.spyOn(api, 'updateProxy');
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/profiles/:id" element={<ProfileWizardPage mode="edit" />} />
+        <Route path="/profiles" element={<div>Profiles</div>} />
+      </Routes>,
+      { route: `/profiles/${profile.id}` },
+    );
+
+    await user.click(await screen.findByRole('button', { name: /^edit$/i }));
+    await user.clear(await screen.findByPlaceholderText('proxy.example'));
+    await user.type(screen.getByPlaceholderText('proxy.example'), '198.51.100.77');
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() =>
+      expect(updateProxy).toHaveBeenCalledWith(
+        selectedProxy.id,
+        expect.objectContaining({ host: '198.51.100.77' }),
+      ),
+    );
+    await user.click(
+      within(screen.getByRole('dialog', { name: /edit proxy/i })).getAllByRole('button', {
+        name: /close/i,
+      })[0],
+    );
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(mutationMocks.update).toHaveBeenCalled());
+    expect(mutationMocks.update.mock.calls.at(-1)?.[0].payload).not.toHaveProperty('proxy_id');
+  });
 });
 
 describe('ProfileWizardPage fingerprint coherence validation', () => {

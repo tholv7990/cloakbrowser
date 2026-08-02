@@ -1,18 +1,14 @@
 import { useEffect, useState, type FC } from 'react';
 import { Controller, useFormContext, useWatch } from 'react-hook-form';
-import { AlertTriangle, Plus, RefreshCw, Zap } from 'lucide-react';
-import type { Extension, Folder, Proxy, ProxyQuickTest, Tag, WorkflowStatus } from '@/types/api';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
+import type { Extension, Folder, Proxy, Tag, WorkflowStatus } from '@/types/api';
 import { Field } from '@/components/ui/Field';
 import { Input, Textarea } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Toggle } from '@/components/ui/Toggle';
 import { Button } from '@/components/ui/Button';
 import { Badge, TagChip } from '@/components/ui/Badge';
-import { ProxyHealthDot } from '@/components/domain/StatusBadges';
 import { FingerprintGlyph } from '@/components/FingerprintGlyph';
-import { ProxyInlineForm, emptyOneProxy, type OneProxy } from '@/features/proxies/ProxyInlineForm';
-import { ProxyQuickResult } from '@/features/proxies/ProxyResultViews';
-import { useCreateProxy, useQuickTest } from '@/features/proxies/api';
 import type { ProfileWizardValues } from '@/schemas/profile';
 import { randomSeed } from '@/schemas/profile';
 import { useT, type TranslationKey } from '@/i18n';
@@ -116,6 +112,9 @@ export interface WizardRefs {
   platform: string;
   isEdit: boolean;
   coherence?: FingerprintCoherenceResult | null;
+  selectedProxy?: Proxy | null;
+  onOpenProxyEditor?: () => void;
+  onRemoveProxyAssignment?: () => void;
 }
 
 function Warning({ children }: { children: React.ReactNode }) {
@@ -286,17 +285,13 @@ const GeneralStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
 
 const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
   const t = useT();
-  const { register, formState, setValue } = useFormContext<ProfileWizardValues>();
+  const { register, formState } = useFormContext<ProfileWizardValues>();
   const proxyId = useWatch<ProfileWizardValues>({ name: 'proxy_id' }) as string;
   const geoMode = useWatch<ProfileWizardValues>({ name: 'geolocation_mode' }) as string;
-  const profileName = useWatch<ProfileWizardValues>({ name: 'name' }) as string;
-  const selected = refs.proxies.find((p) => p.id === proxyId) ?? null;
-  const [draft, setDraft] = useState<OneProxy>(emptyOneProxy);
-  const [pasteError, setPasteError] = useState<string | null>(null);
-  const [checkResult, setCheckResult] = useState<ProxyQuickTest | null>(null);
-  const [checkError, setCheckError] = useState<string | null>(null);
-  const createProxy = useCreateProxy();
-  const quickTest = useQuickTest();
+  const selected =
+    (refs.selectedProxy?.id === proxyId ? refs.selectedProxy : null) ??
+    refs.proxies.find((p) => p.id === proxyId) ??
+    null;
   const localeFindings = refs.coherence?.findings.filter(
     (finding) => finding.field === 'location.locale',
   ) ?? [];
@@ -304,119 +299,42 @@ const ProxyLocationStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
     (finding) => finding.field === 'location.timezone',
   ) ?? [];
 
-  // Note: the check is cleared explicitly on Remove and at the start of each run
-  // — not via a proxyId effect, which would race (and wipe) the auto-check that
-  // fires right after adding a proxy.
-
-  // Run a quick check against a proxy id and surface the outcome — including
-  // failures, which must never be swallowed silently.
-  const runCheck = async (id: string) => {
-    setCheckResult(null);
-    setCheckError(null);
-    try {
-      setCheckResult(await quickTest.mutateAsync(id));
-    } catch (error) {
-      setCheckError((error as Error).message || t('editor.quickProxyFailed'));
-    }
-  };
-
-  const checkProxy = () => {
-    if (proxyId) runCheck(proxyId);
-  };
-
-  // Persist the inline-form proxy and assign it to the profile (the wizard needs
-  // a real proxy id), then auto-check it. The chosen scheme is saved as-is.
-  const addAndUse = async () => {
-    const host = draft.host.trim();
-    const port = Number(draft.port);
-    if (!host || !port) {
-      setPasteError(t('editor.quickProxyInvalid'));
-      return;
-    }
-    try {
-      const created = await createProxy.mutateAsync({
-        label: profileName?.trim() || host,
-        scheme: draft.scheme,
-        host,
-        port,
-        username: draft.username.trim() || null,
-        password: draft.password || undefined,
-        test_before_launch: true,
-      });
-      setValue('proxy_id', created.id, { shouldValidate: true });
-      setDraft(emptyOneProxy);
-      setPasteError(null);
-      runCheck(created.id); // add + check in one step; result shows below
-    } catch {
-      setPasteError(t('editor.quickProxyFailed'));
-    }
-  };
-
   return (
     <div className="space-y-4">
       {!selected && (
-        <Field label={t('editor.quickProxy')} hint={t('editor.quickProxyHint')} error={pasteError ?? undefined}>
-          <ProxyInlineForm value={draft} onChange={setDraft} />
-          <div className="mt-2 flex items-center gap-2">
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              onClick={addAndUse}
-              loading={createProxy.isPending}
-              disabled={!draft.host.trim() || !draft.port.trim()}
-            >
-              <Plus className="h-3.5 w-3.5" /> {t('editor.quickProxyAdd')}
-            </Button>
-            <span className="text-2xs text-ink-faint">{t('editor.directNoProxy')}</span>
-          </div>
-        </Field>
+        <div className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-sunken p-3">
+          <span className="text-2xs text-ink-faint">{t('editor.directNoProxy')}</span>
+          <Button type="button" variant="secondary" size="sm" onClick={refs.onOpenProxyEditor}>
+            {t('common.add')}
+          </Button>
+        </div>
       )}
       {selected && (
-        <div className="space-y-2 rounded-md border border-line bg-surface-sunken p-3 text-[13px]">
+        <div className="rounded-md border border-line bg-surface-sunken p-3 text-[13px]">
           <div className="flex items-center justify-between gap-2">
-            <span className="data text-ink">{selected.masked_endpoint}</span>
-            <div className="flex items-center gap-2">
-              <ProxyHealthDot
-                health={
-                  selected.reputation === 'malicious'
-                    ? 'unreachable'
-                    : selected.reputation === 'suspicious'
-                      ? 'degraded'
-                      : selected.latency_ms
-                        ? 'healthy'
-                        : 'untested'
-                }
-              />
+            <div className="min-w-0">
+              <p className="truncate font-medium text-ink">{selected.label}</p>
+              <p className="data truncate text-ink-muted">{selected.masked_endpoint}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
-                onClick={checkProxy}
-                loading={quickTest.isPending}
+                onClick={refs.onOpenProxyEditor}
               >
-                <Zap className="h-3.5 w-3.5" /> {t('editor.checkProxy')}
+                {t('common.edit')}
               </Button>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => {
-                  setValue('proxy_id', '', { shouldValidate: true });
-                  setCheckResult(null);
-                  setCheckError(null);
-                }}
+                onClick={refs.onRemoveProxyAssignment}
               >
                 {t('common.remove')}
               </Button>
             </div>
           </div>
-          {checkError && (
-            <p className="rounded-md border border-danger/30 bg-danger/10 p-2.5 text-2xs text-danger">
-              {checkError}
-            </p>
-          )}
-          {checkResult && <ProxyQuickResult result={checkResult} />}
         </div>
       )}
       <ToggleField

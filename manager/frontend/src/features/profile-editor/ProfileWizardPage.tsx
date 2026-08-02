@@ -15,6 +15,7 @@ import {
 import { api } from '@/api';
 import { useAppData } from '@/hooks/useAppData';
 import { useProxies } from '@/features/proxies/api';
+import { ProxyEditorDrawer } from '@/features/proxies/ProxyEditorDrawer';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { Select } from '@/components/ui/Select';
@@ -41,7 +42,7 @@ import { CoherenceSummary, WIZARD_STEPS, type WizardRefs } from './steps';
 import { useCreateProfile, useProfile, useProfileExtensions, useUpdateProfile } from './api';
 import { persistProfileWithExtensions } from './persistence';
 import { useT } from '@/i18n';
-import type { ProfileRead } from '@/types/api';
+import type { ProfileRead, Proxy } from '@/types/api';
 import type { FingerprintCoherenceResult } from '@/features/profiles/types';
 import { validateProfileDraft } from '@/features/profiles/api';
 
@@ -70,6 +71,8 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
   const [submitting, setSubmitting] = useState(false);
   const [coherence, setCoherence] = useState<FingerprintCoherenceResult | null>(null);
   const [validationUnavailable, setValidationUnavailable] = useState(false);
+  const [proxyEditorOpen, setProxyEditorOpen] = useState(false);
+  const [lastSavedProxy, setLastSavedProxy] = useState<Proxy | null>(null);
   const validationRevision = useRef(0);
   const submissionInFlight = useRef(false);
 
@@ -117,6 +120,11 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
     mode: 'onBlur',
   });
   const watchedValues = useWatch({ control: form.control });
+  const assignedProxyId = watchedValues.proxy_id ?? '';
+  const selectedProxy =
+    (lastSavedProxy?.id === assignedProxyId ? lastSavedProxy : null) ??
+    (proxiesQuery.data ?? []).find((proxy) => proxy.id === assignedProxyId) ??
+    null;
   const currentDraftKey = useRef('');
   currentDraftKey.current = JSON.stringify(
     wizardValuesToValidationDraft(watchedValues as ProfileWizardValues),
@@ -174,6 +182,12 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
       platform: app.platform,
       isEdit: mode === 'edit',
       coherence,
+      selectedProxy,
+      onOpenProxyEditor: () => setProxyEditorOpen(true),
+      onRemoveProxyAssignment: () => {
+        form.setValue('proxy_id', '', { shouldDirty: true, shouldValidate: true });
+        setLastSavedProxy(null);
+      },
     }),
     [
       app.folders,
@@ -185,6 +199,8 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
       proxiesQuery.data,
       mode,
       coherence,
+      selectedProxy,
+      form,
     ],
   );
 
@@ -462,6 +478,25 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
           </Button>
         </div>
       </div>
+      <ProxyEditorDrawer
+        open={proxyEditorOpen}
+        proxy={selectedProxy}
+        defaultLabel={(watchedValues.name ?? '').trim()}
+        onClose={() => setProxyEditorOpen(false)}
+        onSaved={(proxy) => {
+          setLastSavedProxy(proxy);
+          form.setValue('proxy_id', proxy.id, { shouldDirty: true, shouldValidate: true });
+        }}
+        onRemove={
+          selectedProxy
+            ? () => {
+                form.setValue('proxy_id', '', { shouldDirty: true, shouldValidate: true });
+                setLastSavedProxy(null);
+                setProxyEditorOpen(false);
+              }
+            : undefined
+        }
+      />
     </FormProvider>
   );
 }
