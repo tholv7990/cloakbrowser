@@ -86,6 +86,19 @@ function Harness({ label }: { label: string }) {
   );
 }
 
+function CreateRefetchHarness() {
+  const [proxy, setProxy] = useState<Proxy | null>(null);
+  return (
+    <ProxyEditorDrawer
+      open
+      proxy={proxy}
+      defaultLabel="New proxy"
+      onClose={() => {}}
+      onSaved={setProxy}
+    />
+  );
+}
+
 describe('ProxyEditorDrawer defaultLabel', () => {
   it('pre-fills the label with defaultLabel when opened for a new proxy', async () => {
     const user = userEvent.setup();
@@ -323,6 +336,98 @@ describe('ProxyEditorDrawer authoritative testing', () => {
     await waitFor(() => expect(quality).toHaveBeenCalledWith(EXISTING.id));
   });
 
+  // A regression where this fails: parsing writes form fields with setValue,
+  // but react-hook-form does not mark them dirty, so quality tests old saved data.
+  it('updates parsed values before starting the quality test', async () => {
+    const update = vi.spyOn(api, 'updateProxy').mockResolvedValue({
+      ...EXISTING,
+      host: '198.51.100.42',
+      port: 1080,
+      username: 'parsed-user',
+    });
+    const quality = vi.spyOn(api, 'qualityTestProxy').mockResolvedValue({
+      ...QUALITY_RESULT,
+      proxy_id: EXISTING.id,
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ProxyEditorDrawer open proxy={EXISTING} onClose={() => {}} />);
+
+    await user.type(
+      await screen.findByPlaceholderText(/socks5h:\/\//i),
+      'socks5://parsed-user:parsed-secret@198.51.100.42:1080',
+    );
+    await user.click(screen.getByRole('button', { name: /full quality test/i }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        EXISTING.id,
+        expect.objectContaining({
+          host: '198.51.100.42',
+          port: 1080,
+          username: 'parsed-user',
+          password: 'parsed-secret',
+        }),
+      ),
+    );
+    await waitFor(() => expect(quality).toHaveBeenCalledWith(EXISTING.id));
+  });
+
+  // A regression where this fails: toggles write with setValue but do not make
+  // the form dirty, so quality testing skips the required persistence update.
+  it('updates clear-credentials and launch toggles before quality testing', async () => {
+    const update = vi.spyOn(api, 'updateProxy').mockResolvedValue({
+      ...EXISTING,
+      username: null,
+      has_password: false,
+      test_before_launch: false,
+    });
+    const quality = vi.spyOn(api, 'qualityTestProxy').mockResolvedValue({
+      ...QUALITY_RESULT,
+      proxy_id: EXISTING.id,
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ProxyEditorDrawer open proxy={EXISTING} onClose={() => {}} />);
+
+    await user.click(await screen.findByRole('switch', { name: /clear stored credentials/i }));
+    await user.click(screen.getByRole('switch', { name: /test before launch/i }));
+    await user.click(screen.getByRole('button', { name: /full quality test/i }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        EXISTING.id,
+        expect.objectContaining({
+          clear_credentials: true,
+          username: null,
+          password: undefined,
+          test_before_launch: false,
+        }),
+      ),
+    );
+    await waitFor(() => expect(quality).toHaveBeenCalledWith(EXISTING.id));
+  });
+
+  it('updates a replacement password that cancels clear credentials before quality testing', async () => {
+    const update = vi.spyOn(api, 'updateProxy').mockResolvedValue({ ...EXISTING });
+    const quality = vi.spyOn(api, 'qualityTestProxy').mockResolvedValue({
+      ...QUALITY_RESULT,
+      proxy_id: EXISTING.id,
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ProxyEditorDrawer open proxy={EXISTING} onClose={() => {}} />);
+
+    await user.click(await screen.findByRole('switch', { name: /clear stored credentials/i }));
+    await user.type(screen.getByLabelText('Password'), 'replacement-secret');
+    await user.click(screen.getByRole('button', { name: /full quality test/i }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        EXISTING.id,
+        expect.objectContaining({ clear_credentials: undefined, password: 'replacement-secret' }),
+      ),
+    );
+    await waitFor(() => expect(quality).toHaveBeenCalledWith(EXISTING.id));
+  });
+
   // A regression where this fails: after saving the dirty form, a quality-test
   // error resets the write-only password input and loses the replacement secret.
   it('keeps typed values and the error visible when quality testing fails', async () => {
@@ -376,5 +481,25 @@ describe('ProxyEditorDrawer authoritative testing', () => {
       ),
     );
     await waitFor(() => expect(quality).toHaveBeenCalledWith(created.id));
+  });
+
+  // A regression where this fails: onSaved changes the parent prop from null to
+  // the newly created proxy, and the ID reset erases the quality failure state.
+  it('keeps typed values and a quality error through the parent create refetch', async () => {
+    const created = { ...EXISTING, id: 'px-created', has_password: false };
+    vi.spyOn(api, 'createProxy').mockResolvedValue(created);
+    vi.spyOn(api, 'qualityTestProxy').mockRejectedValue(new Error('Quality service unavailable'));
+    const user = userEvent.setup();
+    renderWithProviders(<CreateRefetchHarness />);
+
+    await user.type(
+      await screen.findByPlaceholderText(/socks5h:\/\//i),
+      'socks5://new-user:new-secret@198.51.100.42:1080',
+    );
+    await user.click(screen.getByRole('button', { name: /full quality test/i }));
+
+    expect(await screen.findByText('Quality service unavailable')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('proxy.example')).toHaveValue('198.51.100.42');
+    expect(screen.getByLabelText('Password')).toHaveValue('new-secret');
   });
 });

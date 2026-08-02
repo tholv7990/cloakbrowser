@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Eye, EyeOff, Gauge, Zap } from 'lucide-react';
@@ -62,6 +62,7 @@ export function ProxyEditorDrawer({
   const [quickResult, setQuickResult] = useState<ProxyQuickTest | null>(null);
   const [qualityResult, setQualityResult] = useState<ProxyQualityReport | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
+  const wasOpen = useRef(false);
 
   const createProxy = useCreateProxy();
   const updateProxy = useUpdateProxy();
@@ -84,16 +85,23 @@ export function ProxyEditorDrawer({
   }));
 
   useEffect(() => {
-    if (open) {
-      setCurrent(proxy);
-      // defaultLabel is read at open time (not a dep) so typing the profile name
-      // later can't wipe an in-progress proxy edit.
-      reset(defaults(proxy, defaultLabel));
-      setParseText('');
-      setQuickResult(null);
-      setQualityResult(null);
-      setTestError(null);
-    }
+    const openedNow = open && !wasOpen.current;
+    wasOpen.current = open;
+    if (!open) return;
+
+    // A create/update initiated by this drawer may make the parent hand back a
+    // newly saved proxy. It is already `current`, so retaining this state keeps
+    // typed values and any quality-test error intact across that prop transition.
+    if (!openedNow && proxy?.id === current?.id) return;
+
+    setCurrent(proxy);
+    // defaultLabel is read at open time (not a dep) so typing the profile name
+    // later can't wipe an in-progress proxy edit.
+    reset(defaults(proxy, defaultLabel));
+    setParseText('');
+    setQuickResult(null);
+    setQualityResult(null);
+    setTestError(null);
     // Key on the proxy IDENTITY (its id), not the object reference. A background
     // ['proxies'] refetch (e.g. after a quick/quality test invalidates the list)
     // hands down a new object with the same id; keying on `proxy` would re-run
@@ -109,12 +117,13 @@ export function ProxyEditorDrawer({
     setParseText(text);
     const parsed = parseProxyText(text);
     if (!parsed) return;
-    if (parsed.scheme) setValue('scheme', parsed.scheme, { shouldValidate: true });
-    setValue('host', parsed.host, { shouldValidate: true });
-    setValue('port', Number(parsed.port), { shouldValidate: true });
-    setValue('username', parsed.username, { shouldValidate: true });
-    setValue('password', parsed.password, { shouldValidate: true });
-    setValue('clear_credentials', false);
+    if (parsed.scheme)
+      setValue('scheme', parsed.scheme, { shouldDirty: true, shouldValidate: true });
+    setValue('host', parsed.host, { shouldDirty: true, shouldValidate: true });
+    setValue('port', Number(parsed.port), { shouldDirty: true, shouldValidate: true });
+    setValue('username', parsed.username, { shouldDirty: true, shouldValidate: true });
+    setValue('password', parsed.password, { shouldDirty: true, shouldValidate: true });
+    setValue('clear_credentials', false, { shouldDirty: true });
   };
 
   const onSubmit = handleSubmit(async (values) => {
@@ -263,7 +272,7 @@ export function ProxyEditorDrawer({
                     className="pr-9"
                     placeholder={current?.has_password ? '••••••••' : ''}
                     {...register('password', {
-                      onChange: () => setValue('clear_credentials', false),
+                      onChange: () => setValue('clear_credentials', false, { shouldDirty: true }),
                     })}
                   />
                   {/* Reveals only a newly typed replacement password. */}
@@ -296,8 +305,8 @@ export function ProxyEditorDrawer({
             <Toggle
               checked={Boolean(watch('clear_credentials'))}
               onChange={(value) => {
-                setValue('clear_credentials', value);
-                if (value) setValue('password', '');
+                setValue('clear_credentials', value, { shouldDirty: true });
+                if (value) setValue('password', '', { shouldDirty: true });
               }}
               label={t('pxd.clearCredentials')}
             />
@@ -311,7 +320,7 @@ export function ProxyEditorDrawer({
           </div>
           <Toggle
             checked={watch('test_before_launch')}
-            onChange={(value) => setValue('test_before_launch', value)}
+            onChange={(value) => setValue('test_before_launch', value, { shouldDirty: true })}
             label={t('pxd.testToggle')}
           />
         </div>
