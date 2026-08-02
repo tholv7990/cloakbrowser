@@ -14,7 +14,7 @@ def _packaging_configuration() -> dict[str, object]:
     )
     assert separator, "spec must define its data files before Analysis"
 
-    configuration = {"__file__": str(SPEC_PATH)}
+    configuration = {"SPEC": str(SPEC_PATH)}
     exec(compile(spec_prefix, str(SPEC_PATH), "exec"), configuration)
     return configuration
 

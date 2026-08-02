@@ -20,7 +20,7 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+REPOSITORY_ROOT = Path(SPEC).resolve().parent.parent
 MANAGER_BACKEND_ROOT = REPOSITORY_ROOT / "manager_backend"
 
 hiddenimports = (
