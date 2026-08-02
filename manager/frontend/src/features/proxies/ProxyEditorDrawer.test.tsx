@@ -5,10 +5,13 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/utils';
 import { mockStore } from '@/mocks/store';
 import { api } from '@/api';
-import type { Proxy } from '@/types/api';
+import type { Proxy, ProxyQualityReport } from '@/types/api';
 import { ProxyEditorDrawer } from './ProxyEditorDrawer';
 
-beforeEach(() => mockStore.reset());
+beforeEach(() => {
+  vi.restoreAllMocks();
+  mockStore.reset();
+});
 
 const EXISTING: Proxy = {
   id: 'px-1',
@@ -34,6 +37,36 @@ const EXISTING: Proxy = {
   last_checked_at: null,
   created_at: '2026-08-02T00:00:00.000Z',
   updated_at: '2026-08-02T00:00:00.000Z',
+};
+
+const QUALITY_RESULT: ProxyQualityReport = {
+  id: 'report-1',
+  proxy_id: 'px-1',
+  state: 'completed',
+  proxy_type: null,
+  type_confidence: null,
+  reputation: null,
+  matched_lists: [],
+  google_outcome: null,
+  turnstile_outcome: null,
+  alignment: {
+    http: { status: 'unknown', detail: 'Not checked' },
+    webrtc: { status: 'unknown', detail: 'Not checked' },
+    dns: { status: 'unknown', detail: 'Not checked' },
+    timezone: { status: 'unknown', detail: 'Not checked' },
+    locale: { status: 'unknown', detail: 'Not checked' },
+  },
+  latency_ms: null,
+  exit_ip: null,
+  country: null,
+  city: null,
+  timezone: null,
+  asn: null,
+  organization: null,
+  screenshot_path: null,
+  report_path: null,
+  observed_scope: 'test',
+  checked_at: '2026-08-02T00:00:00.000Z',
 };
 
 // Mirrors the profile flow: the drawer is mounted closed, then opened with the
@@ -99,7 +132,7 @@ describe('ProxyEditorDrawer test result persistence', () => {
   }
 
   it('keeps the quick-test result when the proxy list refetches (same id)', async () => {
-    vi.spyOn(api, 'quickTestProxy').mockResolvedValue({
+    const quickAdhoc = vi.spyOn(api, 'quickTestProxyAdhoc').mockResolvedValue({
       ok: true,
       connectivity: true,
       exit_ip: '171.246.123.122',
@@ -123,6 +156,13 @@ describe('ProxyEditorDrawer test result persistence', () => {
 
     await user.click(await screen.findByRole('button', { name: /quick test/i }));
     await waitFor(() => expect(screen.getByText(/reachable/i)).toBeInTheDocument());
+    expect(quickAdhoc).toHaveBeenCalledWith({
+      scheme: 'socks5',
+      host: '103.82.27.148',
+      port: 17735,
+      username: '4v7s',
+      password: null,
+    });
 
     // A background refetch hands down a new proxy object (same id).
     await user.click(screen.getByRole('button', { name: 'refetch' }));
@@ -179,5 +219,162 @@ describe('ProxyEditorDrawer credential controls', () => {
         }),
       ),
     );
+  });
+});
+
+describe('ProxyEditorDrawer authoritative testing', () => {
+  // A regression where this fails: changing an existing proxy's host then quick
+  // testing still calls the saved-ID endpoint, which tests the old host instead.
+  it('quick-tests dirty existing values through the ad-hoc endpoint', async () => {
+    const quickAdhoc = vi.spyOn(api, 'quickTestProxyAdhoc').mockResolvedValue({
+      ok: true,
+      connectivity: true,
+      exit_ip: '171.246.123.122',
+      exit_ip_matches: true,
+      latency_ms: 691,
+      country: 'VN',
+      country_name: 'Vietnam',
+      city: null,
+      zip_code: null,
+      timezone: null,
+      latitude: null,
+      longitude: null,
+      asn: null,
+      organization: null,
+      checked_at: new Date().toISOString(),
+      error: null,
+    } as never);
+    const staleQuick = vi.spyOn(api, 'quickTestProxy');
+    const user = userEvent.setup();
+    renderWithProviders(<ProxyEditorDrawer open proxy={EXISTING} onClose={() => {}} />);
+
+    await user.clear(await screen.findByPlaceholderText('proxy.example'));
+    await user.type(screen.getByPlaceholderText('proxy.example'), '198.51.100.42');
+    await user.type(screen.getByLabelText('Password'), 'replacement-secret');
+    await user.click(screen.getByRole('button', { name: /quick test/i }));
+
+    await waitFor(() =>
+      expect(quickAdhoc).toHaveBeenCalledWith({
+        scheme: 'socks5',
+        host: '198.51.100.42',
+        port: 17735,
+        username: '4v7s',
+        password: 'replacement-secret',
+      }),
+    );
+    expect(staleQuick).not.toHaveBeenCalled();
+  });
+
+  // A regression where this fails: rendering a stored secret into the field
+  // leaks it, while sending an empty string overwrites it during testing.
+  it('keeps stored passwords write-only and sends null when no replacement is typed', async () => {
+    const quickAdhoc = vi.spyOn(api, 'quickTestProxyAdhoc').mockResolvedValue({
+      ok: true,
+      connectivity: true,
+      exit_ip: '171.246.123.122',
+      exit_ip_matches: true,
+      latency_ms: 691,
+      country: 'VN',
+      country_name: 'Vietnam',
+      city: null,
+      zip_code: null,
+      timezone: null,
+      latitude: null,
+      longitude: null,
+      asn: null,
+      organization: null,
+      checked_at: new Date().toISOString(),
+      error: null,
+    } as never);
+    const user = userEvent.setup();
+    renderWithProviders(<ProxyEditorDrawer open proxy={EXISTING} onClose={() => {}} />);
+
+    expect(await screen.findByLabelText('Password')).toHaveValue('');
+    await user.click(screen.getByRole('button', { name: /quick test/i }));
+    await waitFor(() =>
+      expect(quickAdhoc).toHaveBeenCalledWith(expect.objectContaining({ password: null })),
+    );
+  });
+
+  // A regression where this fails: Full Quality Test runs immediately with the
+  // saved ID, so it measures values before the user's edits are persisted.
+  it('updates dirty existing values before starting the quality test', async () => {
+    const update = vi.spyOn(api, 'updateProxy').mockResolvedValue({
+      ...EXISTING,
+      host: '198.51.100.42',
+    });
+    const quality = vi.spyOn(api, 'qualityTestProxy').mockResolvedValue({
+      ...QUALITY_RESULT,
+      proxy_id: EXISTING.id,
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ProxyEditorDrawer open proxy={EXISTING} onClose={() => {}} />);
+
+    await user.clear(await screen.findByPlaceholderText('proxy.example'));
+    await user.type(screen.getByPlaceholderText('proxy.example'), '198.51.100.42');
+    await user.click(screen.getByRole('button', { name: /full quality test/i }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        EXISTING.id,
+        expect.objectContaining({ host: '198.51.100.42', password: undefined }),
+      ),
+    );
+    await waitFor(() => expect(quality).toHaveBeenCalledWith(EXISTING.id));
+  });
+
+  // A regression where this fails: after saving the dirty form, a quality-test
+  // error resets the write-only password input and loses the replacement secret.
+  it('keeps typed values and the error visible when quality testing fails', async () => {
+    vi.spyOn(api, 'updateProxy').mockResolvedValue({
+      ...EXISTING,
+      host: '198.51.100.42',
+    });
+    vi.spyOn(api, 'qualityTestProxy').mockRejectedValue(new Error('Quality service unavailable'));
+    const user = userEvent.setup();
+    renderWithProviders(<ProxyEditorDrawer open proxy={EXISTING} onClose={() => {}} />);
+
+    await user.clear(await screen.findByPlaceholderText('proxy.example'));
+    await user.type(screen.getByPlaceholderText('proxy.example'), '198.51.100.42');
+    await user.type(screen.getByLabelText('Password'), 'replacement-secret');
+    await user.click(screen.getByRole('button', { name: /full quality test/i }));
+
+    expect(await screen.findByText('Quality service unavailable')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('proxy.example')).toHaveValue('198.51.100.42');
+    expect(screen.getByLabelText('Password')).toHaveValue('replacement-secret');
+  });
+
+  // A regression where this fails: Full Quality Test has no ID for a new proxy
+  // and either errors or tries the job before the create mutation completes.
+  it('creates a new proxy before starting the quality test', async () => {
+    const created = { ...EXISTING, id: 'px-created', has_password: false };
+    const create = vi.spyOn(api, 'createProxy').mockResolvedValue(created);
+    const quality = vi.spyOn(api, 'qualityTestProxy').mockResolvedValue({
+      ...QUALITY_RESULT,
+      proxy_id: created.id,
+    });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ProxyEditorDrawer open proxy={null} defaultLabel="New proxy" onClose={() => {}} />,
+    );
+
+    await user.type(
+      await screen.findByPlaceholderText(/socks5h:\/\//i),
+      'socks5://new-user:new-secret@198.51.100.42:1080',
+    );
+    await user.click(screen.getByRole('button', { name: /full quality test/i }));
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          label: 'New proxy',
+          host: '198.51.100.42',
+          port: 1080,
+          username: 'new-user',
+          password: 'new-secret',
+        }),
+      ),
+    );
+    await waitFor(() => expect(quality).toHaveBeenCalledWith(created.id));
   });
 });

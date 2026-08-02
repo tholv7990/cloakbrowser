@@ -17,13 +17,7 @@ import {
   toProxyPayload,
   type ProxyFormValues,
 } from '@/schemas/proxy';
-import {
-  useCreateProxy,
-  useQualityTest,
-  useQuickTest,
-  useQuickTestAdhoc,
-  useUpdateProxy,
-} from './api';
+import { useCreateProxy, useQualityTest, useQuickTestAdhoc, useUpdateProxy } from './api';
 import { ProxyQualityReportView, ProxyQuickResult } from './ProxyResultViews';
 import { ProxyTestProgress } from './ProxyTestProgress';
 
@@ -71,7 +65,6 @@ export function ProxyEditorDrawer({
 
   const createProxy = useCreateProxy();
   const updateProxy = useUpdateProxy();
-  const quickTest = useQuickTest();
   const quickAdhoc = useQuickTestAdhoc();
   const qualityTest = useQualityTest();
 
@@ -81,6 +74,8 @@ export function ProxyEditorDrawer({
     mode: 'onChange',
   });
   const { register, handleSubmit, reset, watch, setValue, formState } = form;
+  // Read during render so react-hook-form subscribes the drawer to dirty state.
+  const isDirty = formState.isDirty;
   const scheme = watch('scheme');
   const isDirect = scheme === 'direct';
   const schemeOptions = proxySchemes.map((scheme) => ({
@@ -135,10 +130,14 @@ export function ProxyEditorDrawer({
   // Persist the typed values if not already saved, so the heavy quality test
   // (a background job keyed by proxy id) has something to run against.
   const ensureSaved = async (): Promise<Proxy> => {
-    if (current) return current;
-    const saved = await createProxy.mutateAsync(toProxyPayload(proxyFormSchema.parse(form.getValues())));
+    if (current && !isDirty) return current;
+
+    const payload = toProxyPayload(proxyFormSchema.parse(form.getValues()));
+    const saved = current
+      ? await updateProxy.mutateAsync({ id: current.id, payload })
+      : await createProxy.mutateAsync(payload);
     setCurrent(saved);
-    reset(defaults(saved));
+    onSaved?.(saved);
     return saved;
   };
 
@@ -146,11 +145,7 @@ export function ProxyEditorDrawer({
     setTestError(null);
     setQuickResult(null);
     try {
-      if (current) {
-        setQuickResult(await quickTest.mutateAsync(current.id));
-        return;
-      }
-      // Not saved yet — test exactly what's typed (button is gated on a valid form).
+      // Quick Test always checks the validated values currently in the drawer.
       const values = proxyFormSchema.parse(form.getValues());
       setQuickResult(
         await quickAdhoc.mutateAsync({
@@ -171,7 +166,9 @@ export function ProxyEditorDrawer({
     setQualityResult(null);
     try {
       const proxy = await ensureSaved();
-      setQualityResult(await qualityTest.mutateAsync(proxy.id));
+      const report = await qualityTest.mutateAsync(proxy.id);
+      setQualityResult(report);
+      reset(defaults(proxy)); // saved passwords remain write-only after a successful run
     } catch (error) {
       setTestError((error as Error).message || t('pxd.testFailed'));
     }
@@ -276,11 +273,7 @@ export function ProxyEditorDrawer({
                     onClick={() => setShowPassword((v) => !v)}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink"
                   >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
               </Field>
@@ -332,7 +325,7 @@ export function ProxyEditorDrawer({
               size="sm"
               onClick={runQuick}
               disabled={!formState.isValid}
-              loading={quickTest.isPending || quickAdhoc.isPending}
+              loading={quickAdhoc.isPending}
             >
               <Zap className="h-3.5 w-3.5" /> {t('pxd.quickTest')}
             </Button>
@@ -341,7 +334,7 @@ export function ProxyEditorDrawer({
               size="sm"
               onClick={runQuality}
               disabled={!formState.isValid}
-              loading={createProxy.isPending || qualityTest.isPending}
+              loading={createProxy.isPending || updateProxy.isPending || qualityTest.isPending}
             >
               <Gauge className="h-3.5 w-3.5" /> {t('pxd.fullQualityTest')}
             </Button>
@@ -349,7 +342,7 @@ export function ProxyEditorDrawer({
           {!formState.isValid && <p className="text-2xs text-ink-faint">{t('pxd.fillToTest')}</p>}
           {current && (
             <>
-              <ProxyTestProgress proxyId={current.id} kind="quick" active={quickTest.isPending} />
+              <ProxyTestProgress proxyId={current.id} kind="quick" active={quickAdhoc.isPending} />
               <ProxyTestProgress
                 proxyId={current.id}
                 kind="quality"
