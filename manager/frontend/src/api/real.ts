@@ -56,7 +56,6 @@ import type {
   ProfileImportResult,
   ProfileUpdatePayload,
   ParsedProxy,
-  Proxy,
   ProxyQualityReport,
   ProxyQuickTest,
   ProxyWritePayload,
@@ -67,6 +66,7 @@ import type {
   WorkflowStatus,
 } from '@/types/api';
 import type { FingerprintCoherenceResult, ProfileValidationDraft } from '@/features/profiles/types';
+import { proxyResponseSchema } from '@/schemas/proxy';
 import type { ApiAdapter } from './adapter';
 import { apiDownload, apiRequest } from './http';
 
@@ -176,12 +176,17 @@ export const realApi: ApiAdapter = {
       body: { extension_ids: extensionIds },
     }),
 
-  listProxies: () => apiRequest<Proxy[]>('/proxies'),
-  getProxy: (id) => apiRequest<Proxy>(`/proxies/${id}`),
-  createProxy: (payload: ProxyWritePayload) =>
-    apiRequest<Proxy>('/proxies', { method: 'POST', body: payload }),
-  updateProxy: (id, payload: ProxyWritePayload) =>
-    apiRequest<Proxy>(`/proxies/${id}`, { method: 'PATCH', body: payload }),
+  listProxies: async () => proxyResponseSchema.array().parse(await apiRequest<unknown>('/proxies')),
+  getProxy: async (id) =>
+    proxyResponseSchema.parse(await apiRequest<unknown>(`/proxies/${id}`)),
+  createProxy: async (payload: ProxyWritePayload) =>
+    proxyResponseSchema.parse(
+      await apiRequest<unknown>('/proxies', { method: 'POST', body: payload }),
+    ),
+  updateProxy: async (id, payload: ProxyWritePayload) =>
+    proxyResponseSchema.parse(
+      await apiRequest<unknown>(`/proxies/${id}`, { method: 'PATCH', body: payload }),
+    ),
   deleteProxy: (id) => apiRequest(`/proxies/${id}`, { method: 'DELETE' }),
   parseProxy: (raw) => apiRequest<ParsedProxy>('/proxies/parse', { method: 'POST', body: { raw } }),
   quickTestProxy: (id) =>

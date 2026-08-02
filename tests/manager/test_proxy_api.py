@@ -63,7 +63,7 @@ def test_patch_with_an_empty_password_preserves_existing_credentials(client, aut
 def test_patch_with_password_omitted_preserves_existing_credentials(client, auth_headers):
     store = _install_store(client)
     created = client.post("/api/v1/proxies", headers=auth_headers, json=_proxy_payload()).json()
-    payload = _proxy_payload(label="Renamed", username="different-user")
+    payload = _proxy_payload(label="Renamed", username="fixture-user")
     del payload["password"]
 
     updated = client.patch(
@@ -74,6 +74,57 @@ def test_patch_with_password_omitted_preserves_existing_credentials(client, auth
     assert updated.json()["username"] == "fixture-user"
     assert updated.json()["has_password"] is True
     assert next(iter(store._values.values())).password == "fixture-pass"
+
+
+@pytest.mark.parametrize(
+    "credentials",
+    [
+        {"username": "fixture-user", "password": None},
+        {"username": None, "password": "fixture-pass"},
+    ],
+)
+def test_create_rejects_incomplete_credential_pairs(client, auth_headers, credentials):
+    _install_store(client)
+
+    response = client.post(
+        "/api/v1/proxies",
+        headers=auth_headers,
+        json=_proxy_payload(**credentials),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_patch_rejects_a_changed_username_without_a_replacement_password(
+    client, auth_headers
+):
+    store = _install_store(client)
+    created = client.post("/api/v1/proxies", headers=auth_headers, json=_proxy_payload()).json()
+    payload = _proxy_payload(username="different-user")
+    del payload["password"]
+
+    response = client.patch(
+        f"/api/v1/proxies/{created['id']}", headers=auth_headers, json=payload
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "proxy_credential_mismatch"
+    assert next(iter(store._values.values())).username == "fixture-user"
+
+
+def test_patch_rejects_a_password_without_a_username(client, auth_headers):
+    _install_store(client)
+    created = client.post("/api/v1/proxies", headers=auth_headers, json=_proxy_payload()).json()
+
+    response = client.patch(
+        f"/api/v1/proxies/{created['id']}",
+        headers=auth_headers,
+        json=_proxy_payload(username=None, password="replacement-pass"),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
 
 
 def test_patch_replaces_credentials_only_with_a_non_empty_pair(client, auth_headers):

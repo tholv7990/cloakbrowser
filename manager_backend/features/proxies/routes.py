@@ -10,6 +10,7 @@ from ...dependencies import get_session
 from .parser import parse_proxy
 from .schemas import (
     ParsedProxyRead,
+    ProxyCreate,
     ProxyParseRequest,
     ProxyQuickTestRead,
     ProxyQualityReportRead,
@@ -27,6 +28,7 @@ from .service import (
     update_proxy,
     cache_quick_test,
     resolve_proxy_url,
+    resolve_proxy_credential,
     create_quality_run,
     quality_report_to_dict,
 )
@@ -45,7 +47,7 @@ def proxies(request: Request, session: SessionDependency):
 
 
 @router.post("/proxies", response_model=ProxyRead, status_code=status.HTTP_201_CREATED)
-def create(payload: ProxyWrite, request: Request, session: SessionDependency):
+def create(payload: ProxyCreate, request: Request, session: SessionDependency):
     store = request.app.state.credential_store
     proxy = create_proxy(session, store, payload)
     return proxy_to_dict(session, proxy, store)
@@ -125,12 +127,24 @@ def _quick_test_payload(result, error: str | None) -> dict:
 
 
 @router.post("/proxies/test", response_model=ProxyQuickTestRead)
-def quick_test_adhoc(payload: ProxyTestRequest, request: Request):
+def quick_test_adhoc(payload: ProxyTestRequest, request: Request, session: SessionDependency):
     # Test typed values before the proxy is saved. Credentials build a transient
     # connection URL only — nothing here is persisted, cached, or logged.
-    proxy_url = build_proxy_url(
-        payload.scheme, payload.host, payload.port, payload.username, payload.password
-    )
+    username = payload.username
+    password = payload.password
+    if payload.credential_proxy_id:
+        credential = resolve_proxy_credential(
+            session, request.app.state.credential_store, payload.credential_proxy_id
+        )
+        if credential.username != payload.username:
+            raise ManagerError(
+                "proxy_credential_mismatch",
+                "The submitted username does not match the saved proxy credential.",
+                422,
+            )
+        username = credential.username
+        password = credential.password
+    proxy_url = build_proxy_url(payload.scheme, payload.host, payload.port, username, password)
     if proxy_url is None:
         raise ManagerError(
             "proxy_test_not_applicable", "Direct connections do not require a proxy test.", 422

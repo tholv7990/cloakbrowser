@@ -34,6 +34,46 @@ describe('parseProxyText', () => {
 });
 
 describe('proxyFormSchema', () => {
+  const credentialDraft = {
+    label: 'Credential validation',
+    scheme: 'http' as const,
+    host: 'proxy.example',
+    port: 8080,
+    username: '',
+    password: '',
+    stored_username: null,
+    has_stored_password: false,
+    test_before_launch: true,
+  };
+
+  it.each([
+    { username: 'user-only', password: '' },
+    { username: '', password: 'password-only' },
+  ])('rejects incomplete credentials on create: %o', (credentials) => {
+    const result = proxyFormSchema.safeParse({ ...credentialDraft, ...credentials });
+    expect(result.success).toBe(false);
+  });
+
+  it('allows an unchanged saved username to preserve its stored password', () => {
+    const result = proxyFormSchema.safeParse({
+      ...credentialDraft,
+      username: 'saved-user',
+      stored_username: 'saved-user',
+      has_stored_password: true,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects changing a saved username without a replacement password', () => {
+    const result = proxyFormSchema.safeParse({
+      ...credentialDraft,
+      username: 'changed-user',
+      stored_username: 'saved-user',
+      has_stored_password: true,
+    });
+    expect(result.success).toBe(false);
+  });
+
   it('requires host and port for non-direct schemes', () => {
     const result = proxyFormSchema.safeParse({
       label: 'x',
@@ -71,6 +111,8 @@ describe('proxyFormSchema', () => {
       port: 8080,
       username: 'u',
       password: '',
+      stored_username: 'u',
+      has_stored_password: true,
       test_before_launch: true,
     });
     const payload = toProxyPayload(parsed);

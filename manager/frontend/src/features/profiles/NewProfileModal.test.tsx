@@ -117,6 +117,39 @@ describe('NewProfileModal', () => {
     expect(createdProxy.port).toBe(9000);
   });
 
+  it('selects an existing reusable proxy without creating another proxy', async () => {
+    const existing = mockStore.proxies[0];
+    const createProxy = vi.spyOn(api, 'createProxy');
+    const validateDraft = vi.spyOn(api, 'validateProfileDraft');
+    const user = userEvent.setup();
+    renderWithProviders(<NewProfileModal open onClose={() => undefined} folders={[]} />);
+
+    await user.type(screen.getByPlaceholderText(/marketplace/i), 'Existing assignment');
+    await user.selectOptions(proxySourceSelect(), 'one');
+    await user.click(screen.getByRole('button', { name: /^add$/i }));
+    const catalog = await waitFor(() => {
+      const select = screen
+        .getAllByRole('combobox')
+        .find((item) => within(item).queryByRole('option', { name: existing.label }));
+      if (!select) throw new Error('existing proxy catalog not found');
+      return select;
+    });
+    await user.selectOptions(catalog, existing.id);
+    await user.click(screen.getByRole('button', { name: /use existing proxy/i }));
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
+
+    await waitFor(() =>
+      expect(validateDraft).toHaveBeenCalledWith(
+        expect.objectContaining({ proxy_id: existing.id }),
+      ),
+    );
+    await waitFor(() => {
+      const created = mockStore.profiles.find((profile) => profile.name === 'Existing assignment');
+      expect(created?.proxy_id).toBe(existing.id);
+    });
+    expect(createProxy).not.toHaveBeenCalled();
+  });
+
   it('removes only the proxy assignment and keeps the reusable proxy', async () => {
     const user = userEvent.setup();
     const deleteProxy = vi.spyOn(api, 'deleteProxy');

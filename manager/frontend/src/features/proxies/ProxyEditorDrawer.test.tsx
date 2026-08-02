@@ -126,6 +126,23 @@ describe('ProxyEditorDrawer defaultLabel', () => {
     await user.click(quick);
     await waitFor(() => expect(screen.getByText(/reachable/i)).toBeInTheDocument());
   });
+
+  it('switches the standalone catalog title to edit after creation', async () => {
+    const created = { ...EXISTING, id: 'px-standalone-created' };
+    vi.spyOn(api, 'createProxy').mockResolvedValue(created);
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ProxyEditorDrawer open proxy={null} defaultLabel="Standalone" onClose={() => {}} />,
+    );
+
+    await user.type(
+      await screen.findByPlaceholderText(/socks5h:\/\//i),
+      'socks5://user:pass@198.51.100.9:1080',
+    );
+    await user.click(screen.getByRole('button', { name: /create proxy/i }));
+
+    expect(await screen.findByRole('dialog', { name: /edit proxy/i })).toBeInTheDocument();
+  });
 });
 
 describe('ProxyEditorDrawer test result persistence', () => {
@@ -175,6 +192,7 @@ describe('ProxyEditorDrawer test result persistence', () => {
       port: 17735,
       username: '4v7s',
       password: null,
+      credential_proxy_id: EXISTING.id,
     });
 
     // A background refetch hands down a new proxy object (same id).
@@ -186,6 +204,35 @@ describe('ProxyEditorDrawer test result persistence', () => {
 });
 
 describe('ProxyEditorDrawer credential controls', () => {
+  it('shows inline paired-credential errors and blocks create with username only', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ProxyEditorDrawer open proxy={null} defaultLabel="New proxy" onClose={() => {}} />,
+    );
+
+    await user.type(await screen.findByPlaceholderText('proxy.example'), 'proxy.example');
+    await user.type(screen.getByPlaceholderText('1080'), '8080');
+    const username = document.querySelector<HTMLInputElement>('input[name="username"]');
+    expect(username).not.toBeNull();
+    await user.type(username!, 'user-only');
+
+    expect(await screen.findByText(/enter both username and password/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /create proxy/i })).toBeDisabled();
+  });
+
+  it('blocks changing a stored username without a replacement password', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ProxyEditorDrawer open proxy={EXISTING} onClose={() => {}} />);
+
+    const username = document.querySelector<HTMLInputElement>('input[name="username"]');
+    expect(username).not.toBeNull();
+    await user.clear(username!);
+    await user.type(username!, 'changed-user');
+
+    expect(await screen.findByText(/enter both username and password/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+  });
+
   it('sends an explicit clear request for stored credentials', async () => {
     const update = vi.spyOn(api, 'updateProxy').mockResolvedValue({
       ...EXISTING,
@@ -305,7 +352,12 @@ describe('ProxyEditorDrawer authoritative testing', () => {
     expect(await screen.findByLabelText('Password')).toHaveValue('');
     await user.click(screen.getByRole('button', { name: /quick test/i }));
     await waitFor(() =>
-      expect(quickAdhoc).toHaveBeenCalledWith(expect.objectContaining({ password: null })),
+      expect(quickAdhoc).toHaveBeenCalledWith(
+        expect.objectContaining({
+          password: null,
+          credential_proxy_id: EXISTING.id,
+        }),
+      ),
     );
   });
 

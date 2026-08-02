@@ -481,6 +481,7 @@ export function ProfileWizardPage({ mode }: { mode: 'create' | 'edit' }) {
       <ProxyEditorDrawer
         open={proxyEditorOpen}
         proxy={selectedProxy}
+        assignableProxies={selectedProxy ? [] : (proxiesQuery.data ?? [])}
         defaultLabel={(watchedValues.name ?? '').trim()}
         onClose={() => setProxyEditorOpen(false)}
         onSaved={(proxy) => {

@@ -138,6 +138,14 @@ def update_proxy(
         new_reference = str(uuid4())
         store.put(new_reference, ProxyCredential(payload.username, payload.password))
         proxy.credential_ref = new_reference
+    elif payload.username:
+        credential = resolve_proxy_credential(session, store, proxy_id)
+        if credential.username != payload.username:
+            raise ManagerError(
+                "proxy_credential_mismatch",
+                "A changed username requires a replacement password.",
+                422,
+            )
     elif payload.clear_credentials:
         proxy.credential_ref = None
     proxy.label = payload.label
@@ -241,6 +249,21 @@ def resolve_proxy_url(session: Session, store: CredentialStore, proxy_id: str) -
     username = credential.username if credential is not None else None
     password = credential.password if credential is not None else None
     return build_proxy_url(proxy.scheme, proxy.host, proxy.port, username, password)
+
+
+def resolve_proxy_credential(
+    session: Session, store: CredentialStore, proxy_id: str
+) -> ProxyCredential:
+    """Resolve a write-only credential for an authenticated saved-proxy action."""
+    proxy = get_proxy(session, proxy_id)
+    credential = store.get(proxy.credential_ref) if proxy.credential_ref else None
+    if credential is None:
+        raise ManagerError(
+            "proxy_credential_unavailable",
+            "The saved proxy does not have an available stored credential.",
+            422,
+        )
+    return credential
 
 
 def cache_quick_test(session: Session, proxy: Proxy, result: QuickTestResult) -> None:

@@ -25,10 +25,14 @@ class ProxyWrite(StrictModel):
     def validate_proxy(self):
         self.label = self.label.strip()
         self.host = self.host.strip().casefold()
+        if self.username is not None:
+            self.username = self.username.strip() or None
+        if self.password == "":
+            self.password = None
         if not self.label:
             raise ValueError("label is required")
         supplied = self.username is not None or self.password is not None
-        if self.password and not self.username:
+        if self.password is not None and self.username is None:
             raise ValueError("username and password must be supplied together")
         if self.clear_credentials and supplied:
             raise ValueError("clear_credentials cannot accompany credentials")
@@ -37,6 +41,14 @@ class ProxyWrite(StrictModel):
                 raise ValueError("direct mode cannot have an endpoint or credentials")
         elif not self.host or self.port is None or any(c.isspace() for c in self.host):
             raise ValueError("proxy host and port are required")
+        return self
+
+
+class ProxyCreate(ProxyWrite):
+    @model_validator(mode="after")
+    def validate_create_credentials(self):
+        if self.username is not None and self.password is None:
+            raise ValueError("username and password must be supplied together")
         return self
 
 
@@ -80,15 +92,21 @@ class ProxyTestRequest(StrictModel):
     port: int | None = Field(default=None, ge=1, le=65535)
     username: str | None = Field(default=None, max_length=200, json_schema_extra={"writeOnly": True})
     password: str | None = Field(default=None, max_length=500, json_schema_extra={"writeOnly": True})
+    credential_proxy_id: str | None = Field(default=None, min_length=1, max_length=36)
 
     @model_validator(mode="after")
     def validate_endpoint(self):
         self.host = self.host.strip().casefold()
         supplied = self.username is not None or self.password is not None
-        if supplied and (not self.username or not self.password):
+        if self.credential_proxy_id:
+            if not self.username or self.password is not None:
+                raise ValueError(
+                    "a saved credential reference requires its username and no password"
+                )
+        elif supplied and (not self.username or not self.password):
             raise ValueError("username and password must be supplied together")
         if self.scheme == "direct":
-            if self.host or self.port is not None or supplied:
+            if self.host or self.port is not None or supplied or self.credential_proxy_id:
                 raise ValueError("direct mode cannot have an endpoint or credentials")
         elif not self.host or self.port is None or any(c.isspace() for c in self.host):
             raise ValueError("proxy host and port are required")

@@ -348,6 +348,8 @@ export interface ProxyTestParams {
   username?: string | null;
   /** Write-only; used only to build the transient test connection. */
   password?: string | null;
+  /** Resolves a saved write-only credential while testing current endpoint values. */
+  credential_proxy_id?: string | null;
 }
 
 export interface CookieImportPayload {

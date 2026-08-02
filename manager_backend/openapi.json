@@ -3661,7 +3661,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ProxyWrite"
+                "$ref": "#/components/schemas/ProxyCreate"
               }
             }
           },
@@ -14330,6 +14330,89 @@
         },
         "title": "ProfileValidationDraft"
       },
+      "ProxyCreate": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "scheme": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "http",
+              "https",
+              "socks5",
+              "socks5h"
+            ],
+            "title": "Scheme"
+          },
+          "host": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Host",
+            "default": ""
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 65535.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username",
+            "writeOnly": true
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password",
+            "writeOnly": true
+          },
+          "clear_credentials": {
+            "type": "boolean",
+            "title": "Clear Credentials",
+            "default": false
+          },
+          "test_before_launch": {
+            "type": "boolean",
+            "title": "Test Before Launch",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label",
+          "scheme"
+        ],
+        "title": "ProxyCreate"
+      },
       "ProxyParseRequest": {
         "properties": {
           "raw": {
@@ -15119,6 +15202,19 @@
             ],
             "title": "Password",
             "writeOnly": true
+          },
+          "credential_proxy_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 36,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Proxy Id"
           }
         },
         "additionalProperties": false,

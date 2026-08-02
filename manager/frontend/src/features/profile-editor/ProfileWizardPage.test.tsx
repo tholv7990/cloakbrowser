@@ -76,6 +76,39 @@ beforeEach(() => {
 });
 
 describe('ProfileWizardPage proxy drawer', () => {
+  it('selects an existing proxy for an unassigned profile without creating one', async () => {
+    const existing = mockStore.proxies[0];
+    queryMocks.proxies = [existing];
+    mutationMocks.create.mockResolvedValue({
+      ...mockStore.profiles[0],
+      id: 'new-profile-with-existing-proxy',
+      name: 'Advanced existing',
+      proxy_id: existing.id,
+    });
+    const createProxy = vi.spyOn(api, 'createProxy');
+    const user = userEvent.setup();
+    renderWithProviders(<ProfileWizardPage mode="create" />);
+
+    await user.type(screen.getByPlaceholderText('e.g. marketplace-us-01'), 'Advanced existing');
+    await user.click(screen.getByRole('button', { name: /^add$/i }));
+    const catalog = await waitFor(() => {
+      const select = screen
+        .getAllByRole('combobox')
+        .find((item) => within(item).queryByRole('option', { name: existing.label }));
+      if (!select) throw new Error('existing proxy catalog not found');
+      return select;
+    });
+    await user.selectOptions(catalog, existing.id);
+    await user.click(screen.getByRole('button', { name: /use existing proxy/i }));
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => expect(mutationMocks.create).toHaveBeenCalled());
+    expect(mutationMocks.create.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ proxy_id: existing.id }),
+    );
+    expect(createProxy).not.toHaveBeenCalled();
+  });
+
   it('edits the assigned reusable proxy without replacing its ID', async () => {
     const user = userEvent.setup();
     const selectedProxy = mockStore.proxies[0];

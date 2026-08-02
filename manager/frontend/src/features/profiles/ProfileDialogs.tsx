@@ -198,12 +198,16 @@ export function ProfileDialogs({
         defaultLabel={profile.name}
         submitLabel={assigned ? undefined : t('pxd.addToProfile')}
         onClose={onClose}
-        onSaved={(saved) =>
+        onSaved={(saved) => {
+          // Editing a reusable proxy does not change this profile's assignment.
+          // In particular, a dirty quality-test pre-save must leave the drawer
+          // open so its result or error remains visible.
+          if (assigned) return;
           patchProfile.mutate({
             expected_updated_at: profile.read.updated_at,
             proxy_id: saved.id,
-          })
-        }
+          });
+        }}
         onRemove={
           profile.proxy?.id
             ? () =>

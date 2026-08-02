@@ -89,6 +89,42 @@ describe('ProfileDialogs', () => {
     expect(screen.queryByText(/add new proxy/i)).not.toBeInTheDocument();
   });
 
+  it('keeps an existing proxy drawer open through dirty quality pre-save', async () => {
+    const assigned = mockStore.proxies[0];
+    const profile = profileView();
+    const close = vi.fn();
+    const patchProfile = vi.spyOn(mockApi, 'updateProfile');
+    const updateProxy = vi.spyOn(mockApi, 'updateProxy').mockResolvedValue({
+      ...assigned,
+      host: 'current-values.example',
+      masked_endpoint: `${assigned.scheme}://current-values.example:${assigned.port}`,
+    });
+    const quality = vi.spyOn(mockApi, 'qualityTestProxy').mockResolvedValue({
+      ...mockStore.reports[0],
+      proxy_id: assigned.id,
+    });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ProfileDialogs
+        dialog={{ type: 'assign-proxy', profile }}
+        onClose={close}
+        folders={mockStore.folders}
+        proxies={mockStore.proxies}
+      />,
+    );
+
+    const host = await screen.findByPlaceholderText('proxy.example');
+    await user.clear(host);
+    await user.type(host, 'current-values.example');
+    await user.click(screen.getByRole('button', { name: /full quality test/i }));
+
+    await waitFor(() => expect(updateProxy).toHaveBeenCalled());
+    await waitFor(() => expect(quality).toHaveBeenCalledWith(assigned.id));
+    expect(patchProfile).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: /edit proxy/i })).toBeInTheDocument();
+  });
+
   it('reports rejected cookies separately from skipped cookies', async () => {
     const user = userEvent.setup();
     renderWithProviders(

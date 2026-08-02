@@ -30,6 +30,8 @@ function defaults(proxy: Proxy | null, defaultLabel = ''): ProxyFormValues {
     username: proxy?.username ?? '',
     password: '',
     clear_credentials: false,
+    stored_username: proxy?.username ?? null,
+    has_stored_password: proxy?.has_password ?? false,
     test_before_launch: proxy?.test_before_launch ?? true,
   };
 }
@@ -40,6 +42,7 @@ export function ProxyEditorDrawer({
   onClose,
   onSaved,
   onRemove,
+  assignableProxies = [],
   defaultLabel = '',
   submitLabel,
 }: {
@@ -50,6 +53,8 @@ export function ProxyEditorDrawer({
   /** When set, shows a "Remove proxy" action (e.g. set a profile back to
    *  direct/no-proxy) in the footer. */
   onRemove?: () => void;
+  /** Existing reusable proxies offered while assigning an unassigned profile. */
+  assignableProxies?: Proxy[];
   /** Pre-fill the label for a NEW proxy (e.g. the profile's name when adding
    *  a proxy from the profile form). Ignored when editing an existing proxy. */
   defaultLabel?: string;
@@ -62,6 +67,7 @@ export function ProxyEditorDrawer({
   const [quickResult, setQuickResult] = useState<ProxyQuickTest | null>(null);
   const [qualityResult, setQualityResult] = useState<ProxyQualityReport | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
+  const [catalogProxyId, setCatalogProxyId] = useState('');
   const wasOpen = useRef(false);
 
   const createProxy = useCreateProxy();
@@ -102,6 +108,7 @@ export function ProxyEditorDrawer({
     setQuickResult(null);
     setQualityResult(null);
     setTestError(null);
+    setCatalogProxyId('');
     // Key on the proxy IDENTITY (its id), not the object reference. A background
     // ['proxies'] refetch (e.g. after a quick/quality test invalidates the list)
     // hands down a new object with the same id; keying on `proxy` would re-run
@@ -156,6 +163,9 @@ export function ProxyEditorDrawer({
     try {
       // Quick Test always checks the validated values currently in the drawer.
       const values = proxyFormSchema.parse(form.getValues());
+      const useStoredCredential = Boolean(
+        current?.has_password && !values.password && !values.clear_credentials,
+      );
       setQuickResult(
         await quickAdhoc.mutateAsync({
           scheme: values.scheme,
@@ -163,6 +173,7 @@ export function ProxyEditorDrawer({
           port: values.port,
           username: values.username || null,
           password: values.password || null,
+          ...(useStoredCredential ? { credential_proxy_id: current!.id } : {}),
         }),
       );
     } catch (error) {
@@ -184,12 +195,18 @@ export function ProxyEditorDrawer({
   };
 
   const saving = createProxy.isPending || updateProxy.isPending;
+  const assignExisting = () => {
+    const selected = assignableProxies.find((item) => item.id === catalogProxyId);
+    if (!selected) return;
+    onSaved?.(selected);
+    onClose();
+  };
 
   return (
     <Drawer
       open={open}
       onClose={onClose}
-      title={t(proxy ? 'pxd.edit' : 'proxies.add')}
+      title={t(current ? 'pxd.edit' : 'proxies.add')}
       description={t('pxd.desc')}
       footer={
         <>
@@ -212,6 +229,32 @@ export function ProxyEditorDrawer({
         </>
       }
     >
+      {!current && assignableProxies.length > 0 && (
+        <div className="mb-5 space-y-3 rounded-md border border-line bg-surface-sunken p-3">
+          <Field label={t('pxd.selectExisting')} hint={t('pxd.selectExistingHint')}>
+            <Select
+              value={catalogProxyId}
+              onChange={(event) => setCatalogProxyId(event.target.value)}
+              options={[
+                { value: '', label: t('pxd.selectExistingPlaceholder') },
+                ...assignableProxies.map((item) => ({ value: item.id, label: item.label })),
+              ]}
+            />
+          </Field>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-2xs text-ink-faint">{t('pxd.orCreateNew')}</span>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={!catalogProxyId}
+              onClick={assignExisting}
+            >
+              {t('pxd.useExisting')}
+            </Button>
+          </div>
+        </div>
+      )}
       <form onSubmit={onSubmit} className="space-y-4">
         <Field label={t('proxies.col.label')} required error={formState.errors.label?.message}>
           <Input
@@ -257,8 +300,12 @@ export function ProxyEditorDrawer({
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <Field label={t('pxd.username')}>
-                <Input autoComplete="off" {...register('username')} />
+              <Field label={t('pxd.username')} error={formState.errors.username?.message}>
+                <Input
+                  autoComplete="off"
+                  {...register('username')}
+                  invalid={Boolean(formState.errors.username)}
+                />
               </Field>
               <Field
                 label={t('auth.password')}

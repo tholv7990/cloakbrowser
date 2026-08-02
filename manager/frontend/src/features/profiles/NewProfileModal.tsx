@@ -18,7 +18,7 @@ import {
   wizardValuesToValidationDraft,
 } from '@/schemas/profile';
 import { parseProxyText } from '@/schemas/proxy';
-import { useProxyProviders } from '@/features/proxies/api';
+import { useProxies, useProxyProviders } from '@/features/proxies/api';
 import { useSettings } from '@/features/settings/api';
 import { ProxyEditorDrawer } from '@/features/proxies/ProxyEditorDrawer';
 import { ProvidersDialog } from '@/features/proxies/ProvidersDialog';
@@ -65,6 +65,7 @@ export function NewProfileModal({
   const [done, setDone] = useState(0);
 
   const providers = useProxyProviders();
+  const proxies = useProxies();
   const provider = (providers.data ?? []).find((p) => p.id === providerId);
 
   // Chromium build per profile: the installed one by default, or pin the newer
@@ -442,6 +443,7 @@ export function NewProfileModal({
     <ProxyEditorDrawer
       open={proxyEditorOpen}
       proxy={selectedProxy}
+      assignableProxies={selectedProxy ? [] : (proxies.data ?? [])}
       defaultLabel={name.trim()}
       onClose={() => setProxyEditorOpen(false)}
       onSaved={(proxy) => {

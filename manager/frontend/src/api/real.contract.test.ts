@@ -8,6 +8,32 @@ const jsonResponse = (body: unknown, init: ResponseInit = {}) =>
     ...init,
   });
 
+const proxyResponse = {
+  id: 'proxy-1',
+  label: 'Strict proxy',
+  scheme: 'socks5',
+  host: 'proxy.example',
+  port: 1080,
+  username: 'proxy-user',
+  has_password: true,
+  masked_endpoint: 'socks5://proxy.example:1080',
+  test_before_launch: true,
+  assigned_profile_count: 0,
+  exit_ip: null,
+  country: null,
+  city: null,
+  timezone: null,
+  asn: null,
+  organization: null,
+  proxy_type: null,
+  type_confidence: null,
+  reputation: null,
+  latency_ms: null,
+  last_checked_at: null,
+  created_at: '2026-08-02T00:00:00Z',
+  updated_at: '2026-08-02T00:00:00Z',
+};
+
 describe('real Manager adapter contract', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -64,6 +90,31 @@ describe('real Manager adapter contract', () => {
     expect(String(url)).toContain('/profiles/validate');
     expect(init?.method).toBe('POST');
     expect(JSON.parse(String(init?.body))).toEqual(draft);
+  });
+
+  it('rejects leaked password fields from every live proxy response call', async () => {
+    const leaked = { ...proxyResponse, password: 'must-never-reach-the-ui' };
+    const payload = {
+      label: 'Strict proxy',
+      scheme: 'socks5' as const,
+      host: 'proxy.example',
+      port: 1080,
+      username: 'proxy-user',
+      password: 'write-only',
+      test_before_launch: true,
+    };
+    const calls = [
+      { response: [leaked], invoke: () => realApi.listProxies() },
+      { response: leaked, invoke: () => realApi.getProxy('proxy-1') },
+      { response: leaked, invoke: () => realApi.createProxy(payload) },
+      { response: leaked, invoke: () => realApi.updateProxy('proxy-1', payload) },
+    ];
+
+    for (const call of calls) {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse(call.response));
+      await expect(call.invoke()).rejects.toThrow();
+      vi.restoreAllMocks();
+    }
   });
 
   it('maps paginated logs, extension operations, and diagnostics filters to canonical routes', async () => {

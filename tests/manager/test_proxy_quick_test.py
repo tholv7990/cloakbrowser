@@ -158,6 +158,95 @@ def test_adhoc_quick_test_uses_typed_values_without_persisting(client, auth_head
     assert len(after) == len(before)
 
 
+def test_adhoc_quick_test_uses_saved_credentials_with_current_endpoint_values(
+    client, auth_headers
+):
+    client.app.state.credential_store = MemoryCredentialStore()
+
+    class Tester:
+        def __init__(self):
+            self.received = None
+
+        def run(self, proxy_url, timeout_seconds=20):
+            self.received = (proxy_url, timeout_seconds)
+            return QuickTestResult(
+                exit_ip="203.0.113.44",
+                exit_ip_matches=True,
+                latency_ms=91,
+                checked_at=datetime(2026, 8, 2, tzinfo=timezone.utc),
+            )
+
+    tester = Tester()
+    client.app.state.proxy_quick_tester = tester
+    saved = _create(client, auth_headers)
+
+    response = client.post(
+        "/api/v1/proxies/test",
+        headers=auth_headers,
+        json={
+            "scheme": "socks5",
+            "host": "current-unsaved.example",
+            "port": 1080,
+            "username": "fixture-user",
+            "password": None,
+            "credential_proxy_id": saved["id"],
+        },
+    )
+
+    assert response.status_code == 200, response.json()
+    assert tester.received is not None
+    tested_url = tester.received[0]
+    assert "current-unsaved.example:1080" in tested_url
+    assert "fixture-user" in tested_url and "fixture-pass" in tested_url
+    assert "fixture-pass" not in str(response.json())
+
+
+def test_adhoc_saved_credential_lookup_requires_matching_username(client, auth_headers):
+    client.app.state.credential_store = MemoryCredentialStore()
+
+    class UnexpectedTester:
+        def run(self, *_args, **_kwargs):
+            raise AssertionError("mismatched stored credentials must not be tested")
+
+    client.app.state.proxy_quick_tester = UnexpectedTester()
+    saved = _create(client, auth_headers)
+
+    response = client.post(
+        "/api/v1/proxies/test",
+        headers=auth_headers,
+        json={
+            "scheme": "socks5",
+            "host": "current-unsaved.example",
+            "port": 1080,
+            "username": "different-user",
+            "password": None,
+            "credential_proxy_id": saved["id"],
+        },
+    )
+
+    assert response.status_code == 422, response.json()
+    assert response.json()["error"]["code"] == "proxy_credential_mismatch"
+
+
+def test_adhoc_saved_credential_lookup_requires_authentication(client, auth_headers):
+    client.app.state.credential_store = MemoryCredentialStore()
+    saved = _create(client, auth_headers)
+
+    response = client.post(
+        "/api/v1/proxies/test",
+        json={
+            "scheme": "socks5",
+            "host": "current-unsaved.example",
+            "port": 1080,
+            "username": "fixture-user",
+            "password": None,
+            "credential_proxy_id": saved["id"],
+        },
+    )
+
+    assert response.status_code in {401, 403}
+
+
 def test_apply_proxy_geo_stamps_timezone_only_for_geo_mode_proxy():
     from manager_backend.features.proxies.service import _apply_proxy_geo
 
