@@ -1176,6 +1176,6 @@ export const vi: Record<keyof typeof en, string> = {
   'synchronize.ok': 'Đã sắp xếp',
   'synchronize.notRunning': 'Chưa chạy',
   'synchronize.failed': 'Thất bại',
-  'pxd.clearCredentials': 'Xoa thong tin dang nhap da luu',
-  'pxd.clearCredentialsHint': 'Xoa ten dang nhap va mat khau da luu khi ban luu.',
+  'pxd.clearCredentials': 'Xóa thông tin đăng nhập đã lưu',
+  'pxd.clearCredentialsHint': 'Xóa tên đăng nhập và mật khẩu đã lưu khi bạn lưu.',
 };
