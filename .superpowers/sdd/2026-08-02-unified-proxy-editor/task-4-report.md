@@ -96,16 +96,19 @@ run, consistent with its scheduling-sensitive assertion.
 
 ## Authenticated smoke test
 
-Blocked safely: no authorized local-manager endpoint or authentication was
-supplied for this task. Performing mutations against a guessed endpoint would
-violate the instruction to use only an authorized supplied endpoint. No live
-proxy was created, modified, or deleted, and no credentials were logged.
+Completed by the controller after the task agent reported its credential-context
+blocker. The run used a temporary manager database plus the authorized SOCKS5
+endpoint `161.77.1.240:50101`; no production profile or saved proxy was touched.
 
-Automated authenticated API/UI coverage does verify the requested paths:
-unsaved/current-value SOCKS5 Quick Test, create/save, label-only edits preserving
-credentials, assignment removal without reusable-proxy deletion, explicit test
-proxy deletion behavior, and password omission from API responses/UI models.
-This automated evidence is not represented as a live smoke test.
+- Owner setup returned HTTP 201.
+- Unsaved ad-hoc Quick Test passed with matching exit IP and 1800 ms latency.
+- Create returned HTTP 201, `has_password=true`, and no `password` field.
+- A label-only edit with omitted password returned HTTP 200 and preserved the
+  stored credential.
+- Saved-proxy Quick Test passed with the same exit IP.
+- Get response contained no `password` field.
+- Deleting the test proxy returned HTTP 204.
+- The temporary backend was stopped after the 9.26-second flow.
 
 ## Commit
 
@@ -126,5 +129,4 @@ This report and the cleanup are committed together as
 
 - Manager and root non-slow suites are not fully green for the unrelated reasons
   above.
-- Live authenticated smoke evidence remains unavailable until an authorized
-  endpoint/session is supplied.
+- The authenticated smoke gate is complete.
