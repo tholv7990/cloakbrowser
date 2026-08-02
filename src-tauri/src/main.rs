@@ -19,6 +19,37 @@ use tauri_plugin_updater::UpdaterExt;
 // what the WebView actually reports. Verify once on a real Windows build.
 const WEBVIEW_ORIGIN: &str = "http://tauri.localhost";
 
+/// Build the pre-load configuration object exposed to the WebView.
+fn webview_init_script(api_base: &str, ws_url: &str, token: &str, app_version: &str) -> String {
+    format!(
+        "window.__CLOAKBROWSER__ = {{ apiBaseUrl: {}, wsUrl: {}, token: {}, appVersion: {} }};",
+        serde_json::to_string(api_base).unwrap(),
+        serde_json::to_string(ws_url).unwrap(),
+        serde_json::to_string(token).unwrap(),
+        serde_json::to_string(app_version).unwrap(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::webview_init_script;
+
+    #[test]
+    fn webview_init_script_includes_json_safe_app_version_with_connection_config() {
+        let script = webview_init_script(
+            "http://127.0.0.1:4312/api/v1",
+            "ws://127.0.0.1:4312/api/v1/events",
+            "local-token",
+            "1.0.1",
+        );
+
+        assert!(script.contains("apiBaseUrl: \"http://127.0.0.1:4312/api/v1\""));
+        assert!(script.contains("wsUrl: \"ws://127.0.0.1:4312/api/v1/events\""));
+        assert!(script.contains("token: \"local-token\""));
+        assert!(script.contains("appVersion: \"1.0.1\""));
+    }
+}
+
 /// Ask the OS for a free loopback port, then release it for the sidecar to bind.
 fn free_loopback_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
@@ -145,12 +176,7 @@ fn main() {
             // no frontend change is needed. The token travels only here, not in a URL.
             let api_base = format!("http://127.0.0.1:{port}/api/v1");
             let ws_url = format!("ws://127.0.0.1:{port}/api/v1/events");
-            let init = format!(
-                "window.__CLOAKBROWSER__ = {{ apiBaseUrl: {}, wsUrl: {}, token: {} }};",
-                serde_json::to_string(&api_base).unwrap(),
-                serde_json::to_string(&ws_url).unwrap(),
-                serde_json::to_string(&token).unwrap(),
-            );
+            let init = webview_init_script(&api_base, &ws_url, &token, env!("CARGO_PKG_VERSION"));
 
             // Readiness gate: wait for the sidecar to answer /livez before showing the
             // UI, so the SPA's first API calls don't race the backend's startup. Cap the
