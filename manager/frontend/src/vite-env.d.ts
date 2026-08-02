@@ -17,5 +17,6 @@ interface Window {
     token?: string;
     apiBaseUrl?: string;
     wsUrl?: string;
+    appVersion?: string;
   };
 }

@@ -15,7 +15,13 @@
 # (Startup-perf follow-up: switch to onedir bundled via `resources` + a resource-path
 #  spawn in main.rs, once someone can iterate a real Windows build.)
 
+from pathlib import Path
+
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+
+
+REPOSITORY_ROOT = Path(SPEC).resolve().parent.parent
+MANAGER_BACKEND_ROOT = REPOSITORY_ROOT / "manager_backend"
 
 hiddenimports = (
     collect_submodules("manager_backend")
@@ -34,14 +40,14 @@ hiddenimports = (
 
 # The Alembic migrations + ini must ship so apply_schema()/upgrade head works.
 datas = [
-    ("../manager_backend/alembic.ini", "manager_backend"),
-    ("../manager_backend/migrations", "manager_backend/migrations"),
+    (str(MANAGER_BACKEND_ROOT / "alembic.ini"), "manager_backend"),
+    (str(MANAGER_BACKEND_ROOT / "migrations"), "manager_backend/migrations"),
 ]
 datas += collect_data_files("cloakbrowser")
 
 a = Analysis(
-    ["../manager_backend/serve.py"],
-    pathex=[".."],
+    [str(MANAGER_BACKEND_ROOT / "serve.py")],
+    pathex=[str(REPOSITORY_ROOT)],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
