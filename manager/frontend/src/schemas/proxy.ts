@@ -59,6 +59,7 @@ export const proxyFormSchema = z
     username: z.string().trim().max(200).nullable(),
     // Write-only. Empty string on edit means "leave the stored secret unchanged".
     password: z.string().max(400).optional(),
+    clear_credentials: z.boolean().optional(),
     test_before_launch: z.boolean(),
   })
   .superRefine((value, ctx) => {
@@ -76,17 +77,18 @@ export type ProxyFormValues = z.input<typeof proxyFormSchema>;
 
 export function toProxyPayload(values: z.output<typeof proxyFormSchema>): ProxyWritePayload {
   const isDirect = values.scheme === 'direct';
+  const clearCredentials = values.clear_credentials === true;
   return {
     label: values.label,
     scheme: values.scheme,
     host: isDirect ? '' : values.host,
     port: isDirect ? null : values.port,
-    // Direct mode forbids credentials server-side. When editing a proxy that HAD a
-    // username/password, the hidden fields keep their old values — clear them for
-    // direct, or the backend rejects the endpoint/credentials with a 422.
-    username: isDirect ? null : values.username || null,
+    // Direct mode forbids submitted credentials; stored credentials remain until
+    // the user explicitly clears them.
+    username: isDirect || clearCredentials ? null : values.username || null,
     // Only send a password when the user typed one (write-only field).
-    password: isDirect ? undefined : values.password ? values.password : undefined,
+    password: isDirect || clearCredentials ? undefined : values.password ? values.password : undefined,
+    clear_credentials: clearCredentials || undefined,
     test_before_launch: values.test_before_launch,
   };
 }

@@ -28,16 +28,15 @@ def _install_store(client):
     return store
 
 
-def test_create_list_and_read_proxy_returns_the_saved_credentials(client, auth_headers):
+def test_create_list_and_read_proxy_never_return_the_saved_password(client, auth_headers):
     _install_store(client)
     created = client.post("/api/v1/proxies", headers=auth_headers, json=_proxy_payload())
     assert created.status_code == 201
     body = created.json()
-    # Proxy credentials are ordinary config for a local single-owner app: both
-    # username and password come back so the edit form can prefill and keep them.
+    # Username identifies the configured login, but the secret is write-only.
     assert body["username"] == "fixture-user"
     assert body["has_password"] is True
-    assert body["password"] == "fixture-pass"
+    assert "password" not in body
     assert body["masked_endpoint"] == "socks5://198.51.100.25:50101"
 
     listing = client.get("/api/v1/proxies")
@@ -46,16 +45,67 @@ def test_create_list_and_read_proxy_returns_the_saved_credentials(client, auth_h
     assert client.get(f"/api/v1/proxies/{body['id']}").json() == body
 
 
-def test_patch_without_credentials_preserves_existing_secret(client, auth_headers):
+def test_patch_with_an_empty_password_preserves_existing_credentials(client, auth_headers):
     store = _install_store(client)
     created = client.post("/api/v1/proxies", headers=auth_headers, json=_proxy_payload()).json()
     updated = client.patch(
         f"/api/v1/proxies/{created['id']}",
         headers=auth_headers,
-        json=_proxy_payload(label="Renamed", username=None, password=None),
+        json=_proxy_payload(label="Renamed", password=""),
     )
     assert updated.status_code == 200
     assert updated.json()["label"] == "Renamed"
+    assert updated.json()["has_password"] is True
+    assert len(store._values) == 1
+    assert next(iter(store._values.values())).password == "fixture-pass"
+
+
+def test_patch_replaces_credentials_only_with_a_non_empty_pair(client, auth_headers):
+    store = _install_store(client)
+    created = client.post("/api/v1/proxies", headers=auth_headers, json=_proxy_payload()).json()
+
+    updated = client.patch(
+        f"/api/v1/proxies/{created['id']}",
+        headers=auth_headers,
+        json=_proxy_payload(username="rotated-user", password="rotated-pass"),
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["username"] == "rotated-user"
+    assert "password" not in updated.json()
+    assert len(store._values) == 1
+    assert next(iter(store._values.values())).username == "rotated-user"
+    assert next(iter(store._values.values())).password == "rotated-pass"
+
+
+def test_patch_deletes_credentials_only_when_explicitly_requested(client, auth_headers):
+    store = _install_store(client)
+    created = client.post("/api/v1/proxies", headers=auth_headers, json=_proxy_payload()).json()
+
+    updated = client.patch(
+        f"/api/v1/proxies/{created['id']}",
+        headers=auth_headers,
+        json=_proxy_payload(username=None, password=None, clear_credentials=True),
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["username"] is None
+    assert updated.json()["has_password"] is False
+    assert "password" not in updated.json()
+    assert store._values == {}
+
+
+def test_patch_to_direct_preserves_credentials_without_an_explicit_clear(client, auth_headers):
+    store = _install_store(client)
+    created = client.post("/api/v1/proxies", headers=auth_headers, json=_proxy_payload()).json()
+
+    updated = client.patch(
+        f"/api/v1/proxies/{created['id']}",
+        headers=auth_headers,
+        json=_proxy_payload(scheme="direct", host="", port=None, username=None, password=None),
+    )
+
+    assert updated.status_code == 200
     assert updated.json()["has_password"] is True
     assert len(store._values) == 1
 

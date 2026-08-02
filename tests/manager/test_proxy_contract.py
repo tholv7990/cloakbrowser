@@ -18,11 +18,10 @@ def test_proxy_capability_and_frontend_routes_are_published(client, auth_headers
         assert path in paths
 
 
-def test_proxy_reads_expose_credentials_but_never_the_store_reference(client):
-    """Proxy credentials are ordinary config for a local single-owner app, so reads
-    return them. The credential_ref is an internal store key and stays hidden."""
+def test_proxy_reads_expose_login_state_but_never_secret_material(client):
+    """The edit UI knows whether a password exists, but never receives its value."""
     schemas = client.app.openapi()["components"]["schemas"]
     read = schemas["ProxyRead"]["properties"]
-    assert "password" in read
+    assert "password" not in read
     assert "username" in read
     assert "credential_ref" not in read

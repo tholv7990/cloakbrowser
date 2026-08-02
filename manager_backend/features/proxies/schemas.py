@@ -28,7 +28,7 @@ class ProxyWrite(StrictModel):
         if not self.label:
             raise ValueError("label is required")
         supplied = self.username is not None or self.password is not None
-        if supplied and (not self.username or not self.password):
+        if self.password and not self.username:
             raise ValueError("username and password must be supplied together")
         if self.clear_credentials and supplied:
             raise ValueError("clear_credentials cannot accompany credentials")
@@ -47,10 +47,9 @@ class ProxyRead(StrictModel):
     host: str
     port: int | None
     # The username is a login identifier, returned so the edit form can prefill
-    # it. `has_password` says whether one is stored; `password` returns it.
+    # it. `has_password` says whether a write-only secret is stored.
     username: str | None = None
     has_password: bool
-    password: str | None = None
     masked_endpoint: str
     test_before_launch: bool
     assigned_profile_count: int

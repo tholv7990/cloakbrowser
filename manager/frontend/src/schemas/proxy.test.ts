@@ -91,7 +91,24 @@ describe('proxyFormSchema', () => {
     expect(payload.password).toBe('secret');
   });
 
-  it('clears stale credentials when switching an existing proxy to direct', () => {
+  it('converts an explicit credential-clear request into the write payload', () => {
+    const parsed = proxyFormSchema.parse({
+      label: 'x',
+      scheme: 'http',
+      host: 'h',
+      port: 8080,
+      username: '',
+      password: '',
+      clear_credentials: true,
+      test_before_launch: true,
+    });
+    const payload = toProxyPayload(parsed);
+    expect(payload.clear_credentials).toBe(true);
+    expect(payload.username).toBeNull();
+    expect(payload.password).toBeUndefined();
+  });
+
+  it('does not send stale credentials when switching an existing proxy to direct', () => {
     // Editing a proxy that HAD a username/password to direct mode: the hidden
     // fields keep their old values, but the backend rejects credentials in
     // direct mode (422). The payload must drop them.

@@ -34,7 +34,7 @@ function defaults(proxy: Proxy | null, defaultLabel = ''): ProxyFormValues {
     host: proxy?.host ?? '',
     port: proxy?.port ?? '',
     username: proxy?.username ?? '',
-    password: proxy?.password ?? '',
+    password: '',
     test_before_launch: proxy?.test_before_launch ?? true,
   };
 }
@@ -105,9 +105,7 @@ export function ProxyEditorDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, proxy?.id, reset]);
 
-  // Proxy credentials are ordinary config, not a secret to be hidden from their
-  // owner: the value is returned by the API and shown, with a toggle to mask it
-  // if someone is looking over your shoulder.
+  // Passwords are write-only. The toggle only reveals a newly typed value.
   const [showPassword, setShowPassword] = useState(true);
 
   // Auto-fill all four fields (incl. password) as the user pastes — no button.

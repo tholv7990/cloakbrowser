@@ -14889,17 +14889,6 @@
             "type": "boolean",
             "title": "Has Password"
           },
-          "password": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Password"
-          },
           "masked_endpoint": {
             "type": "string",
             "title": "Masked Endpoint"

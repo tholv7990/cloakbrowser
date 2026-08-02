@@ -52,13 +52,10 @@ def proxy_to_dict(
     assigned_count: int | None = None,
 ) -> dict:
     endpoint = "direct" if proxy.scheme == "direct" else f"{proxy.scheme}://{proxy.host}:{proxy.port}"
-    username = password = None
+    username = None
     if store is not None and proxy.credential_ref:
         credential = store.get(proxy.credential_ref)
         username = credential.username if credential is not None else None
-        # Proxy credentials are ordinary config for a local, single-owner app —
-        # returned like host/port so the editor can show and keep them.
-        password = credential.password if credential is not None else None
     return {
         "id": proxy.id,
         "label": proxy.label,
@@ -67,7 +64,6 @@ def proxy_to_dict(
         "port": proxy.port,
         "username": username,
         "has_password": proxy.credential_ref is not None,
-        "password": password,
         "masked_endpoint": endpoint,
         "test_before_launch": proxy.test_before_launch,
         "assigned_profile_count": (
@@ -104,9 +100,9 @@ def list_proxies(session: Session, store: CredentialStore | None = None) -> list
 
 def create_proxy(session: Session, store: CredentialStore, payload: ProxyWrite) -> Proxy:
     reference = None
-    if payload.username is not None:
+    if payload.username and payload.password:
         reference = str(uuid4())
-        store.put(reference, ProxyCredential(payload.username, payload.password or ""))
+        store.put(reference, ProxyCredential(payload.username, payload.password))
     proxy = Proxy(
         label=payload.label,
         scheme=payload.scheme,
@@ -138,11 +134,11 @@ def update_proxy(
     proxy = get_proxy(session, proxy_id)
     old_reference = proxy.credential_ref
     new_reference = None
-    if payload.username is not None:
+    if payload.username and payload.password:
         new_reference = str(uuid4())
-        store.put(new_reference, ProxyCredential(payload.username, payload.password or ""))
+        store.put(new_reference, ProxyCredential(payload.username, payload.password))
         proxy.credential_ref = new_reference
-    elif payload.clear_credentials or payload.scheme == "direct":
+    elif payload.clear_credentials:
         proxy.credential_ref = None
     proxy.label = payload.label
     proxy.scheme = payload.scheme

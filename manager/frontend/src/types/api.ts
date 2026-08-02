@@ -8,8 +8,7 @@
  * payloads must match these shapes exactly.
  *
  * No type here carries an auth header, cookie value, session token, or website
- * credential. Proxy passwords are the exception: they are ordinary local config
- * for a single-owner desktop app, so the editor can show and keep them.
+ * credential. Proxy passwords are write-only and remain in form submissions only.
  */
 
 // ---------------------------------------------------------------------------
@@ -91,7 +90,7 @@ export interface BrowserInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Proxy. Responses DO carry `password` — see the note at the top of this file.
+// Proxy. Responses expose password state, never password values.
 // ---------------------------------------------------------------------------
 
 export interface Proxy {
@@ -102,8 +101,6 @@ export interface Proxy {
   port: number | null;
   username: string | null;
   has_password: boolean;
-  /** Returned like any other field — proxy creds are ordinary local config. */
-  password?: string | null;
   masked_endpoint: string;
   test_before_launch: boolean;
   assigned_profile_count: number;
@@ -338,6 +335,8 @@ export interface ProxyWritePayload {
   username: string | null;
   /** Write-only. Present only on create/update; never returned. */
   password?: string | null;
+  /** Write-only. Deletes stored credentials when true. */
+  clear_credentials?: boolean;
   test_before_launch: boolean;
 }
 
