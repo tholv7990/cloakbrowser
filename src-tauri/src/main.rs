@@ -4,12 +4,13 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use rand::RngCore;
 use tauri::async_runtime::Receiver;
 use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_shell::process::CommandEvent;
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
 
@@ -30,9 +31,77 @@ fn webview_init_script(api_base: &str, ws_url: &str, token: &str, app_version: &
     )
 }
 
+/// Tracks the one sidecar owned by this application process. Shutdown takes the
+/// retained child out of the slot, which makes termination possible and keeps
+/// the supervisor from registering a replacement afterward.
+struct BackendLifecycle<C> {
+    current_child: Option<C>,
+    shutdown_requested: bool,
+}
+
+impl<C> BackendLifecycle<C> {
+    fn new() -> Self {
+        Self {
+            current_child: None,
+            shutdown_requested: false,
+        }
+    }
+
+    fn register_child(&mut self, child: C) -> Result<(), C> {
+        if self.shutdown_requested || self.current_child.is_some() {
+            Err(child)
+        } else {
+            self.current_child = Some(child);
+            Ok(())
+        }
+    }
+
+    fn child_exited(&mut self) -> Option<C> {
+        self.current_child.take()
+    }
+
+    fn begin_shutdown(&mut self) -> Option<C> {
+        self.shutdown_requested = true;
+        self.current_child.take()
+    }
+
+    fn should_respawn(&self) -> bool {
+        !self.shutdown_requested
+    }
+}
+
+/// Runs cleanup unless setup reaches its explicit success point. This covers
+/// errors and panics after the sidecar has spawned but before Tauri begins
+/// delivering application exit events.
+struct CleanupGuard<F: FnOnce()> {
+    cleanup: Option<F>,
+}
+
+impl<F: FnOnce()> CleanupGuard<F> {
+    fn new(cleanup: F) -> Self {
+        Self {
+            cleanup: Some(cleanup),
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.cleanup = None;
+    }
+}
+
+impl<F: FnOnce()> Drop for CleanupGuard<F> {
+    fn drop(&mut self) {
+        if let Some(cleanup) = self.cleanup.take() {
+            cleanup();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::webview_init_script;
+    use std::cell::Cell;
+
+    use super::{webview_init_script, BackendLifecycle, CleanupGuard};
 
     #[test]
     fn webview_init_script_includes_json_safe_app_version_with_connection_config() {
@@ -47,6 +116,41 @@ mod tests {
         assert!(script.contains("wsUrl: \"ws://127.0.0.1:4312/api/v1/events\""));
         assert!(script.contains("token: \"local-token\""));
         assert!(script.contains("appVersion: \"1.0.1\""));
+    }
+
+    #[test]
+    fn backend_lifecycle_retains_child_for_shutdown_and_blocks_late_respawn() {
+        let mut lifecycle = BackendLifecycle::new();
+
+        assert_eq!(lifecycle.register_child(41), Ok(()));
+        assert_eq!(lifecycle.begin_shutdown(), Some(41));
+        assert!(!lifecycle.should_respawn());
+        assert_eq!(lifecycle.register_child(42), Err(42));
+    }
+
+    #[test]
+    fn backend_lifecycle_allows_respawn_after_unexpected_exit() {
+        let mut lifecycle = BackendLifecycle::new();
+        lifecycle.register_child(41).unwrap();
+
+        assert_eq!(lifecycle.child_exited(), Some(41));
+        assert!(lifecycle.should_respawn());
+        assert_eq!(lifecycle.register_child(42), Ok(()));
+    }
+
+    #[test]
+    fn cleanup_guard_runs_on_failure_but_can_be_disarmed_after_setup() {
+        let cleanups = Cell::new(0);
+        {
+            let _guard = CleanupGuard::new(|| cleanups.set(cleanups.get() + 1));
+        }
+        assert_eq!(cleanups.get(), 1);
+
+        {
+            let mut guard = CleanupGuard::new(|| cleanups.set(cleanups.get() + 1));
+            guard.disarm();
+        }
+        assert_eq!(cleanups.get(), 1);
     }
 }
 
@@ -67,20 +171,73 @@ fn per_process_token() -> String {
     hex::encode(bytes)
 }
 
-/// Spawn the frozen FastAPI backend on `port`, injecting the port + secrets. Returns
-/// the event stream; the channel closes when the process exits (drives respawn).
-fn spawn_backend(app: &AppHandle, port: u16, token: &str) -> Receiver<CommandEvent> {
-    let (rx, _child) = app
-        .shell()
-        .sidecar("plasma-backend")
-        .expect("plasma-backend sidecar not found")
-        .env("PLASMA_PORT", port.to_string())
-        .env("PLASMA_LOCAL_TOKEN", token.to_string())
-        .env("PLASMA_REQUIRE_LOCAL_TOKEN", "1")
-        .env("PLASMA_ALLOWED_ORIGIN", WEBVIEW_ORIGIN)
-        .spawn()
-        .expect("failed to spawn plasma-backend");
-    rx
+struct BackendSupervisor {
+    lifecycle: Mutex<BackendLifecycle<CommandChild>>,
+}
+
+impl BackendSupervisor {
+    fn new() -> Self {
+        Self {
+            lifecycle: Mutex::new(BackendLifecycle::new()),
+        }
+    }
+
+    fn lifecycle(&self) -> MutexGuard<'_, BackendLifecycle<CommandChild>> {
+        self.lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Spawn the frozen FastAPI backend and retain its process handle. Holding
+    /// the lifecycle lock across spawn closes the race where shutdown could be
+    /// requested after the check but before the new child is registered.
+    fn spawn_backend(
+        &self,
+        app: &AppHandle,
+        port: u16,
+        token: &str,
+    ) -> Option<Receiver<CommandEvent>> {
+        let mut lifecycle = self.lifecycle();
+        if !lifecycle.should_respawn() {
+            return None;
+        }
+
+        let (rx, child) = app
+            .shell()
+            .sidecar("plasma-backend")
+            .expect("plasma-backend sidecar not found")
+            .env("PLASMA_PORT", port.to_string())
+            .env("PLASMA_LOCAL_TOKEN", token.to_string())
+            .env("PLASMA_REQUIRE_LOCAL_TOKEN", "1")
+            .env("PLASMA_ALLOWED_ORIGIN", WEBVIEW_ORIGIN)
+            .spawn()
+            .expect("failed to spawn plasma-backend");
+
+        if let Err(unexpected_child) = lifecycle.register_child(child) {
+            let _ = unexpected_child.kill();
+            return None;
+        }
+        Some(rx)
+    }
+
+    fn child_exited(&self) {
+        self.lifecycle().child_exited();
+    }
+
+    fn should_respawn(&self) -> bool {
+        self.lifecycle().should_respawn()
+    }
+
+    /// Disable future respawns before terminating the current child. This is
+    /// idempotent because Tauri may report both ExitRequested and Exit.
+    fn shutdown(&self) {
+        let child = self.lifecycle().begin_shutdown();
+        if let Some(child) = child {
+            if let Err(error) = child.kill() {
+                eprintln!("[backend] failed to terminate sidecar during shutdown: {error}");
+            }
+        }
+    }
 }
 
 /// True once the sidecar answers its public liveness probe (`/livez` → 200). A raw
@@ -131,19 +288,27 @@ async fn check_for_update(app: AppHandle) {
 }
 
 fn main() {
-    tauri::Builder::default()
+    let backend = Arc::new(BackendSupervisor::new());
+    let setup_backend = Arc::clone(&backend);
+
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .setup(|app| {
+        .setup(move |app| {
+            let cleanup_backend = Arc::clone(&setup_backend);
+            let mut setup_cleanup = CleanupGuard::new(move || cleanup_backend.shutdown());
             let port = free_loopback_port();
             let token = per_process_token();
 
             // First spawn, then a supervisor that respawns on unexpected exit with a
             // capped backoff (reusing the same port + token, so the already-loaded
             // WebView keeps working). Gives up after repeated fast crashes.
-            let first_rx = spawn_backend(&app.handle(), port, &token);
+            let first_rx = setup_backend
+                .spawn_backend(&app.handle(), port, &token)
+                .expect("backend shutdown requested during initial spawn");
             let sup_app = app.handle().clone();
             let sup_token = token.clone();
+            let supervisor = Arc::clone(&setup_backend);
             tauri::async_runtime::spawn(async move {
                 let mut rx = first_rx;
                 let mut fails: u32 = 0;
@@ -156,6 +321,10 @@ fn main() {
                         }
                     }
                     // Channel closed => the sidecar exited.
+                    supervisor.child_exited();
+                    if !supervisor.should_respawn() {
+                        break;
+                    }
                     if started.elapsed().as_secs() >= 30 {
                         fails = 0; // ran healthily for a while; not a crash loop
                     }
@@ -167,7 +336,10 @@ fn main() {
                     let backoff = std::cmp::min(fails, 5) as u64;
                     eprintln!("[backend] exited; respawning in {backoff}s (attempt {fails})");
                     tokio::time::sleep(Duration::from_secs(backoff)).await;
-                    rx = spawn_backend(&sup_app, port, &sup_token);
+                    let Some(next_rx) = supervisor.spawn_backend(&sup_app, port, &sup_token) else {
+                        break;
+                    };
+                    rx = next_rx;
                 }
             });
 
@@ -198,8 +370,18 @@ fn main() {
             let update_app = app.handle().clone();
             tauri::async_runtime::spawn(check_for_update(update_app));
 
+            setup_cleanup.disarm();
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Plasma");
+        .build(tauri::generate_context!())
+        .expect("error while building Plasma");
+
+    app.run(move |_app_handle, event| {
+        if matches!(
+            event,
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+        ) {
+            backend.shutdown();
+        }
+    });
 }
