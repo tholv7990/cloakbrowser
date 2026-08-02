@@ -60,6 +60,22 @@ def test_patch_with_an_empty_password_preserves_existing_credentials(client, aut
     assert next(iter(store._values.values())).password == "fixture-pass"
 
 
+def test_patch_with_password_omitted_preserves_existing_credentials(client, auth_headers):
+    store = _install_store(client)
+    created = client.post("/api/v1/proxies", headers=auth_headers, json=_proxy_payload()).json()
+    payload = _proxy_payload(label="Renamed", username="different-user")
+    del payload["password"]
+
+    updated = client.patch(
+        f"/api/v1/proxies/{created['id']}", headers=auth_headers, json=payload
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["username"] == "fixture-user"
+    assert updated.json()["has_password"] is True
+    assert next(iter(store._values.values())).password == "fixture-pass"
+
+
 def test_patch_replaces_credentials_only_with_a_non_empty_pair(client, auth_headers):
     store = _install_store(client)
     created = client.post("/api/v1/proxies", headers=auth_headers, json=_proxy_payload()).json()

@@ -35,6 +35,7 @@ function defaults(proxy: Proxy | null, defaultLabel = ''): ProxyFormValues {
     port: proxy?.port ?? '',
     username: proxy?.username ?? '',
     password: '',
+    clear_credentials: false,
     test_before_launch: proxy?.test_before_launch ?? true,
   };
 }
@@ -118,6 +119,7 @@ export function ProxyEditorDrawer({
     setValue('port', Number(parsed.port), { shouldValidate: true });
     setValue('username', parsed.username, { shouldValidate: true });
     setValue('password', parsed.password, { shouldValidate: true });
+    setValue('clear_credentials', false);
   };
 
   const onSubmit = handleSubmit(async (values) => {
@@ -126,7 +128,7 @@ export function ProxyEditorDrawer({
       ? await updateProxy.mutateAsync({ id: current.id, payload })
       : await createProxy.mutateAsync(payload);
     setCurrent(saved);
-    reset(defaults(saved)); // keeps the saved credentials in the form
+    reset(defaults(saved)); // saved passwords are write-only, so keep the field empty
     onSaved?.(saved);
   });
 
@@ -259,13 +261,15 @@ export function ProxyEditorDrawer({
                 <div className="relative">
                   <Input
                     type={showPassword ? 'text' : 'password'}
+                    aria-label={t('auth.password')}
                     autoComplete="new-password"
                     className="pr-9"
                     placeholder={current?.has_password ? '••••••••' : ''}
-                    {...register('password')}
+                    {...register('password', {
+                      onChange: () => setValue('clear_credentials', false),
+                    })}
                   />
-                  {/* Reveal fetches the stored secret on demand — it is never in
-                      the list/detail payloads, so it can't be lost to the UI. */}
+                  {/* Reveals only a newly typed replacement password. */}
                   <button
                     type="button"
                     aria-label={t(showPassword ? 'common.hidePassword' : 'common.showPassword')}
@@ -288,6 +292,23 @@ export function ProxyEditorDrawer({
               </p>
             )}
           </>
+        )}
+
+        {current?.has_password && (
+          <div className="flex items-start justify-between gap-4 rounded-md border border-line bg-surface-sunken px-3 py-2.5">
+            <div>
+              <p className="text-[13px] font-medium text-ink">{t('pxd.clearCredentials')}</p>
+              <p className="text-2xs text-ink-faint">{t('pxd.clearCredentialsHint')}</p>
+            </div>
+            <Toggle
+              checked={Boolean(watch('clear_credentials'))}
+              onChange={(value) => {
+                setValue('clear_credentials', value);
+                if (value) setValue('password', '');
+              }}
+              label={t('pxd.clearCredentials')}
+            />
+          </div>
         )}
 
         <div className="flex items-start justify-between gap-4 rounded-md border border-line bg-surface-sunken px-3 py-2.5">

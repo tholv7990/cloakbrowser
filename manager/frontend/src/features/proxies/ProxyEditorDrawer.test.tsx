@@ -17,11 +17,24 @@ const EXISTING: Proxy = {
   host: '103.82.27.148',
   port: 17735,
   username: '4v7s',
-  password: '4v7s',
   has_password: true,
   test_before_launch: true,
   assigned_profile_count: 0,
-} as unknown as Proxy;
+  masked_endpoint: 'socks5://103.82.27.148:17735',
+  exit_ip: null,
+  country: null,
+  city: null,
+  timezone: null,
+  asn: null,
+  organization: null,
+  proxy_type: null,
+  type_confidence: null,
+  reputation: null,
+  latency_ms: null,
+  last_checked_at: null,
+  created_at: '2026-08-02T00:00:00.000Z',
+  updated_at: '2026-08-02T00:00:00.000Z',
+};
 
 // Mirrors the profile flow: the drawer is mounted closed, then opened with the
 // profile name as defaultLabel.
@@ -116,5 +129,55 @@ describe('ProxyEditorDrawer test result persistence', () => {
 
     // The result must survive the refetch, not be wiped by the reset effect.
     expect(screen.getByText(/reachable/i)).toBeInTheDocument();
+  });
+});
+
+describe('ProxyEditorDrawer credential controls', () => {
+  it('sends an explicit clear request for stored credentials', async () => {
+    const update = vi.spyOn(api, 'updateProxy').mockResolvedValue({
+      ...EXISTING,
+      username: null,
+      has_password: false,
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ProxyEditorDrawer open proxy={EXISTING} onClose={() => {}} />);
+
+    await user.click(await screen.findByRole('switch', { name: /clear stored credentials/i }));
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        EXISTING.id,
+        expect.objectContaining({ clear_credentials: true, username: null, password: undefined }),
+      ),
+    );
+  });
+
+  it('cancels a pending clear when a replacement password is typed', async () => {
+    const update = vi.spyOn(api, 'updateProxy').mockResolvedValue({
+      ...EXISTING,
+      username: 'replacement-user',
+      has_password: true,
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ProxyEditorDrawer open proxy={EXISTING} onClose={() => {}} />);
+
+    const clear = await screen.findByRole('switch', { name: /clear stored credentials/i });
+    await user.click(clear);
+    await user.clear(screen.getByLabelText('Password'));
+    await user.type(screen.getByLabelText('Password'), 'replacement-secret');
+    expect(clear).toHaveAttribute('aria-checked', 'false');
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        EXISTING.id,
+        expect.objectContaining({
+          clear_credentials: undefined,
+          username: '4v7s',
+          password: 'replacement-secret',
+        }),
+      ),
+    );
   });
 });

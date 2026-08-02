@@ -174,19 +174,57 @@ describe('mock proxy contract (secret safety)', () => {
     expect(c).toMatchObject({ host: 'proxy.example', port: 3128, has_password: false });
   });
 
-  it('keeps the stored password when an update sends a blank one', async () => {
-    const [proxy] = await mockApi.listProxies();
-    const withPassword = proxy.has_password;
-    const updated = await mockApi.updateProxy(proxy.id, {
-      label: proxy.label,
-      scheme: proxy.scheme,
-      host: proxy.host,
-      port: proxy.port,
-      username: proxy.username,
-      password: undefined,
-      test_before_launch: proxy.test_before_launch,
+  it('preserves, replaces, and clears credentials like the backend', async () => {
+    const created = await mockApi.createProxy({
+      label: 'Credential contract',
+      scheme: 'http',
+      host: 'proxy.example',
+      port: 8080,
+      username: 'alice',
+      password: 'first-secret',
+      test_before_launch: true,
     });
-    expect(updated.has_password).toBe(withPassword);
+    const preserved = await mockApi.updateProxy(created.id, {
+      label: created.label,
+      scheme: created.scheme,
+      host: created.host,
+      port: created.port,
+      username: 'ignored-without-password',
+      test_before_launch: created.test_before_launch,
+    });
+    expect(preserved).toMatchObject({ username: 'alice', has_password: true });
+
+    const replaced = await mockApi.updateProxy(created.id, {
+      label: created.label,
+      scheme: created.scheme,
+      host: created.host,
+      port: created.port,
+      username: 'bob',
+      password: 'second-secret',
+      test_before_launch: created.test_before_launch,
+    });
+    expect(replaced).toMatchObject({ username: 'bob', has_password: true });
+
+    const direct = await mockApi.updateProxy(created.id, {
+      label: created.label,
+      scheme: 'direct',
+      host: '',
+      port: null,
+      username: null,
+      test_before_launch: created.test_before_launch,
+    });
+    expect(direct).toMatchObject({ username: 'bob', has_password: true });
+
+    const cleared = await mockApi.updateProxy(created.id, {
+      label: direct.label,
+      scheme: direct.scheme,
+      host: direct.host,
+      port: direct.port,
+      username: null,
+      clear_credentials: true,
+      test_before_launch: direct.test_before_launch,
+    });
+    expect(cleared).toMatchObject({ username: null, has_password: false });
   });
 
   it('refuses to delete a proxy that is still assigned', async () => {

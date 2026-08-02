@@ -1243,20 +1243,20 @@ export const mockApi: ApiAdapter = {
   },
   async createProxy(payload: ProxyWritePayload): Promise<Proxy> {
     await delay(160);
-    const hasPassword = Boolean(payload.password);
+    const hasCredentials = Boolean(payload.username && payload.password);
     const proxy: Proxy = {
       id: newId('px'),
       label: payload.label,
       scheme: payload.scheme,
       host: payload.host,
       port: payload.port,
-      username: payload.username,
-      has_password: hasPassword,
+      username: hasCredentials ? payload.username : null,
+      has_password: hasCredentials,
       masked_endpoint: maskEndpoint(
         payload.scheme,
         payload.host,
         payload.port,
-        Boolean(payload.username) || hasPassword,
+        hasCredentials,
       ),
       test_before_launch: payload.test_before_launch,
       assigned_profile_count: 0,
@@ -1285,8 +1285,13 @@ export const mockApi: ApiAdapter = {
     proxy.scheme = payload.scheme;
     proxy.host = payload.host;
     proxy.port = payload.port;
-    proxy.username = payload.username;
-    if (payload.password) proxy.has_password = true;
+    if (payload.clear_credentials) {
+      proxy.username = null;
+      proxy.has_password = false;
+    } else if (payload.username && payload.password) {
+      proxy.username = payload.username;
+      proxy.has_password = true;
+    }
     proxy.test_before_launch = payload.test_before_launch;
     proxy.masked_endpoint = maskEndpoint(
       payload.scheme,

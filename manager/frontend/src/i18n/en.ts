@@ -580,6 +580,8 @@ export const en = {
   'pxd.username': 'Username',
   'pxd.pwStored': 'Stored — edit to change it.',
   'pxd.pwWriteOnly': 'Optional.',
+  'pxd.clearCredentials': 'Clear stored credentials',
+  'pxd.clearCredentialsHint': 'Deletes the saved username and password when you save.',
   'pxd.socks5Warn':
     'Plain SOCKS5 resolves DNS locally. Use SOCKS5H when the proxy should resolve DNS remotely.',
   'pxd.testBefore': 'Test before every launch',
