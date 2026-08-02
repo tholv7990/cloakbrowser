@@ -53,6 +53,7 @@ export function NewProfileModal({
   const [proxyMode, setProxyMode] = useState<ProxyMode>('none');
   const [proxyText, setProxyText] = useState('');
   const [selectedProxy, setSelectedProxy] = useState<Proxy | null>(null);
+  const [assignedProxyId, setAssignedProxyId] = useState('');
   const [proxyEditorOpen, setProxyEditorOpen] = useState(false);
   const [templateId, setTemplateId] = useState('builtin:no-leak');
   // '' = use the installed build; otherwise a pinned full version (e.g. 150.x).
@@ -91,6 +92,7 @@ export function NewProfileModal({
     setProxyMode('none');
     setProxyText('');
     setSelectedProxy(null);
+    setAssignedProxyId('');
     setProxyEditorOpen(false);
     setTemplateId('builtin:no-leak');
     setBrowserVersion('');
@@ -145,7 +147,7 @@ export function NewProfileModal({
           ...templateConfig,
           name: profileName,
           folder_id: folderId,
-          proxy_id: '',
+          proxy_id: proxyMode === 'one' ? assignedProxyId : '',
           browser_version_mode: browserVersion ? 'pinned' : 'installed',
           browser_version: browserVersion,
         });
@@ -205,12 +207,10 @@ export function NewProfileModal({
       }
       for (let i = 0; i < plans.length; i++) {
         const plan = plans[i];
-        let proxyId = '';
+        let payload = plan.payload;
         if (proxyMode === 'provider') {
-          proxyId = providerIds[i] ?? '';
-        } else if (proxyMode === 'one') {
-          proxyId = selectedProxy?.id ?? '';
-        } else {
+          payload = { ...payload, proxy_id: providerIds[i] ?? null };
+        } else if (proxyMode === 'list') {
           // 'list' parses the i-th pasted line (scheme:// prefix honoured, else
           // defaults to http). A selected single proxy is already persisted by
           // ProxyEditorDrawer and remains reusable across profiles.
@@ -226,14 +226,14 @@ export function NewProfileModal({
                 password: spec.password || undefined,
                 test_before_launch: true,
               });
-              proxyId = proxy.id;
+              payload = { ...payload, proxy_id: proxy.id };
             } catch {
               // Proxy creation failed — still create the profile, just direct.
             }
           }
         }
         try {
-          await api.createProfile({ ...plan.payload, proxy_id: proxyId || null });
+          await api.createProfile(payload);
           ok += 1;
         } catch {
           // Skip a single failure; report the shortfall at the end.
@@ -376,7 +376,10 @@ export function NewProfileModal({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => setSelectedProxy(null)}
+                    onClick={() => {
+                      setSelectedProxy(null);
+                      setAssignedProxyId('');
+                    }}
                   >
                     {t('common.remove')}
                   </Button>
@@ -443,11 +446,13 @@ export function NewProfileModal({
       onClose={() => setProxyEditorOpen(false)}
       onSaved={(proxy) => {
         setSelectedProxy(proxy);
+        setAssignedProxyId(proxy.id);
       }}
       onRemove={
         selectedProxy
           ? () => {
               setSelectedProxy(null);
+              setAssignedProxyId('');
               setProxyEditorOpen(false);
             }
           : undefined

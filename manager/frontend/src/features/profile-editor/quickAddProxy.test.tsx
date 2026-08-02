@@ -13,6 +13,7 @@ import { defaultWizardValues, type ProfileWizardValues } from '@/schemas/profile
 import { WIZARD_STEPS, type WizardRefs } from './steps';
 
 const ProxyLocationStep = WIZARD_STEPS[1].Component;
+const ReviewStep = WIZARD_STEPS.find((step) => step.id === 'review')!.Component;
 
 function SelectedProxy() {
   const proxyId = useWatch<ProfileWizardValues>({ name: 'proxy_id' }) as string;
@@ -67,12 +68,45 @@ function Harness() {
   );
 }
 
+function ReviewHarness({ proxy }: { proxy: Proxy }) {
+  const form = useForm<ProfileWizardValues>({
+    defaultValues: defaultWizardValues({ name: 'Drawer profile', proxy_id: proxy.id }),
+  });
+  const refs: WizardRefs = {
+    folders: [],
+    statuses: [],
+    tags: [],
+    proxies: [],
+    extensions: [],
+    browserVersion: '146',
+    platform: 'windows',
+    isEdit: false,
+    selectedProxy: proxy,
+  };
+  return (
+    <FormProvider {...form}>
+      <ReviewStep refs={refs} />
+    </FormProvider>
+  );
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
   mockStore.reset();
 });
 
 describe('proxy drawer from the profile form', () => {
+  it('shows the freshly saved proxy in Review before the proxy list refetches', () => {
+    const selectedProxy = mockStore.proxies[0];
+
+    renderWithProviders(<ReviewHarness proxy={selectedProxy} />);
+
+    expect(
+      screen.getByText(`${selectedProxy.label} (${selectedProxy.masked_endpoint})`),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Direct connection')).not.toBeInTheDocument();
+  });
+
   it('creates and assigns a proxy through the shared drawer', async () => {
     const user = userEvent.setup();
     renderWithProviders(<Harness />);

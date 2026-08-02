@@ -763,7 +763,9 @@ const AdvancedStep: FC<{ refs: WizardRefs }> = () => {
 const ReviewStep: FC<{ refs: WizardRefs }> = ({ refs }) => {
   const t = useT();
   const values = useWatch<ProfileWizardValues>() as ProfileWizardValues;
-  const proxy = refs.proxies.find((p) => p.id === values.proxy_id);
+  const proxy =
+    (refs.selectedProxy?.id === values.proxy_id ? refs.selectedProxy : null) ??
+    refs.proxies.find((p) => p.id === values.proxy_id);
   const urls = values.startup_urls_text
     .split('\n')
     .map((l) => l.trim())

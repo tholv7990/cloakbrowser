@@ -95,6 +95,7 @@ describe('NewProfileModal', () => {
 
     await waitFor(() => expect(mockStore.proxies.length).toBe(proxiesBefore + 1));
     const createdProxy = mockStore.proxies[mockStore.proxies.length - 1];
+    const validateDraft = vi.spyOn(api, 'validateProfileDraft');
     await user.click(
       within(screen.getByRole('dialog', { name: /edit proxy/i })).getAllByRole('button', {
         name: /close/i,
@@ -102,6 +103,11 @@ describe('NewProfileModal', () => {
     );
     await user.click(screen.getByRole('button', { name: /^create$/i }));
 
+    await waitFor(() =>
+      expect(validateDraft).toHaveBeenCalledWith(
+        expect.objectContaining({ proxy_id: createdProxy.id }),
+      ),
+    );
     await waitFor(() => {
       const createdProfile = mockStore.profiles.find((profile) => profile.name === 'Sock');
       expect(createdProfile?.proxy_id).toBe(createdProxy.id);
