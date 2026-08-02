@@ -48,6 +48,9 @@ export const WS_URL: string = deriveWsUrl();
  * an `Authorization: Bearer` header; never persisted or logged. */
 export const LOCAL_TOKEN: string | null = injected?.token ?? null;
 
+/** Desktop package version injected by the Tauri preload. */
+export const DESKTOP_APP_VERSION: string | undefined = injected?.appVersion;
+
 let csrfToken: string | null = null;
 
 export function setCsrfToken(token: string | null): void {

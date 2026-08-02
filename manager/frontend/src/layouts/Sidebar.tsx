@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import {
   Activity,
+  CircleHelp,
   FolderClosed,
   Gauge,
   Clapperboard,
@@ -20,6 +21,7 @@ import { useCapabilities } from '@/hooks/useAppData';
 import type { AppCapabilities } from '@/types/api';
 import { useT, type TranslationKey } from '@/i18n';
 import { cn } from '@/lib/cn';
+import { DESKTOP_APP_VERSION } from '@/api/config';
 
 const NAV: { to: string; key: TranslationKey; icon: typeof Users; cap?: keyof AppCapabilities }[] =
   [
@@ -41,6 +43,7 @@ export function Sidebar() {
   const capabilities = useCapabilities();
   const items = NAV.filter((item) => !item.cap || capabilities[item.cap]);
   const t = useT();
+  const desktopVersionLabel = DESKTOP_APP_VERSION && `Plasma v${DESKTOP_APP_VERSION}`;
 
   return (
     <aside
@@ -80,7 +83,25 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className={cn('border-t border-line p-2', collapsed ? 'flex justify-center' : '')}>
+      <div
+        className={cn(
+          'relative border-t border-line p-2',
+          collapsed ? 'flex justify-center' : 'flex items-center justify-between',
+        )}
+      >
+        {desktopVersionLabel &&
+          (collapsed ? (
+            <span
+              role="img"
+              aria-label={desktopVersionLabel}
+              title={desktopVersionLabel}
+              className="absolute bottom-1 left-1 text-ink-faint"
+            >
+              <CircleHelp className="h-3 w-3" aria-hidden="true" />
+            </span>
+          ) : (
+            <span className="text-[11px] font-medium text-ink-faint">{desktopVersionLabel}</span>
+          ))}
         <IconButton label={collapsed ? t('nav.expand') : t('nav.collapse')} onClick={toggle}>
           {collapsed ? (
             <PanelLeftOpen className="h-4 w-4" />
