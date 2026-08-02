@@ -29,7 +29,13 @@ public class ViewportTests
     [Fact]
     public void Headless_unset_viewport_uses_default()
     {
-        var vp = CloakLauncher.ResolveContextViewport(new LaunchContextOptions { Headless = true });
+        // Pin an older binary capability so this test does not depend on the
+        // version currently installed in the developer environment.
+        var vp = CloakLauncher.ResolveContextViewport(new LaunchContextOptions
+        {
+            Headless = true,
+            BrowserVersion = "148.0.7778.215.3",
+        });
         Assert.NotNull(vp);
         Assert.False(IsNoViewport(vp));
         Assert.Equal(Config.DefaultViewportWidth, vp!.Width);

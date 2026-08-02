@@ -473,7 +473,8 @@ public class LicenseTests : IDisposable
         Assert.NotNull(result);
         Assert.Equal("cb_test_key", result["CLOAKBROWSER_LICENSE_KEY"]);
         // Parent env vars should be present
-        Assert.Contains("PATH", result.Keys);
+        Assert.Contains(result.Keys, key =>
+            string.Equals(key, "PATH", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
