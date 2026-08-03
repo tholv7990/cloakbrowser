@@ -185,6 +185,10 @@ class TestPermissions:
         binary.chmod(0o755)
         assert _is_executable(binary)
 
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="POSIX exec-bit semantics; Windows files carry no executable permission bit",
+    )
     def test_is_executable_false(self, tmp_path):
         binary = tmp_path / "chrome"
         binary.write_bytes(b"binary")

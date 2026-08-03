@@ -32,9 +32,12 @@ class TestResolveLicenseKey:
         with patch.dict(os.environ, {"CLOAKBROWSER_LICENSE_KEY": "env-key"}):
             assert resolve_license_key() == "env-key"
 
-    def test_returns_none_when_absent(self):
-        with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("CLOAKBROWSER_LICENSE_KEY", None)
+    def test_returns_none_when_absent(self, tmp_path):
+        # Keep a home dir in the cleared env: on Windows Path.home() raises without
+        # USERPROFILE (Linux falls back to pwd). tmp_path has no license file.
+        with patch.dict(
+            os.environ, {"USERPROFILE": str(tmp_path), "HOME": str(tmp_path)}, clear=True
+        ):
             assert resolve_license_key() is None
 
     def test_empty_string_param_uses_env(self):
@@ -44,8 +47,9 @@ class TestResolveLicenseKey:
     def test_file_fallback(self, tmp_path):
         key_file = tmp_path / "license.key"
         key_file.write_text("file-key-123\n")
-        with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("CLOAKBROWSER_LICENSE_KEY", None)
+        with patch.dict(
+            os.environ, {"USERPROFILE": str(tmp_path), "HOME": str(tmp_path)}, clear=True
+        ):
             with patch("cloakbrowser.license.get_cache_dir", return_value=tmp_path):
                 assert resolve_license_key() == "file-key-123"
 
@@ -534,11 +538,13 @@ class TestBuildLaunchEnv:
 
     def test_explicit_param_injects_env(self):
         """Explicit license_key param → env dict with key injected."""
-        result = build_launch_env(license_key="cb_test_key")
+        with patch.dict(os.environ, {"CB_TEST_SENTINEL": "sentinel"}):
+            result = build_launch_env(license_key="cb_test_key")
         assert result is not None
         assert result["CLOAKBROWSER_LICENSE_KEY"] == "cb_test_key"
-        # Should also preserve the rest of the parent env
-        assert "HOME" in result
+        # Preserves the rest of the parent env (checked via a sentinel: HOME isn't
+        # present on Windows, so asserting a specific inherited var isn't portable).
+        assert result.get("CB_TEST_SENTINEL") == "sentinel"
 
     def test_env_source_no_user_env_returns_none(self):
         """Key from env var, no custom user_env → None (child inherits parent)."""

@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cloakbrowser.config import (
     _version_newer,
     _version_tuple,
+    get_archive_ext,
     get_chromium_version,
     get_download_url,
     get_effective_version,
@@ -83,7 +84,7 @@ class TestDownloadUrl:
         url = get_download_url()
         assert "cloakbrowser.dev" in url
         assert f"chromium-v{get_chromium_version()}" in url
-        assert url.endswith(".tar.gz")
+        assert url.endswith(get_archive_ext())
 
     def test_custom_version_url(self):
         url = get_download_url("145.0.7718.0")
@@ -170,10 +171,10 @@ class TestGetLatestVersion:
 
     def _make_assets(self, platforms: list[str]) -> list[dict]:
         """Helper to build asset list from platform tags."""
-        return [{"name": f"cloakbrowser-{p}.tar.gz"} for p in platforms]
+        return [{"name": f"cloakbrowser-{p}{get_archive_ext()}"} for p in platforms]
 
     def _platform_tarball(self) -> str:
-        return f"cloakbrowser-{get_platform_tag()}.tar.gz"
+        return f"cloakbrowser-{get_platform_tag()}{get_archive_ext()}"
 
     def test_parses_chromium_tag_with_platform_asset(self):
         mock_response = MagicMock()
@@ -291,18 +292,16 @@ class TestWrapperUpdateCheck:
 
         dl._wrapper_update_checked = False
 
-    def test_warns_when_newer_version_available(self, caplog):
+    def test_warns_when_newer_version_available(self, cloak_logs):
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"info": {"version": "99.0.0"}}
         mock_resp.raise_for_status = MagicMock()
 
         with patch("cloakbrowser.download.httpx.get", return_value=mock_resp):
-            import logging
-
-            with caplog.at_level(logging.WARNING):
-                _check_wrapper_update()
-            assert "Update available" in caplog.text
-            assert "99.0.0" in caplog.text
+            _check_wrapper_update()
+        text = " ".join(r.getMessage() for r in cloak_logs)
+        assert "Update available" in text
+        assert "99.0.0" in text
 
     def test_silent_when_current(self, caplog):
         import cloakbrowser.download as dl

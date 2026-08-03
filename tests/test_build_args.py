@@ -151,13 +151,12 @@ def test_non_value_flags_preserved():
     assert "--no-sandbox" in args
 
 
-def test_override_logs_debug(caplog):
+def test_override_logs_debug(cloak_logs):
     """Should log debug message when an override happens."""
-    import logging
-
-    with caplog.at_level(logging.DEBUG, logger="cloakbrowser"):
-        build_args(stealth_args=True, extra_args=["--fingerprint=99887"])
-    assert any("--fingerprint=" in r.message and "99887" in r.message for r in caplog.records)
+    build_args(stealth_args=True, extra_args=["--fingerprint=99887"])
+    assert any(
+        "--fingerprint=" in r.getMessage() and "99887" in r.getMessage() for r in cloak_logs
+    )
 
 
 # --- WebRTC IP spoofing ---

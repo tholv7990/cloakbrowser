@@ -4,6 +4,7 @@ import asyncio
 import importlib.machinery
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -164,7 +165,7 @@ class TestParseCliArgs:
     @patch("os.path.exists", return_value=False)
     def test_default_data_dir_bare_metal(self, _mock):
         result = _default_data_dir()
-        assert result.endswith(".cloakbrowser/cloakserve")
+        assert result.endswith(os.path.join(".cloakbrowser", "cloakserve"))
 
 
 # ---------------------------------------------------------------------------

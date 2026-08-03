@@ -324,18 +324,16 @@ class TestResolveProxyConfig:
         _, args = _resolve_proxy_config("socks5://user:pass%3D123@host:1080")
         assert args == ["--proxy-server=socks5://user:pass%3D123@host:1080"]
 
-    def test_socks5_string_logs_info_when_reencoding(self, caplog):
+    def test_socks5_string_logs_info_when_reencoding(self, cloak_logs):
         # When wrapper actually rewrites the URL (e.g. unencoded '=' in pwd),
         # surface an INFO log so users debugging SOCKS5 connectivity (#157)
         # can see what the wrapper did instead of being silently surprised.
-        import logging
-        with caplog.at_level(logging.INFO, logger="cloakbrowser"):
-            _resolve_proxy_config("socks5://user:pass=123@host:1080")
-        assert any("Auto URL-encoded SOCKS5" in r.message for r in caplog.records)
+        _resolve_proxy_config("socks5://user:pass=123@host:1080")
+        assert any("Auto URL-encoded SOCKS5" in r.getMessage() for r in cloak_logs)
         # Credentials must not leak into the log.
-        for r in caplog.records:
-            assert "pass=123" not in r.message
-            assert "pass%3D123" not in r.message
+        for r in cloak_logs:
+            assert "pass=123" not in r.getMessage()
+            assert "pass%3D123" not in r.getMessage()
 
     def test_socks5_string_silent_when_already_encoded(self, caplog):
         # Idempotent path: pre-encoded URL produces no log noise.
@@ -382,14 +380,12 @@ class TestResolveProxyConfig:
         _, args = _resolve_proxy_config("socks5://user:100%sure@host:1080")
         assert args == ["--proxy-server=socks5://user:100%25sure@host:1080"]
 
-    def test_socks5_string_malformed_port_passes_through(self, caplog):
+    def test_socks5_string_malformed_port_passes_through(self, cloak_logs):
         # Invalid port (non-numeric) raises in urlparse.port. Wrapper should
         # log a warning and pass original through to Chromium.
-        import logging
-        with caplog.at_level(logging.WARNING, logger="cloakbrowser"):
-            _, args = _resolve_proxy_config("socks5://user:pass@host:abc")
+        _, args = _resolve_proxy_config("socks5://user:pass@host:abc")
         assert args == ["--proxy-server=socks5://user:pass@host:abc"]
-        assert any("Malformed SOCKS5" in r.message for r in caplog.records)
+        assert any("Malformed SOCKS5" in r.getMessage() for r in cloak_logs)
 
     def test_socks5_string_malformed_ipv6_passes_through(self, caplog):
         # Broken IPv6 bracket — must not crash, and must reach Chromium
