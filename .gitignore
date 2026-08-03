@@ -103,3 +103,6 @@ src-tauri/icons/
 # Signing keys: losing one invalidates every issued licence; committing one is worse.
 *.pem
 cloud/signing-key-*.pem
+
+# Local archives / vendor bundles (never commit)
+*.rar
